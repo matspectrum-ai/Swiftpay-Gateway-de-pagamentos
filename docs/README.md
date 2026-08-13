@@ -12,6 +12,18 @@ This directory is part of the canonical source of truth for the reconstruction.
 6. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md)
 7. [`architecture/target-architecture.md`](architecture/target-architecture.md)
 8. [`contracts/financial-invariants.md`](contracts/financial-invariants.md)
+9. [`contracts/payment-and-provider-attempt.md`](contracts/payment-and-provider-attempt.md)
+10. [`contracts/ledger-and-balance.md`](contracts/ledger-and-balance.md)
+11. [`contracts/native-pix-provider-adapter.md`](contracts/native-pix-provider-adapter.md)
+
+## Phase 1 core contracts
+
+- [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable monetary/accounting safety rules.
+- [`contracts/payment-and-provider-attempt.md`](contracts/payment-and-provider-attempt.md) — Payment lifecycle, ProviderAttempt execution certainty and create-operation idempotency.
+- [`contracts/ledger-and-balance.md`](contracts/ledger-and-balance.md) — chart of accounts, posting/source identity and canonical balance semantics.
+- [`contracts/native-pix-provider-adapter.md`](contracts/native-pix-provider-adapter.md) — capability-aware provider boundary and conformance gates.
+
+These contracts are implementation inputs. Implementation must not silently weaken them to accommodate a provider or legacy behavior.
 
 ## Reverse engineering
 
@@ -19,6 +31,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/legacy-inventory.md`](reverse-engineering/legacy-inventory.md)
 - [`reverse-engineering/provider-inventory.md`](reverse-engineering/provider-inventory.md)
 - [`reverse-engineering/provider-retention.md`](reverse-engineering/provider-retention.md)
+- [`reverse-engineering/provider-proof-accithus-magicpay.md`](reverse-engineering/provider-proof-accithus-magicpay.md) — MagicPay first Pix-in proof candidate; Accithus strong first Pix-out proof candidate; neither is RETAIN without conformance evidence.
 - [`reverse-engineering/hyperswitch-fit.md`](reverse-engineering/hyperswitch-fit.md)
 - [`reverse-engineering/financial-ledger.md`](reverse-engineering/financial-ledger.md)
 - [`reverse-engineering/financial-calculation.md`](reverse-engineering/financial-calculation.md)
