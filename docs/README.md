@@ -25,6 +25,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/database-idempotency-constraints.md`](reverse-engineering/database-idempotency-constraints.md)
 - [`reverse-engineering/reconciliation.md`](reverse-engineering/reconciliation.md)
 - [`reverse-engineering/public-gateway-api.md`](reverse-engineering/public-gateway-api.md)
+- [`reverse-engineering/public-api-error-and-openapi.md`](reverse-engineering/public-api-error-and-openapi.md)
 - [`reverse-engineering/cashout-and-pixout.md`](reverse-engineering/cashout-and-pixout.md)
 - [`reverse-engineering/refunds.md`](reverse-engineering/refunds.md)
 - [`reverse-engineering/platform-payouts.md`](reverse-engineering/platform-payouts.md)
