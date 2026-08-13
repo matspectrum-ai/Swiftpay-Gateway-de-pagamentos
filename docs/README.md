@@ -22,6 +22,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/hyperswitch-fit.md`](reverse-engineering/hyperswitch-fit.md)
 - [`reverse-engineering/financial-ledger.md`](reverse-engineering/financial-ledger.md)
 - [`reverse-engineering/financial-calculation.md`](reverse-engineering/financial-calculation.md)
+- [`reverse-engineering/database-idempotency-constraints.md`](reverse-engineering/database-idempotency-constraints.md)
 - [`reverse-engineering/reconciliation.md`](reverse-engineering/reconciliation.md)
 - [`reverse-engineering/public-gateway-api.md`](reverse-engineering/public-gateway-api.md)
 - [`reverse-engineering/cashout-and-pixout.md`](reverse-engineering/cashout-and-pixout.md)
