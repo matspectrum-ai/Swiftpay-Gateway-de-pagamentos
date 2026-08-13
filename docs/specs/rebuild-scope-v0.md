@@ -4,22 +4,49 @@ Status: Draft for architecture execution
 
 ## Product intent
 
-SwiftPay V2 is a reconstruction of the payment platform around a much smaller operational core. The first target is a production-capable Pix gateway, not feature parity with the legacy application.
+SwiftPay V2 is a reconstruction of the payment platform around a much smaller operational core. The first target remains a production-capable Pix financial core, not feature parity with the legacy application.
 
-The first release should optimize for:
+The broader product, however, is intentionally more than a generic gateway:
+
+> **Payments + Conversion Intelligence + Revenue Automation for digital sellers.**
+
+The first release sequence should optimize for:
 
 - correctness;
 - auditability;
 - operational simplicity;
+- product simplicity;
+- fast checkout/payment experience;
 - explicit provider contracts;
 - low infrastructure count;
 - strong tenant isolation;
 - reversible migration from legacy;
 - high-quality agent maintainability.
 
-## Initial product boundary
+See [`../product/product-vision.md`](../product/product-vision.md) for the canonical product direction.
 
-### Required for the first complete product slice
+## Scope strategy
+
+SwiftPay should be large in capability but small in architecture.
+
+Multiple product surfaces reuse a small number of canonical cores:
+
+```text
+Checkout ------\
+Payment Link ---+--> Payment Core --> Provider Router --> Pix
+Quick Pix ------+
+REST API -------/
+
+Product/Payment Events --> Analytics + Insights + Automations + Integrations
+
+Sales + Wallet Top-up + Payout/Pix-out --> Financial Ledger
+```
+
+A feature is not justification for a feature-specific financial engine, event system or balance model.
+
+## First financial vertical slice
+
+### Required
 
 1. User authentication
 2. Merchant organization/profile
@@ -38,39 +65,114 @@ The first release should optimize for:
 15. Minimal merchant dashboard
 16. Minimal admin operations
 
-### Required shortly after the first slice
+This is deliberately smaller than the complete product. It proves the financial spine before product surfaces multiply.
+
+## Product capabilities required after the financial spine
+
+These are part of the intended SwiftPay V2 product, not optional ideas, although their exact release sequencing remains subject to Phase 1 specifications.
+
+### Selling surfaces
+
+1. Hosted transparent Pix checkout
+2. Payment links
+3. Quick Pix generation for sellers
+4. REST API for direct Pix integration
+5. Merchant checkout branding
+6. UTM capture and checkout/payment event instrumentation
+
+All four selling paths must reuse the canonical Payment Core.
+
+### Conversion intelligence
+
+1. Revenue dashboard
+2. Approved sales
+3. Lost/expired sales
+4. Conversion rate with explicit denominator
+5. Checkout funnel
+6. Conversion by checkout/payment link
+7. Conversion by UTM/campaign
+8. Conversion by provider
+9. Recoverable-revenue indicators with estimates clearly labeled
+10. Provider performance/routing observability
+
+The initial analytics implementation should be derived from canonical product/payment events rather than a separate oversized BI platform.
+
+### Money / wallet
 
 1. Merchant payout account
 2. Pix-out / withdrawal
 3. Withdrawal approval policy
 4. Payout provider webhook
 5. Reconciliation tooling
-6. Basic transactional email
-7. Minimal public Pix checkout/payment link if product requires it
+6. Wallet statement
+7. Add-balance/top-up through an approved Pix provider/fund-flow model
+8. Direct Pix payment from available operational balance where legally/provider-supported
 
-## Explicitly out of initial scope
+A wallet top-up is never classified as a sale and must not affect revenue, conversion, ticket or seller ranking.
+
+Dedicated Pix keys, custody or bank-account semantics require separate approved legal/provider/fund-flow decisions and are not implied by this scope.
+
+### Revenue automation and integrations
+
+1. Durable outgoing webhooks
+2. Basic transactional email
+3. WhatsApp integration for approved communication/recovery use cases
+4. Telegram notifications/integration
+5. UTMify integration
+6. n8n integration
+7. constrained SwiftPay automation rules (`EVENT -> CONDITION -> ACTION`)
+8. recovery templates such as unpaid-Pix follow-up
+
+SwiftPay should not build a generic n8n competitor. Automation remains constrained to the revenue/payment domain.
+
+### Developer platform
+
+1. REST API
+2. canonical OpenAPI
+3. signed webhooks and delivery observability
+4. integration examples
+5. TypeScript SDK when justified
+6. CLI/bootstrap experience when justified
+7. MCP/agent integration surface for safe operations when approved
+8. agent-readable integration documentation
+
+The objective is to make SwiftPay easy to integrate from conventional code and AI coding environments without exposing unsafe financial actions casually.
+
+### Community / ranking
+
+Revenue ranking is a desired SwiftPay capability for the digital-marketing market, but it is isolated from the financial core and does not block the first financial/product slices.
+
+Requirements before implementation:
+
+- opt-in participation;
+- privacy controls;
+- canonical eligible sales only;
+- top-ups excluded;
+- clear period definitions;
+- no financial-core dependency on ranking availability.
+
+## Explicitly out of the current initial product direction
 
 - credit card;
 - boleto;
 - PCI card data;
 - installments;
 - BNPL;
-- wallet payment methods;
 - crypto;
-- physical/digital product catalog;
+- physical/digital product catalog as an ecommerce suite;
 - inventory/stock;
-- coupons;
-- digital product delivery;
-- rankings;
-- achievements;
-- bulletin/social features;
-- referral program;
-- advanced analytics pipeline;
-- advanced A/B provider routing;
-- multiple distributed caches;
-- generic event bus introduced before a proven need.
+- generic coupon engine unless checkout evidence justifies it;
+- digital product delivery platform;
+- achievements unrelated to useful seller outcomes;
+- bulletin/social feed;
+- broad referral program;
+- a generic workflow/automation platform;
+- an independent heavyweight analytics stack before event-derived analytics proves insufficient;
+- multiple distributed caches by default;
+- generic event bus introduced before a proven need;
+- microservice decomposition without measured operational need.
 
-Features can be reintroduced through later ADRs after the Pix core is stable.
+Features can be reintroduced through later ADRs/specifications when they support the product vision without undermining simplicity.
 
 ## Target first vertical slice
 
@@ -81,7 +183,8 @@ signup
   -> admin approves
   -> API credential issued
   -> POST Pix charge
-  -> provider creates QR
+  -> provider creates Pix payload
+  -> QR representation displayed
   -> provider webhook received
   -> canonical payment transitions to paid
   -> ledger posts once
@@ -99,44 +202,49 @@ Initial conceptual endpoints:
 
 ```text
 POST /v1/auth/token                 # only if client_credentials compatibility is retained
-POST /v1/transactions               # Pix charge creation
-GET  /v1/transactions/{id}          # canonical transaction
-GET  /v1/transactions               # merchant transaction list
+POST /v1/payments                   # preferred clean V2 payment resource candidate
+POST /v1/transactions               # compatibility surface if retained
+GET  /v1/payments/{id}              # canonical payment
+GET  /v1/payments                   # merchant payment list
 GET  /v1/balance                    # merchant financial balance
 POST /v1/webhooks/test              # optional merchant webhook validation
 ```
 
-Payout endpoints are specified separately once payout scope is approved.
+Exact naming and compatibility with legacy payloads are not approved until the public API specification closes.
 
-Exact compatibility with legacy endpoint payloads is not assumed until the endpoint audit is complete.
+Create operations must define first-class idempotency rather than relying only on optional merchant external references.
 
-## Canonical Pix transaction minimum
+## Canonical Pix payment minimum
 
-A Pix transaction should contain at minimum:
+A Pix payment should contain at minimum:
 
-- SwiftPay transaction ID;
+- SwiftPay payment ID;
 - merchant ID;
 - environment;
 - amount in cents;
 - currency (`BRL` initially);
-- status;
-- external merchant reference/idempotency reference;
+- canonical status;
+- stable create idempotency reference;
+- optional external merchant reference;
 - customer snapshot required for provider/payment record;
 - provider routing result;
 - provider payment/tx identifier(s), private from merchant contract where appropriate;
 - Pix copy-and-paste payload;
 - expiration;
 - completion timestamp;
-- end-to-end id when available;
+- end-to-end ID when available;
 - merchant fee;
 - provider cost/fee when known;
 - merchant net/settlement amount;
 - metadata;
-- callback/webhook association.
+- checkout/link/campaign attribution where applicable;
+- webhook association.
+
+QR image rendering is a presentation concern derived from the valid Pix payload; the financial record should not depend on storing a heavyweight QR image artifact.
 
 ## Canonical status direction
 
-Initial state-machine candidate:
+Initial payment state-machine candidate:
 
 ```text
 created
@@ -147,7 +255,7 @@ created
   -> cancelled
 ```
 
-Refunded states are added only if refunds are approved in first-release scope.
+Refunded states are added according to the dedicated refund specification after the legacy refund audit.
 
 Internal processing locks must not become externally visible business statuses unless there is a clear contract need.
 
@@ -161,9 +269,9 @@ Initial Pix fee model should support:
 - percentage in basis points;
 - fixed + percentage;
 - provider cost stored independently from merchant fee;
-- deterministic snapshot on transaction creation.
+- deterministic snapshot on payment creation.
 
-Different fee schedules for API, checkout and payment link should only exist if the product actually prices these channels differently.
+Different fee schedules for API, checkout and payment link should only exist if the business intentionally prices those channels differently.
 
 ## Ledger direction
 
@@ -176,56 +284,33 @@ Minimum conceptual accounts are expected to include some subset of:
 - merchant blocked (for payout);
 - merchant reserved (only if reserves are required);
 - provider settlement/clearing;
-- platform revenue/fee or a clearly defined equivalent.
+- platform revenue/fee or a clearly defined equivalent;
+- wallet top-up clearing/account semantics if top-up is approved by fund-flow analysis.
 
 The exact chart of accounts is not approved until the fund-flow analysis is complete.
 
 ## Provider direction
 
-Two implementation paths remain valid during Phase 0:
+The current planning baseline favors **native thin Pix adapters** because the preliminary Hyperswitch audit did not find first-party exact-brand connectors for the 12 legacy SwiftPay provider names.
 
-### Option A — Native thin Pix adapter layer
+Hyperswitch remains an architectural option only if a later retained-provider/future-expansion analysis demonstrates that its orchestration value exceeds the additional runtime and connector complexity.
 
-Benefits:
-
-- smallest runtime;
-- easiest Supabase integration;
-- easy to port existing provider knowledge;
-- no unused multi-method orchestration surface.
-
-Costs:
-
-- SwiftPay owns routing/retries/provider lifecycle;
-- every connector remains our responsibility.
-
-### Option B — Hyperswitch as Pix orchestration engine
-
-Benefits:
-
-- mature payment orchestration base;
-- provider/routing/attempt infrastructure;
-- future extension path.
-
-Costs:
-
-- additional runtime/service complexity;
-- custom Brazilian Pix connectors may still need porting;
-- semantic boundary with SwiftPay ledger/fees must be explicit.
-
-No implementation should make this decision accidentally.
+No product domain should depend directly on provider-specific contracts.
 
 ## Supabase role
 
-Supabase is the default platform candidate for:
+Supabase is the accepted platform foundation with boundaries defined in ADR 0003:
 
 - PostgreSQL;
 - Auth;
 - Storage;
-- Realtime where needed;
+- Realtime where useful;
 - SQL migrations/functions;
-- scheduled/serverless execution where appropriate.
+- managed platform primitives where they fit the workload.
 
-It must not be used to collapse security boundaries by exposing service-role credentials to the frontend.
+SwiftPay still owns an application/API boundary. Financial actions must not be implemented as arbitrary browser writes to financial tables.
+
+The architecture should preserve portability by keeping PostgreSQL migrations/schema canonical in the repository and isolating replaceable Supabase-specific services behind explicit infrastructure boundaries where practical.
 
 ## Acceptance standard
 
@@ -244,7 +329,10 @@ Acceptance must cover:
 - leaked provider fields in merchant API responses;
 - invalid webhook signature/token/IP according to provider contract;
 - merchant webhook retry/deduplication;
-- rollback/recovery from partial external failure.
+- rollback/recovery from partial external failure;
+- analytics not counting wallet top-ups as sales;
+- checkout event deduplication where events influence conversion metrics;
+- unknown financial states represented honestly in UI/API.
 
 ## Migration stance
 
