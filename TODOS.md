@@ -24,12 +24,12 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Record foundational financial invariants.
 - `PENDING` Complete line-oriented audit of all author-written legacy source and relevant configuration.
 - `IN_PROGRESS` Produce legacy capability matrix with `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER` decisions.
-- `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/webhook surface audited, cashout/internal/sandbox remainder pending.
+- `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/cashout/webhook surface audited, internal/OpenAPI remainder pending.
 - `IN_PROGRESS` Produce provider integration inventory, including webhook/status quirks; all 12 `IAcquirerService` implementations audited, client/DTO/webhook/status-converter detail still pending for retained providers.
 - `DONE` Audit current exact-brand Hyperswitch connector coverage for the 12 legacy SwiftPay provider names; no first-party exact-brand connector occurrence found in the current connector crate. Alias/upstream mapping remains a separate check.
 - `IN_PROGRESS` Produce database/entity inventory and identify duplicated/derived state; core payment/ledger/account/payout entities and DbContext financial mappings audited.
 - `PENDING` Produce frontend route/capability inventory.
-- `IN_PROGRESS` Produce event/queue/job inventory and determine which asynchronous flows are genuinely required; payment merchant-webhook consumer/retry path audited, complete queue/consumer/job inventory pending.
+- `IN_PROGRESS` Produce event/queue/job inventory and determine which asynchronous flows are genuinely required; payment merchant-webhook and cashout processing consumer/retry paths audited, complete queue/consumer/job inventory pending.
 - `IN_PROGRESS` Produce security/authentication inventory; public API credential/JWT/revocation/rate-limit and selected provider-webhook auth paths audited.
 - `PENDING` Produce migration data classification: migrate, recompute, archive, discard.
 
@@ -41,7 +41,11 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Complete line-oriented audit of legacy `FeeCalculator`.
 - `DONE` Complete line-oriented audit of legacy `BankReconciliationService`.
 - `DONE` Audit merchant payout creation/reservation and terminal webhook locking path.
+- `DONE` Audit core public cashout contract and `ProcessCashoutConsumer`/`WithdrawService` provider-execution path.
 - `DONE` Record payout reservation concurrency/idempotency risk and V2 fail-first concurrency contract.
+- `DONE` Record external Pix-out unknown-result flaw: generic provider exceptions become definitive failure and release blocked funds.
+- `DONE` Record generic HTTP retry risk for monetary provider POSTs; 10 legacy provider clients use method-agnostic retry policy.
+- `DONE` Record cashout Sandbox create/simulate reachability mismatch.
 - `DONE` Record legacy reserve-vs-reconciliation model incompatibility.
 - `DONE` Record legacy platform-profit vs platform-withdrawable calculation discrepancy as unresolved fund-flow risk.
 - `PENDING` Audit platform payout execution end-to-end.
@@ -55,11 +59,11 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Confirm credential status + `secret_version` invalidate existing JWTs on subsequent requests.
 - `DONE` Audit public Pix transaction create/get/list core contract.
 - `DONE` Audit public balance projection and record available/withdrawable/reserved/blocked semantic mismatch.
+- `DONE` Audit core public cashout create/get/list/cancel semantics and payout execution lifecycle.
 - `DONE` Audit payment and payout merchant-webhook signing services.
 - `DONE` Record cryptographic weakness: legacy merchant webhook HMAC key is public payment/payout ID.
 - `DONE` Audit merchant webhook retry layering and record mismatch between persisted attempt count and actual HTTP transport retries.
-- `PENDING` Audit cashout public request/response/list/status contract.
-- `PENDING` Audit sandbox simulation public contract.
+- `DONE` Audit sandbox cashout simulation relationship and record create/simulate mismatch.
 - `PENDING` Audit BaseResponse/error envelope and public OpenAPI compatibility in full.
 - `PENDING` Audit internal API authentication/dependencies.
 - `PENDING` Audit API credential creation/regeneration/revocation management endpoints.
@@ -75,7 +79,7 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `PENDING` Define fee model.
 - `PENDING` Define ledger chart of accounts and posting rules.
 - `PENDING` Define balance semantics: pending, available, reserved, blocked.
-- `PENDING` Define payout/withdrawal state machine.
+- `PENDING` Define payout/withdrawal state machine; V2 must distinguish definitive provider failure from `execution_unknown/recovery_required`.
 - `PENDING` Define refund rules if refunds remain in V2 scope.
 - `PENDING` Define merchant webhook contract, signing, retries and delivery log.
 - `PENDING` Define sandbox semantics.
@@ -116,9 +120,9 @@ Target flow:
 
 - `PENDING` Payout account management.
 - `PENDING` Withdrawal request and approval policy.
-- `PENDING` Provider Pix-out integration.
+- `PENDING` Provider Pix-out integration with explicit idempotency/recovery capabilities.
 - `PENDING` Payout webhook/idempotency.
-- `PENDING` Ledger posting for blocked/completed/failed payouts.
+- `PENDING` Ledger posting for blocked/completed/failed/unknown payouts.
 - `PENDING` Reconciliation views and admin tooling.
 
 ## Phase 5 — Migration and cutover
@@ -139,7 +143,7 @@ Target flow:
 - Adapter-level audit of all 12 legacy payment providers.
 - Preliminary Hyperswitch fit check against the current connector crate.
 - Full audit of legacy ledger repository/service, financial calculation/rounding and internal reconciliation service.
-- Merchant payout reservation/terminal webhook financial-path audit.
+- Merchant payout reservation, public cashout, provider execution and terminal webhook financial-path audit.
 - Core public gateway auth/transactions/balance and merchant outbound-webhook audit.
 - Critical legacy behaviors/risks converted into explicit V2 requirements rather than copied blindly.
 
@@ -151,6 +155,7 @@ Target flow:
 - `docs/reverse-engineering/financial-calculation.md`
 - `docs/reverse-engineering/reconciliation.md`
 - `docs/reverse-engineering/public-gateway-api.md`
+- `docs/reverse-engineering/cashout-and-pixout.md`
 
 ### Verification
 
@@ -160,14 +165,14 @@ Target flow:
 
 ### Highest-value next concrete action
 
-Continue the Phase 0 audit with the remaining financial/public boundaries in this order:
+Continue the Phase 0 audit with the remaining high-risk boundaries in this order:
 
-1. cashout public contract + processing consumer/provider unknown-result behavior;
-2. refund execution/event identity;
-3. retained-provider webhook/client/status-converter details;
-4. API credential management endpoints and internal API authentication;
-5. KYC/onboarding + storage/security;
-6. complete async queue/job inventory;
-7. frontend capability inventory.
+1. refund execution/event identity and provider unknown-result behavior;
+2. retained-provider webhook/client/status-converter details;
+3. API credential management endpoints and internal API authentication;
+4. KYC/onboarding + storage/security;
+5. complete async queue/job inventory;
+6. frontend capability inventory;
+7. migration data classification.
 
 Only after these boundaries are mapped should Phase 1 close the chart of accounts, provider strategy and public compatibility contract.
