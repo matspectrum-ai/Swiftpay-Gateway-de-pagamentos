@@ -29,6 +29,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/api-credentials-and-internal-auth.md`](reverse-engineering/api-credentials-and-internal-auth.md)
 - [`reverse-engineering/kyc-onboarding-storage.md`](reverse-engineering/kyc-onboarding-storage.md)
 - [`reverse-engineering/async-jobs-and-outbox.md`](reverse-engineering/async-jobs-and-outbox.md)
+- [`reverse-engineering/frontend-capability-inventory.md`](reverse-engineering/frontend-capability-inventory.md)
 
 ## Decisions
 
