@@ -26,14 +26,17 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Record merchant experience principles: progressive disclosure, few mental models, seller-language defaults and financial truthfulness.
 - `DONE` Record Brand System v0 exploration baseline; final brand lock requires representative UI concepts and accessibility validation.
 - `PENDING` Complete line-oriented audit of all author-written legacy source and relevant configuration.
-- `IN_PROGRESS` Produce legacy capability matrix with `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER` decisions.
-- `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/cashout/webhook/sandbox-refund surface audited, internal/OpenAPI remainder pending.
+- `IN_PROGRESS` Produce legacy capability matrix with `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER` decisions; broad frontend/product capability disposition is complete, remaining backend-only capabilities close with their specialist audits.
+- `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/cashout/webhook/sandbox-refund surface audited, BaseResponse/OpenAPI remainder pending.
 - `IN_PROGRESS` Produce provider integration inventory, including webhook/status quirks; all 12 `IAcquirerService` implementations audited, retained-provider client/DTO/webhook/status/refund-contract detail still pending.
-- `DONE` Audit current exact-brand Hyperswitch connector coverage for the 12 legacy SwiftPay provider names; no first-party exact-brand connector occurrence found in the current connector crate. Alias/upstream mapping remains a separate check.
-- `IN_PROGRESS` Produce database/entity inventory and identify duplicated/derived state; core payment/ledger/account/payout entities and DbContext financial mappings audited.
-- `PENDING` Produce frontend route/capability inventory.
-- `IN_PROGRESS` Produce event/queue/job inventory and determine which asynchronous flows are genuinely required; payment merchant-webhook, refund-state consumer path and cashout processing/retry paths audited, complete queue/consumer/job inventory pending.
-- `IN_PROGRESS` Produce security/authentication inventory; public API credential/JWT/revocation/rate-limit and selected provider-webhook auth paths audited.
+- `DONE` Audit current exact-brand Hyperswitch connector coverage for the 12 legacy SwiftPay provider names; no first-party exact-brand connector occurrence found in the current connector crate.
+- `DONE` Close provider-orchestration baseline for the first V2 release: native thin Pix adapters; Hyperswitch remains only a future optional adapter boundary.
+- `IN_PROGRESS` Produce database/entity inventory and identify duplicated/derived state; core payment/ledger/account/payout/KYC/auth/storage mappings audited.
+- `DONE` Produce frontend route/capability inventory and classify user-facing capabilities for V2.
+- `DONE` Produce core event/queue/job inventory and determine required async boundaries; legacy RabbitMQ/MassTransit/Hangfire/Valkey topology does not survive as the first-release baseline.
+- `DONE` Audit API credential management and internal API authentication boundary.
+- `DONE` Audit KYC/onboarding and sensitive-document storage/security boundary.
+- `IN_PROGRESS` Produce security/authentication inventory; merchant/API credential, internal auth, KYC/storage and selected provider-webhook auth paths audited; retained-provider webhook details remain in provider deep-dive.
 - `PENDING` Produce migration data classification: migrate, recompute, archive, discard.
 
 ### Financial audit checkpoints
@@ -74,27 +77,50 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Record cryptographic weakness: legacy merchant webhook HMAC key is public payment/payout ID.
 - `DONE` Audit merchant webhook retry layering and record mismatch between persisted attempt count and actual HTTP transport retries.
 - `DONE` Audit sandbox cashout simulation relationship and record create/simulate mismatch.
+- `DONE` Audit API credential creation/regeneration/revocation management and derive V2 one-time-secret/step-up-auth requirements.
+- `DONE` Audit internal API authentication/dependencies and establish in-process modular-monolith calls as the default V2 boundary.
+- `DONE` Audit KYC lifecycle authorization and prove that legacy production capability checks can rely on `MerchantStatus.Active` before KYC approval.
+- `DONE` Audit KYC file visibility/ownership/deletion boundary and derive private, tenant-bound, versioned evidence requirements.
 - `PENDING` Audit BaseResponse/error envelope and public OpenAPI compatibility in full.
-- `PENDING` Audit internal API authentication/dependencies.
-- `PENDING` Audit API credential creation/regeneration/revocation management endpoints.
+
+### Async consistency checkpoints
+
+- `DONE` Inventory the 23 logical RabbitMQ queue names and registered MassTransit consumers.
+- `DONE` Inventory Hangfire/Valkey recurring jobs and identify the actual minutely/five-minute schedules.
+- `DONE` Confirm no transactional MassTransit/EF outbox in the audited path.
+- `DONE` Record payment-webhook dual-write window: terminal DB state can commit before `PaymentCompleted` publication, allowing completed payment without guaranteed ledger/side effects.
+- `DONE` Record Pix-create dual-write window: Payment/PaymentPix persist before pending-ledger publication.
+- `DONE` Record cashout execution-task dual-write window: funds can be reserved/blocked before process message publication.
+- `DONE` Set first-release V2 async baseline: PostgreSQL transactional outbox/jobs + small worker; dedicated broker/scheduler infrastructure only if measured need justifies it.
+
+### Frontend/product capability checkpoints
+
+- `DONE` Inventory merchant/admin route tree and primary navigation.
+- `DONE` Audit merchant dashboard information model and classify it as a V2 Home replacement rather than a cache-pipeline port.
+- `DONE` Audit Payment Link management and public runtime; retain as a first-class Pix selling surface with progressive disclosure.
+- `DONE` Audit hosted Checkout runtime/editor breadth; retain the hosted conversion surface but defer catalog/stock/shipping/template-builder complexity.
+- `DONE` Audit legacy integration UI truth; configurable providers observed are Utmify, Otimizey and Facebook CAPI while several other cards are `coming soon` only.
+- `DONE` Establish V2 information-architecture collapse around Home, Sales, Conversion, Wallet, Automations and Integrations.
+- `DONE` Defer/remove initial commerce-platform scope: products/orders/stock/digital delivery/services/coupons where not required by the Pix selling spine.
 
 ## Phase 1 — Product and domain specification
 
-- `IN_PROGRESS` Approve detailed V2 product boundary; product category/pillars are approved, release sequencing and detailed contracts remain open.
+- `IN_PROGRESS` Approve detailed V2 product boundary; product category/pillars and broad frontend capability disposition are approved, detailed contracts remain open.
 - `DONE` Establish product vision and high-level seller mental model in `docs/product/product-vision.md`.
 - `DONE` Establish merchant experience principles in `docs/product/experience-principles.md`.
 - `IN_PROGRESS` Establish SwiftPay brand/design system; v0 palette/voice/data-viz direction recorded, representative UI concepts and validation pending.
-- `PENDING` Define merchant lifecycle and onboarding/KYC contract.
-- `PENDING` Define API credential model.
+- `PENDING` Define merchant lifecycle and onboarding/KYC contract from the audited explicit approved-KYC financial gate.
+- `PENDING` Define API credential model from the audited one-time secret/rotation/revocation/step-up requirements.
 - `PENDING` Define Pix charge/payment state machine.
-- `PENDING` Define provider adapter contract.
-- `PENDING` Close provider-orchestration ADR. Current planning baseline favors native thin Pix adapters because no exact-brand connector coverage was found for the 12 legacy providers; retained-provider/alias analysis remains before final closure.
+- `PENDING` Define native provider adapter contract and capability matrix.
+- `DONE` Close provider-orchestration ADR: native thin Pix adapters are the initial baseline; Hyperswitch is not an initial dependency.
 - `PENDING` Define fee model.
 - `PENDING` Define ledger chart of accounts and posting rules.
-- `PENDING` Define balance semantics: pending, available, reserved, blocked.
+- `PENDING` Define balance semantics: pending, available, reserved, blocked/in-payout.
 - `PENDING` Define payout/withdrawal state machine; V2 must distinguish definitive provider failure from `execution_unknown/recovery_required`.
 - `PENDING` Define first-class refund resource/state machine and refundable-balance concurrency contract based on `docs/reverse-engineering/refunds.md`.
 - `PENDING` Define merchant webhook contract, signing, retries and delivery log.
+- `PENDING` Define transactional outbox/job/worker contract.
 - `PENDING` Define sandbox semantics.
 - `PENDING` Define reconciliation boundary.
 - `PENDING` Define admin operational capabilities.
@@ -116,8 +142,9 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `PENDING` Define schemas and migrations.
 - `PENDING` Configure Auth.
 - `PENDING` Implement RLS policies with fail-closed tests.
-- `PENDING` Configure Storage buckets and policies for KYC documents/assets.
+- `PENDING` Configure separate public asset and private KYC Storage buckets/policies.
 - `PENDING` Create audit/event infrastructure.
+- `PENDING` Create transactional outbox/job tables and worker claim/recovery primitives.
 - `PENDING` Create financial database functions for atomic posting/state transitions.
 - `PENDING` Create local development seed/sandbox data.
 - `PENDING` Decide production application runtime/deployment topology (managed Supabase foundation + SwiftPay API/worker deployment remains current direction).
@@ -137,6 +164,7 @@ Target flow:
 - `PENDING` Implement provider webhook normalization/idempotency.
 - `PENDING` Implement atomic ledger postings.
 - `PENDING` Implement balance read model.
+- `PENDING` Implement transactional outbox/worker for post-commit effects.
 - `PENDING` Implement signed merchant webhooks.
 - `PENDING` Build minimal merchant/admin UI for the slice.
 
@@ -194,19 +222,17 @@ Target flow:
 
 ## Current handoff
 
-### Completed in current work unit
+### Completed in current audit wave
 
-- Repository foundation/governance and Phase 0 architecture corpus.
-- Adapter-level audit of all 12 legacy payment providers.
-- Preliminary Hyperswitch fit check against the current connector crate.
-- Full audit of legacy ledger repository/service, financial calculation/rounding and internal reconciliation service.
-- Merchant payout reservation, public cashout, provider execution and terminal webhook financial-path audit.
-- Core public gateway auth/transactions/balance and merchant outbound-webhook audit.
-- Core refund audit covering production execution boundary, webhook-driven state model, partial-refund identity/state defects and Sandbox mismatch.
-- Critical legacy behaviors/risks converted into explicit V2 requirements rather than copied blindly.
-- Product direction formalized around Payments + Conversion Intelligence + Revenue Automation for digital sellers.
-- Checkout, Payment Links, Quick Pix, conversion observability, wallet top-up semantics, integrations/automation, provider choice and seller ranking captured as intended product capabilities without multiplying the financial core.
-- Merchant UX simplicity/progressive disclosure and Brand System v0 captured as canonical design inputs.
+- Repository foundation/governance, product direction, design baseline and Phase 0 architecture corpus.
+- Adapter-level audit of all 12 legacy payment providers plus preliminary Hyperswitch fit check and native-adapter baseline decision.
+- Full legacy ledger/repository, fee/calculation, balance and reconciliation core audit.
+- Merchant payout reservation, public cashout/Pix-out, unknown-result and terminal webhook audit.
+- Core public gateway auth/transactions/balance, merchant outbound-webhook and refund audits.
+- API credential management and internal API authentication audit.
+- KYC/onboarding lifecycle plus sensitive document storage/tenant-isolation audit.
+- RabbitMQ/MassTransit/Hangfire/Valkey inventory and transactional-outbox consistency audit.
+- Merchant/admin/checkout/payment-link/integration frontend capability inventory with explicit V2 dispositions.
 
 ### Durable evidence added
 
@@ -214,6 +240,7 @@ Target flow:
 - `docs/product/experience-principles.md`
 - `docs/design/brand-system-v0.md`
 - `docs/reverse-engineering/provider-inventory.md`
+- `docs/reverse-engineering/provider-retention.md`
 - `docs/reverse-engineering/hyperswitch-fit.md`
 - `docs/reverse-engineering/financial-ledger.md`
 - `docs/reverse-engineering/financial-calculation.md`
@@ -221,25 +248,28 @@ Target flow:
 - `docs/reverse-engineering/public-gateway-api.md`
 - `docs/reverse-engineering/cashout-and-pixout.md`
 - `docs/reverse-engineering/refunds.md`
+- `docs/reverse-engineering/api-credentials-and-internal-auth.md`
+- `docs/reverse-engineering/kyc-onboarding-storage.md`
+- `docs/reverse-engineering/async-jobs-and-outbox.md`
+- `docs/reverse-engineering/frontend-capability-inventory.md`
 
 ### Verification
 
 - All reconstruction changes remain isolated on `agent/foundation-phase-0`.
-- Draft PR #1 tracks the foundation/audit/product-definition work.
-- No production implementation or legacy production repository mutation has been introduced.
-- Product breadth has been separated from architectural breadth: new seller surfaces are specified to reuse Payment/Event/Ledger cores.
-- Refund V2 direction now requires a first-class refund resource/source identity instead of mutating payment status/amount as the execution primitive.
+- Draft PR #1 tracks foundation/audit/product-definition work.
+- No production implementation or mutation of `SwiftPay-Prod/swiftpay---Prod` has been introduced.
+- Checkout, Payment Link, Quick Pix and REST Pix are now explicitly modeled as channels over one future Payment Core rather than separate financial systems.
+- First-release async baseline is PostgreSQL transaction + durable outbox/jobs + a small worker, not inherited broker/scheduler topology.
+- Production financial capability is explicitly intended to require approved KYC in trusted backend authorization.
 
 ### Highest-value next concrete action
 
-Continue the Phase 0 audit with the remaining high-risk boundaries in this order:
+Continue Phase 0 with the remaining unresolved evidence in this order:
 
-1. retained-provider webhook/client/status/refund-contract details and provider retention decision;
-2. API credential management endpoints and internal API authentication;
-3. KYC/onboarding + storage/security;
-4. complete async queue/job inventory;
-5. frontend capability inventory;
-6. migration data classification;
-7. remaining platform-payout/migration-constraint financial details.
+1. produce migration data classification (`migrate | recompute | archive | discard`) for legacy entities and derived/cache state;
+2. audit platform payout execution end-to-end and remaining financial migrations/source-event uniqueness constraints;
+3. finish retained-provider webhook/client/status/refund-contract deep dives and final provider retention/capability matrix;
+4. finish BaseResponse/error/OpenAPI public compatibility inventory;
+5. inspect safe evidence for actual non-zero reserve/compensation usage where available.
 
-Only after these boundaries are mapped should Phase 1 close the chart of accounts, provider strategy and public compatibility contract. Product/design specifications can continue in parallel only when they do not prejudge unresolved financial/provider contracts.
+After those gates, Phase 1 can close the exact chart of accounts, Pix/refund/payout state machines, public compatibility contract, KYC/API-key contracts, outbox contract and first implementation-ready vertical-slice tests.
