@@ -8,15 +8,17 @@ This directory is part of the canonical source of truth for the reconstruction.
 2. [`../TODOS.md`](../TODOS.md) — canonical backlog/handoff
 3. [`reverse-engineering/audit-method.md`](reverse-engineering/audit-method.md) — how legacy evidence is audited
 4. [`reverse-engineering/legacy-inventory.md`](reverse-engineering/legacy-inventory.md) — current legacy capability map
-5. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md) — target product scope
-6. [`architecture/target-architecture.md`](architecture/target-architecture.md) — target system architecture
-7. [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable financial contracts
+5. [`reverse-engineering/provider-inventory.md`](reverse-engineering/provider-inventory.md) — audited legacy Pix provider adapter matrix
+6. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md) — target product scope
+7. [`architecture/target-architecture.md`](architecture/target-architecture.md) — target system architecture
+8. [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable financial contracts
 
 ## Decisions
 
 - [`decisions/0001-rebuild-as-new-system.md`](decisions/0001-rebuild-as-new-system.md)
 - [`decisions/0002-pix-only-first-release.md`](decisions/0002-pix-only-first-release.md)
 - [`decisions/0003-supabase-as-platform-foundation.md`](decisions/0003-supabase-as-platform-foundation.md)
+- [`decisions/0004-provider-orchestration.md`](decisions/0004-provider-orchestration.md) — open decision: native Pix adapters vs Hyperswitch
 
 ## Documentation lifecycle
 
