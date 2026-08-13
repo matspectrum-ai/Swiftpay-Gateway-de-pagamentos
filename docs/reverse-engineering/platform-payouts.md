@@ -1,23 +1,30 @@
 # Legacy Platform Payout / Provider Sweep Audit
 
-Status: core execution audit complete; V2 feature deferred pending fund-flow contract
+Status: core end-to-end audit complete; V2 feature deferred pending fund-flow contract
 
 Date: 2026-08-13
 Legacy revision: `SwiftPay-Prod/swiftpay---Prod@f60a515d2bbfa6ed8142f46fa778fb27068a700d`
 
 ## Scope
 
-This audit covers the legacy administrator-initiated withdrawal of SwiftPay/platform funds from provider/acquirer balances into a configured platform Pix destination.
+This audit covers the legacy administrator/platform withdrawal of SwiftPay funds from provider/acquirer balances into a configured platform Pix destination.
 
 Reviewed paths include:
 
-- `PlatformPayout` / `PlatformPayoutItem` state models;
-- admin `CreatePlatformPayoutEndpoint`;
+- `PlatformPayout` / `PlatformPayoutItem`;
+- manual and automatic platform payout creation;
+- platform payout destination management;
+- smart/manual provider distribution;
+- platform ledger request/completion/failure postings;
 - `ProcessPlatformPayoutConsumer` fan-out;
 - `ProcessPlatformPayoutItemConsumer` provider execution;
 - `WithdrawService.ProcessPlatformWithdrawAsync`;
 - `PlatformPayoutWebhookService`;
-- previously audited ledger posting methods and platform-withdrawable calculations.
+- platform-withdrawable calculation;
+- simulated platform payout behavior;
+- relevant ledger idempotency indexes.
+
+This audit does not prove the legal/accounting ownership of provider-held funds. That fund-flow is a required V2 business/accounting decision.
 
 ## Legacy model
 
@@ -42,38 +49,29 @@ Failed
 Cancelled
 ```
 
-Each item stores the provider, gross amount, provider fee, net amount and provider transaction/Pix identifiers.
+Each item stores provider, gross amount, provider fee, net amount and provider transaction/Pix identifiers.
 
-There is no explicit item state for `executing`, `execution_unknown`, `recovery_required` or equivalent.
+There is no explicit item state for `executing`, `execution_unknown`, `accounting_recovery_required` or equivalent.
+
+## Destination account security
+
+Creating a platform payout destination is restricted to the legacy `God` role. Creating a new destination automatically deactivates every currently active destination and makes the submitted Pix key active.
+
+The audited create endpoint validates non-empty Pix key, holder name/document and enum key type, but no step-up challenge, dual approval/quorum or PSP/account-ownership verification was observed in that path.
+
+This is a treasury-critical mutation, not ordinary CRUD.
+
+If platform payout is later implemented in V2, destination create/change/activation must use strong privileged authorization, recent step-up authentication and append-only audit. A quorum/approval policy should be available where the risk model requires it.
 
 ## Creation and distribution
 
-The admin create endpoint starts a Serializable PostgreSQL transaction, loads active withdrawal-capable providers and computes manual or smart distribution across providers.
-
-The distribution depends on `CalculationService.GetTotalAvailableForWithdrawalByAcquirerAsync`.
-
-The previously audited calculation uses:
-
-```text
-provider gross balance - MerchantAvailable
-```
-
-for platform-withdrawable availability, while legacy platform profit subtracts:
-
-```text
-MerchantAvailable + MerchantBlocked + MerchantReserved
-```
-
-Therefore platform-payout eligibility inherits the unresolved difference between economic profit and computed platform-withdrawable funds. V2 must not retain this formula until fund ownership is explicitly approved.
-
-## Critical dual-write at creation
-
-The create endpoint does not reserve platform funds in the same transaction that creates the payout.
+The manual admin endpoint starts a Serializable PostgreSQL transaction, loads active withdrawal-capable providers and computes manual or smart distribution across them.
 
 Observed ordering:
 
 ```text
 BEGIN SERIALIZABLE
+  calculate provider/platform availability
   create PlatformPayout
   create PlatformPayoutItems
 COMMIT
@@ -82,34 +80,97 @@ RecordPlatformWithdrawalRequestedAsync(...)
 publish ProcessPlatformPayout
 ```
 
-The platform ledger request posting therefore occurs after the payout rows are already committed.
+The payout rows, financial reservation and async execution task are therefore three separate effects.
 
-If ledger reservation fails, the endpoint deletes the payout/items. If message publication later fails, it attempts a compensating ledger failure posting and then deletes the payout/items when compensation succeeds.
+If ledger reservation fails, the already-committed payout/items are deleted. If message publication later fails, code attempts a compensating ledger failure posting and then deletes the payout/items when compensation succeeds.
 
-This is not equivalent to one atomic financial transaction. It also means ledger evidence can reference a business operation whose domain rows are subsequently deleted after compensation.
+This is not equivalent to one atomic financial transaction and can leave recovery complexity/evidence spanning separate commits.
 
 V2 requirement if platform payout is ever implemented:
 
 ```text
 platform payout request
-+ platform-fund reservation
-+ payout items
++ platform-owned-funds reservation
++ provider legs
 + durable execution jobs/outbox
 ```
 
-must be created in one PostgreSQL transaction.
+must commit in one PostgreSQL transaction.
+
+## Critical platform availability / double-reservation defect
+
+`RecordPlatformWithdrawalRequestedAsync` only posts:
+
+```text
+PlatformBlocked CREDIT amount
+```
+
+It does not debit or otherwise reduce a canonical platform-available account.
+
+Meanwhile provider-level platform availability is calculated as:
+
+```text
+gross_balance = AcquirerSettlement - AcquirerPayoutsOut
+available_for_withdrawal = gross_balance - MerchantAvailable
+```
+
+The calculation does not subtract:
+
+- `MerchantBlocked`;
+- `MerchantReserved`;
+- `PlatformBlocked`;
+- processing `PlatformPayoutItem` amounts.
+
+`GetPlatformBalanceInfoAsync` then reports:
+
+```text
+Available = calculated availability
+Blocked   = PlatformBlocked
+Total     = Available + Blocked
+```
+
+Because `Available` does not decrease when `PlatformBlocked` increases, a newly requested platform payout leaves the same money selectable for another payout until an item actually completes and increases `AcquirerPayoutsOut`.
+
+This enables double reservation under concurrent or repeated platform-withdrawal requests.
+
+The endpoint's `Serializable` transaction does not solve this because:
+
+1. the PlatformBlocked ledger posting occurs after the transaction has committed; and
+2. the availability formula does not consume PlatformBlocked anyway.
+
+## Critical merchant-liability availability defect
+
+The same platform-withdrawable formula subtracts only `MerchantAvailable`.
+
+The legacy platform-profit model, however, considers a broader merchant liability composition including:
+
+```text
+MerchantAvailable + MerchantBlocked + MerchantReserved
+```
+
+Therefore platform-withdrawable funds can include amounts the broader financial model itself treats as merchant blocked/reserved liabilities.
+
+V2 must never define SwiftPay-owned/treasury-withdrawable money as an unexplained residual. Platform-owned revenue/liquidity requires explicit accounts and external provider settlement reconciliation.
+
+## Admin request idempotency
+
+The manual create request has no first-class idempotency key or stable caller request ID.
+
+Two equivalent administrative submissions therefore create two independent payouts with different IDs.
+
+V2 treasury payout creation requires request-level idempotency plus database uniqueness; per-ledger-row dedupe cannot protect against duplicate business requests.
 
 ## Non-durable fan-out
 
-`ProcessPlatformPayoutConsumer` loads all `Processing` items and publishes one `ProcessPlatformPayoutItem` message per item.
+`ProcessPlatformPayoutConsumer` loads all `Processing` child items and publishes one `ProcessPlatformPayoutItem` message per item.
 
-There is no transactional outbox between parent state and these publishes. A partial publication failure can therefore enqueue only a subset of items. A later parent retry can publish the still-Processing items again.
+There is no transactional outbox around this fan-out. A broker failure part-way through the loop can enqueue only a subset of provider legs. A later retry can republish still-Processing items.
 
-Transport delivery itself must also be assumed at-least-once unless an exact stronger guarantee is proven.
+V2 should create one durable execution job per provider leg inside the same reservation transaction and claim jobs atomically from PostgreSQL/outbox.
 
 ## Critical execution concurrency flaw
 
-The item consumer does **not** claim a unique execution state before invoking the PSP.
+The item consumer does not claim a unique execution state before invoking the PSP.
 
 Observed order:
 
@@ -122,152 +183,109 @@ only after provider response:
     CAS Processing -> Completed/Failed/Cancelled
 ```
 
-Consequently two concurrent deliveries for the same item can both:
+Two concurrent deliveries can both read `Processing`, both issue the provider Pix-out and only then race on the local CAS.
 
-1. read `Processing`;
-2. pass the status check;
-3. call the provider Pix-out endpoint;
-4. only then race on the local CAS.
+The CAS protects the local terminal transition too late to protect the external monetary side effect.
 
-The CAS protects the local terminal transition, but it occurs too late to protect the external monetary side effect.
+If the provider does not guarantee idempotency for the stable item ID, the same transfer can execute twice.
 
-If the retained provider does not guarantee idempotency for the stable item ID, this can execute the same platform transfer twice.
-
-### V2 requirement
-
-A monetary execution job needs a database claim before the network call, conceptually:
+V2 requires a database execution claim/lease before the network call:
 
 ```text
 reserved
-  -> executing (CAS + lease / execution token)
-       -> completed
+  -> executing
        -> provider_processing
+       -> provider_confirmed
        -> execution_unknown
        -> definitively_failed
 ```
 
-Only the owner of the current execution lease/token may issue the monetary POST.
-
-Provider idempotency keys are still required where supported; the local execution claim is not a substitute for provider idempotency after network ambiguity.
+Only the holder of the current execution claim may issue the provider monetary POST. Provider idempotency remains required where supported because local leasing alone cannot resolve an ambiguous network result.
 
 ## Critical unknown-result flaw
 
-`WithdrawService.ProcessPlatformWithdrawAsync` catches any exception and maps it to:
+`WithdrawService.ProcessPlatformWithdrawAsync` catches general exceptions and maps them to definitive `WithdrawStatus.Failed`.
+
+This includes transport outcomes that do not prove rejection, such as timeout/connection loss after the PSP accepted the Pix-out.
+
+The item consumer then treats the result as final failure and reverses/debits `PlatformBlocked`.
+
+The generic provider HTTP resilience layer also introduces monetary POST retry risk for providers using that shared client configuration.
+
+V2 invariant:
 
 ```text
-Status = Failed
+transport ambiguity != definitive provider failure
 ```
 
-This includes transport conditions that do not prove the PSP rejected the transfer, such as a timeout or connection loss after the provider accepted the Pix-out.
+Ambiguous execution enters `execution_unknown/recovery_required`, keeps funds reserved and resolves through provider query, webhook and external reconciliation. The POST is never blindly retried unless the provider's idempotency contract is proven and tested.
 
-The item consumer then handles `Failed` as a definitive financial failure and calls `RecordPlatformWithdrawalFailedAsync`, releasing/reversing the platform blocked amount.
+## Critical provider-completed -> Processing rollback
 
-This is the same class of defect found in merchant Pix-out, now applied to platform-owned withdrawals.
-
-V2 must distinguish:
-
-```text
-explicit provider rejection -> failed
-ambiguous transport/result  -> execution_unknown
-```
-
-Unknown execution keeps the funds reserved until provider query/webhook/reconciliation resolves the outcome.
-
-## Critical completed -> processing rollback
-
-When the provider returns `Completed`, the item consumer performs a local CAS:
+When the provider returns `Completed`, the item consumer first performs:
 
 ```text
 Processing -> Completed
 ```
 
-and then posts the completion to the ledger.
+and only then posts completion to the ledger.
 
-If the ledger completion fails, the code rolls the item back:
+If the ledger posting fails, code changes the item back to:
 
 ```text
 Completed -> Processing
 ```
 
-and clears `CompletedAt`.
+although the external Pix-out may already be irreversible.
 
-The external Pix-out may already be irreversibly completed at this point.
+That makes an already executed transfer eligible for another worker/manual provider call.
 
-Returning the domain item to `Processing` makes the already-executed transfer eligible for another processing message/provider call.
+The provider webhook completion path contains the same rollback pattern.
 
-This is a direct duplicate-transfer hazard.
-
-The provider webhook path contains the same rollback pattern: a completed webhook first marks the item completed; if the ledger post fails, the item is changed back to `Processing`.
-
-### V2 invariant
-
-External financial truth must never be erased because an internal ledger follow-up failed.
-
-If the provider has confirmed completion but internal accounting fails, use a recovery state such as:
+V2 must preserve externally proven truth. If the provider confirms completion but internal accounting fails, use a state such as:
 
 ```text
-provider_completed_accounting_pending
+provider_confirmed + accounting_recovery_required
 ```
 
-The correct recovery is to repair/idempotently finish the missing internal posting, not execute the provider transfer again.
+and recover the missing idempotent ledger posting. Never make the provider monetary POST executable again.
 
-## Failed/cancelled -> processing rollback
-
-Failed and cancelled paths also mark the item terminal and then post a ledger reversal. If that ledger reversal fails, the item is rolled back to `Processing`.
-
-This again conflates:
-
-- provider execution state;
-- internal accounting state.
-
-V2 must represent them independently enough that an accounting-repair problem cannot cause a new monetary execution.
+Failed/cancelled paths have a related problem: local accounting reversal failure can also roll the item back to `Processing`, conflating provider truth with accounting-repair state.
 
 ## Webhook internal-error misclassification
 
-`PlatformPayoutWebhookService.TryProcessWebhookAsync` wraps terminal processing in a general `catch`.
+`PlatformPayoutWebhookService.TryProcessWebhookAsync` wraps terminal handling in a broad catch.
 
-If internal webhook processing throws, the catch calls `HandleItemFailedAsync` with an internal-error message.
+If internal webhook processing throws, the catch invokes the financial failure handler, which can mark the item failed and reverse blocked accounting.
 
-An internal database/application failure therefore can be converted into a provider-style financial failure and trigger a ledger reversal.
+An internal application/database exception is not evidence that the PSP rejected the transfer.
 
-V2 rule:
+V2 webhook processing must preserve the last externally proven provider state and schedule local recovery/alerting separately.
 
-> Internal processing failure is not evidence of provider failure.
+## Provider deactivation can orphan in-flight webhook resolution
 
-Webhook parse/auth/application errors should result in retry/recovery/alerting while preserving the last externally proven provider state.
+The platform payout webhook lookup requires the related provider/acquirer to still be `IsActive`.
 
-## Webhook lookup constraints
+If a provider is disabled after an outbound transfer was submitted but before its terminal webhook arrives, that webhook can fail to find the in-flight item.
 
-The webhook service only searches platform payout items currently in `Processing` and identifies them by provider/type plus one of provider payout ID, EndToEnd ID or provider transaction ID.
+Provider enabled/disabled state controls *new* routing. It must not control resolution of historical/in-flight financial operations.
 
-This is reasonable for duplicate-terminal suppression, but because completion/accounting failure itself can move an externally completed item back to `Processing`, the lookup boundary does not solve the state-model problem.
-
-V2 provider events require stable source-event/provider-reference idempotency independent from mutable payout execution state.
+V2 uses immutable provider identity/reference snapshots on the operation and continues accepting authenticated terminal events for already-created operations even after the provider is disabled for new traffic.
 
 ## Parent aggregation semantics
 
-When no item remains `Processing`, the parent becomes:
+Once no item remains `Processing`, the parent becomes:
 
-- `Completed` if all completed;
-- `Failed` if all failed;
-- `Cancelled` if all cancelled;
-- `PartiallyCompleted` for a mixed terminal set.
+- all completed -> `Completed`;
+- all failed -> `Failed`;
+- all cancelled -> `Cancelled`;
+- mixed -> `PartiallyCompleted`.
 
-This cannot express a mixed state containing an unresolved external result because no `execution_unknown` state exists.
+This aggregate idea is reasonable, but the item model is too coarse to represent a mixed set containing an unresolved external result or an accounting-recovery item.
 
-If V2 later retains multi-provider platform sweeps, the parent should aggregate child truth without forcing unresolved items into failed/completed semantics.
+If multi-provider sweeps are later retained, parent state must be derived from richer child truth without forcing unknown operations into failed/completed semantics.
 
-## Admin request idempotency
-
-The audited create endpoint does not expose/require a stable request idempotency key.
-
-A client/operator retry that creates a second request receives a new `PlatformPayout` ID. Ledger idempotency tied to each new payout ID does not protect against duplicate business requests.
-
-Any future V2 platform-payout request requires first-class request idempotency in addition to per-item provider idempotency.
-
-## Legacy ledger posting summary
-
-Previously audited platform-payout ledger behavior:
+## Ledger posting summary
 
 Request:
 
@@ -275,7 +293,7 @@ Request:
 PlatformBlocked CREDIT amount
 ```
 
-Complete item:
+Completed provider leg:
 
 ```text
 PlatformBlocked    DEBIT amount
@@ -289,71 +307,120 @@ Failure/cancellation:
 PlatformBlocked DEBIT amount
 ```
 
-The accounting concept can be reconsidered only after the target fund-flow defines explicit SwiftPay-owned revenue/funds at each provider.
+A legacy migration adds filtered unique indexes for `PlatformPayOut` completion postings by `PlatformPayoutItemId` (and a parent/no-item form) after a historical cutoff date. This is stronger than application-only completion dedupe.
+
+It does not solve:
+
+- duplicate creation requests;
+- external provider execution identity;
+- request/failure source-event uniqueness as a universal contract;
+- the double-reservation availability defect.
+
+V2 applies stable source-key/idempotency constraints to every monetary transition.
+
+## Automatic platform cashout
+
+Automatic platform cashout uses essentially the same distribution, availability, payout-row, ledger-block and RabbitMQ execution pattern.
+
+It inherits:
+
+- double-reservation/platform availability defect;
+- merchant-liability inclusion risk;
+- split domain/ledger/job commits;
+- unknown provider-result handling;
+- external execution concurrency;
+- monetary POST retry risk;
+- provider-confirmed/accounting rollback problem.
+
+Automatic treasury withdrawal must not be copied until the manual treasury contract is proven safe and separately approved.
+
+## Critical Production simulation defect
+
+The administrative endpoint:
+
+```text
+POST platform-payouts/simulated
+```
+
+is not constrained to Sandbox in the audited endpoint.
+
+It uses the current environment, creates the parent and provider items immediately as `Completed`, and then posts requested/completed platform withdrawal ledger movements without performing an external provider Pix-out.
+
+In Production this can create accounting records that claim platform/provider funds were withdrawn even though no external transfer occurred. Because completion increases `AcquirerPayoutsOut`, it also changes the modeled provider balance.
+
+The endpoint checks authenticated admin identity but does not contain the `God`-role restriction observed on platform payout destination creation.
+
+V2 invariant:
+
+> simulated financial transitions are structurally impossible in Production.
+
+Sandbox separation must be enforced in trusted backend/database contracts and covered by fail-first tests; a frontend label or hidden button is not a control.
 
 ## V2 disposition
 
-`DEFER` from the initial Pix-first release.
+**DEFER from the initial Pix-first release.**
 
-Merchant Wallet/Pix-out is a product requirement. An administrative mechanism for SwiftPay to sweep its own funds from provider balances is not required to prove the first seller-facing vertical slice.
+Merchant Wallet/Pix-out is a seller product requirement. An administrative mechanism for SwiftPay to sweep its own funds from providers is not required to prove the first vertical slice.
 
 Do not implement platform payout until all of the following are approved:
 
 1. explicit legal/economic ownership of provider-held funds;
-2. chart of accounts with explicit platform-owned revenue/liquidity;
-3. platform-withdrawable calculation that cannot include merchant liabilities;
-4. retained-provider Pix-out/idempotency behavior;
-5. execution-claim/lease contract;
-6. `execution_unknown` recovery contract;
-7. external provider reconciliation;
+2. explicit platform-owned ledger accounts and chart of accounts;
+3. platform-withdrawable calculation that cannot include merchant liabilities or already-reserved treasury funds;
+4. retained-provider Pix-out/idempotency/recovery behavior;
+5. execution claim/lease contract;
+6. `execution_unknown` contract;
+7. external provider settlement reconciliation;
 8. request-level idempotency;
-9. operator authorization/step-up/audit controls.
+9. destination security/step-up/audit policy;
+10. strict Sandbox/Production simulation boundary.
 
 ## If implemented later: target execution model
 
 ```text
-requested
-    |
-    | atomic DB transaction
-    v
-reserved + execution_job
-    |
-    | worker claims exact item
-    v
+request + idempotency key
+        |
+        | atomic PostgreSQL transaction
+        v
+reserve explicit platform-owned funds
+create provider legs
+create execution jobs
+        |
+        v
+worker claims one leg
+        |
+        v
 executing
-    |\
-    | \ provider accepted / async
-    |  -> provider_processing
-    |
-    | explicit completed
-    -> provider_completed
-           |
-           | atomic/idempotent accounting
-           v
-       completed
-
-ambiguous timeout
-    -> execution_unknown
-         -> query/webhook/reconciliation
-              -> provider_completed
-              -> definitively_failed
+  |        |            |
+  |        |            -> explicit reject -> failed/accounted
+  |        -> timeout/lost response -> execution_unknown
+  |                                -> query/webhook/reconciliation
+  -> provider_processing
+  -> provider_confirmed
+          |
+          -> accounting complete
+          -> accounting_recovery_required
 ```
 
-A provider-completed operation can never transition back to a provider-executable state.
+A provider-confirmed operation can never transition back to a provider-executable state.
 
 ## Required fail-first tests if feature is activated
 
-1. Duplicate concurrent worker delivery issues at most one external execution claim.
-2. Provider timeout after acceptance keeps funds reserved and enters `execution_unknown`.
-3. Provider-completed + ledger transient failure does not execute Pix-out again.
-4. Duplicate completed webhooks create exactly one completion posting.
-5. Mixed provider result with unknown child does not finalize parent as definitively failed/completed.
-6. Two identical admin requests with same idempotency key create one platform payout.
-7. Platform withdrawal availability never consumes MerchantAvailable, MerchantBlocked, MerchantReserved or other merchant-owned liabilities.
-8. Broker/worker outage after request cannot lose the execution job because reservation and outbox/job are atomic.
+1. Two concurrent treasury requests cannot reserve the same cent twice.
+2. `PlatformBlocked`/equivalent reservation reduces withdrawable funds atomically.
+3. Merchant available/blocked/reserved liabilities can never be swept as platform-owned funds.
+4. Duplicate concurrent worker delivery issues at most one local execution claim.
+5. Provider timeout after acceptance keeps funds reserved and enters `execution_unknown`.
+6. Provider-confirmed + ledger transient failure does not execute Pix-out again.
+7. Duplicate terminal webhooks create exactly one accounting result.
+8. Disabling a provider for new traffic does not prevent terminal resolution of an in-flight operation.
+9. Two create requests with the same idempotency key return the same treasury payout.
+10. Worker/broker outage after request cannot lose execution work because reservation and job/outbox are atomic.
+11. Production rejects every simulated treasury financial transition at the trusted boundary.
+12. Destination replacement requires the configured privileged step-up/approval policy and is fully audited.
 
 ## Reconstruction implication
 
-The legacy platform-payout feature is materially more complex and riskier than the seller-facing need justifies for V2 launch.
+The legacy platform-payout subsystem should not be ported into initial V2.
 
-Deferring it reduces scope and removes a class of multi-provider monetary fan-out from the first release. If the business later requires provider sweeps, V2 can add the feature on top of the already-safe payout/outbox/reconciliation primitives instead of porting the legacy implementation.
+Deferring it removes a high-risk multi-provider treasury fan-out from launch while the seller-facing payment/wallet product is built. If the business later requires provider sweeps, it can be implemented on top of the same safe primitives already required by merchant payouts: explicit ownership, PostgreSQL reservation, durable outbox/jobs, provider capability contracts, execution leasing, `execution_unknown`, idempotent accounting and external reconciliation.
