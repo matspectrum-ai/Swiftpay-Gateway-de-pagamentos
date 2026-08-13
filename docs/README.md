@@ -30,6 +30,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/reconciliation.md`](reverse-engineering/reconciliation.md) — internal business-record-to-ledger reconciliation and reserve incompatibility
 - [`reverse-engineering/public-gateway-api.md`](reverse-engineering/public-gateway-api.md) — client credentials, public transaction/balance contracts, rate limits and merchant webhooks
 - [`reverse-engineering/cashout-and-pixout.md`](reverse-engineering/cashout-and-pixout.md) — public cashout contract, reservation, provider execution, unknown-result semantics and Pix-out retry risks
+- [`reverse-engineering/refunds.md`](reverse-engineering/refunds.md) — refund execution boundary, partial-refund state-machine defects, event identity, Sandbox parity and V2 refund requirements
 
 ## Decisions
 
