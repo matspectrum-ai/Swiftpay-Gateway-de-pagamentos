@@ -6,11 +6,20 @@ This directory is part of the canonical source of truth for the reconstruction.
 
 1. [`../AGENTS.md`](../AGENTS.md) — engineering and agent governance
 2. [`../TODOS.md`](../TODOS.md) — canonical backlog/handoff
-3. [`reverse-engineering/audit-method.md`](reverse-engineering/audit-method.md) — how legacy evidence is audited
-4. [`reverse-engineering/legacy-inventory.md`](reverse-engineering/legacy-inventory.md) — current legacy capability map
-5. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md) — target product scope
-6. [`architecture/target-architecture.md`](architecture/target-architecture.md) — target system architecture
-7. [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable financial contracts
+3. [`product/product-vision.md`](product/product-vision.md) — product category, pillars and required seller capabilities
+4. [`product/experience-principles.md`](product/experience-principles.md) — simplicity/progressive-disclosure rules and merchant UX contract
+5. [`design/brand-system-v0.md`](design/brand-system-v0.md) — initial SwiftPay visual/voice system for exploration
+6. [`reverse-engineering/audit-method.md`](reverse-engineering/audit-method.md) — how legacy evidence is audited
+7. [`reverse-engineering/legacy-inventory.md`](reverse-engineering/legacy-inventory.md) — current legacy capability map
+8. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md) — target product/release scope
+9. [`architecture/target-architecture.md`](architecture/target-architecture.md) — target system architecture
+10. [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable financial contracts
+
+## Product and experience
+
+- [`product/product-vision.md`](product/product-vision.md) — SwiftPay as Payments + Conversion Intelligence + Revenue Automation for digital sellers
+- [`product/experience-principles.md`](product/experience-principles.md) — few mental models, simple defaults, advanced power through progressive disclosure
+- [`design/brand-system-v0.md`](design/brand-system-v0.md) — Ink/Lime visual direction, typography/data-viz/checkout branding and brand-lock validation gates
 
 ## Reverse-engineering audits
 
@@ -27,9 +36,17 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`decisions/0001-rebuild-as-new-system.md`](decisions/0001-rebuild-as-new-system.md)
 - [`decisions/0002-pix-only-first-release.md`](decisions/0002-pix-only-first-release.md)
 - [`decisions/0003-supabase-as-platform-foundation.md`](decisions/0003-supabase-as-platform-foundation.md)
-- [`decisions/0004-provider-orchestration.md`](decisions/0004-provider-orchestration.md) — open decision: native Pix adapters vs Hyperswitch
+- [`decisions/0004-provider-orchestration.md`](decisions/0004-provider-orchestration.md) — open decision: native Pix adapters vs Hyperswitch; current baseline favors native thin adapters
 
 ## Documentation lifecycle
+
+### Product
+
+Defines who SwiftPay is for, which outcomes matter and which capabilities belong to the intended product.
+
+### Design
+
+Defines the interaction and brand system. Design artifacts must distinguish approved principles from exploratory visual choices.
 
 ### Reverse engineering
 
