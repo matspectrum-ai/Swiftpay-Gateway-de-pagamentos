@@ -20,6 +20,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/financial-calculation.md`](reverse-engineering/financial-calculation.md) — fee rounding, provider/platform economics and legacy withdrawal equations
 - [`reverse-engineering/reconciliation.md`](reverse-engineering/reconciliation.md) — internal business-record-to-ledger reconciliation and reserve incompatibility
 - [`reverse-engineering/public-gateway-api.md`](reverse-engineering/public-gateway-api.md) — client credentials, public transaction/balance contracts, rate limits and merchant webhooks
+- [`reverse-engineering/cashout-and-pixout.md`](reverse-engineering/cashout-and-pixout.md) — public cashout contract, reservation, provider execution, unknown-result semantics and Pix-out retry risks
 
 ## Decisions
 
