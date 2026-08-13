@@ -1,101 +1,67 @@
 # ADR 0004 — Provider Orchestration Strategy
 
-Status: Proposed / Open
+Status: Accepted
 
 Date: 2026-08-13
 
-## Decision to make
+## Decision
 
-Choose the provider execution layer for SwiftPay V2 Pix operations.
+Use **native thin provider adapters** for the first Pix-first SwiftPay V2 release.
 
-The two current candidates are:
+Hyperswitch is not part of the initial runtime topology.
 
-1. native thin SwiftPay Pix adapters;
-2. Hyperswitch configured as a Pix-only orchestration engine.
+## Why
 
-No implementation may accidentally make this choice before the legacy provider audit and target requirements are complete.
+The audit found no first-party exact-brand Hyperswitch connector occurrence for any of the 12 legacy SwiftPay provider names. Retaining those providers would therefore still require SwiftPay to preserve and test provider-specific credentials, payloads, identifiers, status mappings and webhook behavior.
 
-## Option A — Native thin Pix adapters
+Adding Hyperswitch at this stage would introduce another runtime and another semantic boundary without proven reduction in connector work.
 
-### Shape
+The legacy common provider surface is small enough to rebuild as a typed capability-oriented adapter layer, which fits the V2 goal of a small Supabase/PostgreSQL-centered architecture.
+
+## Target shape
 
 ```text
-SwiftPay Gateway
+SwiftPay API
   -> ProviderRouter
-      -> PixProvider interface
-          -> FlevoPay
-          -> AkkadPag
-          -> other retained PSPs
+      -> PixProvider
+          -> retained provider adapters
 ```
 
-### Advantages
+The provider interface will expose only supported capabilities. Pix-in, Pix-out and refund support are not assumed to be universal.
 
-- smallest runtime and deployment topology;
-- direct fit for a Pix-only product;
-- straightforward port of existing provider-specific knowledge;
-- provider contract can stay extremely small;
-- no unused card/boleto/wallet orchestration surface;
-- easiest integration with a Supabase-centered modular monolith.
+Provider selection and evidence are tracked in `../reverse-engineering/provider-retention.md`.
 
-### Costs
+## Provider-count rule
 
-- SwiftPay owns provider lifecycle, retries and routing;
-- connector maintenance remains internal;
-- advanced orchestration features must be implemented if later needed.
+Do not port all 12 providers by default. Prove one provider end-to-end, add a second when it gives meaningful redundancy/routing value, and add others only for measurable product or operational value.
 
-## Option B — Hyperswitch Pix-only
+## Consequences
 
-### Shape
+Benefits:
 
-```text
-SwiftPay Gateway
-  -> Hyperswitch
-      -> PSP connector(s)
-```
+- fewer services to deploy and observe;
+- direct fit with the TypeScript/Supabase V2 direction;
+- provider knowledge remains close to SwiftPay conformance tests;
+- providers can be added or removed independently.
 
-SwiftPay remains authoritative for merchant, KYC, pricing, ledger, balance, payout business rules and merchant webhooks.
+Costs:
 
-### Advantages
+- SwiftPay owns adapter maintenance and routing policy;
+- each retained provider requires explicit conformance tests.
 
-- mature orchestration concepts;
-- payment attempts/routing foundation;
-- future multi-provider capabilities;
-- possible reduction in orchestration code owned directly by SwiftPay.
+## Revisit triggers
 
-### Costs
+Re-open this ADR if:
 
-- another runtime/service to deploy and operate;
-- Brazilian providers may require custom connectors;
-- existing SwiftPay provider quirks still need to be ported and tested;
-- semantic integration with SwiftPay fees/ledger must remain explicit;
-- much of Hyperswitch's broader payment-method surface is unused in Pix-only V2.
+1. SwiftPay expands materially beyond Pix;
+2. a significant retained provider set gains mature Hyperswitch connectors;
+3. the native orchestration layer grows beyond a thin router/adapter boundary; or
+4. Hyperswitch can demonstrably replace meaningful operational complexity.
 
-## Evidence required before decision
-
-The decision must not be based on feature lists alone. Phase 0 must establish:
-
-- which legacy Pix providers are actually retained;
-- which retained providers already have suitable Hyperswitch connectors;
-- effort to port FlevoPay/AkkadPag/other required providers;
-- whether provider routing/failover sophistication is needed at first release;
-- whether Pix-out/payout support fits the same orchestration boundary;
-- deployment/observability cost of Hyperswitch versus native adapters;
-- public API compatibility implications;
-- provider webhook normalization implications;
-- operational ownership expectations.
-
-## Default if evidence is inconclusive
-
-Prefer the smaller native adapter architecture for the first Pix-only release.
-
-This is a simplicity default, not a final decision. Hyperswitch should win only if it removes enough real provider/orchestration work to justify the additional service boundary.
-
-## Non-negotiable regardless of choice
+## Invariants
 
 - provider-specific payloads do not leak into the public SwiftPay API;
 - provider credentials remain server-side;
-- provider webhooks are authenticated and idempotent;
-- canonical payment state belongs to SwiftPay;
-- SwiftPay financial ledger remains authoritative;
-- provider timeout/unknown-result recovery must be explicit;
-- connector behavior must have conformance tests derived from legacy evidence.
+- provider webhooks require explicit verification;
+- SwiftPay owns canonical payment and financial state;
+- external ambiguity/recovery behavior is specified per retained provider.
