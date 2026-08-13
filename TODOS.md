@@ -22,6 +22,9 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Record initial target scope: Pix-first, materially simpler architecture.
 - `DONE` Record initial target architecture centered on Supabase/PostgreSQL.
 - `DONE` Record foundational financial invariants.
+- `DONE` Record V2 product vision: Payments + Conversion Intelligence + Revenue Automation for digital sellers.
+- `DONE` Record merchant experience principles: progressive disclosure, few mental models, seller-language defaults and financial truthfulness.
+- `DONE` Record Brand System v0 exploration baseline; final brand lock requires representative UI concepts and accessibility validation.
 - `PENDING` Complete line-oriented audit of all author-written legacy source and relevant configuration.
 - `IN_PROGRESS` Produce legacy capability matrix with `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER` decisions.
 - `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/cashout/webhook surface audited, internal/OpenAPI remainder pending.
@@ -70,12 +73,15 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 
 ## Phase 1 — Product and domain specification
 
-- `PENDING` Approve V2 product boundary.
+- `IN_PROGRESS` Approve detailed V2 product boundary; product category/pillars are approved, release sequencing and detailed contracts remain open.
+- `DONE` Establish product vision and high-level seller mental model in `docs/product/product-vision.md`.
+- `DONE` Establish merchant experience principles in `docs/product/experience-principles.md`.
+- `IN_PROGRESS` Establish SwiftPay brand/design system; v0 palette/voice/data-viz direction recorded, representative UI concepts and validation pending.
 - `PENDING` Define merchant lifecycle and onboarding/KYC contract.
 - `PENDING` Define API credential model.
-- `PENDING` Define Pix charge state machine.
+- `PENDING` Define Pix charge/payment state machine.
 - `PENDING` Define provider adapter contract.
-- `PENDING` Decide whether Hyperswitch is used for Pix orchestration or a smaller native adapter layer is retained. Current planning baseline favors native thin Pix adapters because no exact-brand connector coverage was found for the 12 legacy providers; ADR remains open until retained providers/aliases/webhooks/payouts are resolved.
+- `PENDING` Close provider-orchestration ADR. Current planning baseline favors native thin Pix adapters because no exact-brand connector coverage was found for the 12 legacy providers; retained-provider/alias analysis remains before final closure.
 - `PENDING` Define fee model.
 - `PENDING` Define ledger chart of accounts and posting rules.
 - `PENDING` Define balance semantics: pending, available, reserved, blocked.
@@ -85,7 +91,17 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `PENDING` Define sandbox semantics.
 - `PENDING` Define reconciliation boundary.
 - `PENDING` Define admin operational capabilities.
-- `PENDING` Define checkout/payment-link scope.
+- `PENDING` Define Checkout contract and merchant-branding boundary.
+- `PENDING` Define Payment Link contract.
+- `PENDING` Define Quick Pix seller flow.
+- `PENDING` Define conversion-event taxonomy and metric denominators.
+- `PENDING` Define UTM attribution model and analytics retention/deduplication.
+- `PENDING` Define constrained automation model (`EVENT -> CONDITION -> ACTION`).
+- `PENDING` Define integration contract for UTMify, n8n, WhatsApp, Telegram and generic webhooks.
+- `PENDING` Define wallet top-up/fund-flow semantics; top-up must remain financially distinct from sales.
+- `PENDING` Define direct Pix-out/payment-from-balance product contract.
+- `PENDING` Define seller ranking eligibility/privacy rules; ranking remains isolated from financial core.
+- `PENDING` Define developer experience roadmap: OpenAPI, SDK, CLI and safe MCP/agent integration.
 
 ## Phase 2 — Supabase foundation
 
@@ -97,6 +113,7 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `PENDING` Create audit/event infrastructure.
 - `PENDING` Create financial database functions for atomic posting/state transitions.
 - `PENDING` Create local development seed/sandbox data.
+- `PENDING` Decide production application runtime/deployment topology (managed Supabase foundation + SwiftPay API/worker deployment remains current direction).
 
 ## Phase 3 — First vertical slice
 
@@ -116,7 +133,18 @@ Target flow:
 - `PENDING` Implement signed merchant webhooks.
 - `PENDING` Build minimal merchant/admin UI for the slice.
 
-## Phase 4 — Payouts and operations
+## Phase 4 — Selling surfaces and conversion
+
+- `PENDING` Implement hosted Pix Checkout over canonical Payment Core.
+- `PENDING` Implement Payment Links over canonical Payment Core.
+- `PENDING` Implement Quick Pix seller flow over canonical Payment Core.
+- `PENDING` Implement canonical product/payment event capture.
+- `PENDING` Implement conversion funnel and approved/lost sale metrics.
+- `PENDING` Implement UTM/campaign attribution.
+- `PENDING` Implement provider conversion observability.
+- `PENDING` Implement actionable/recoverable-revenue insights with estimate labeling.
+
+## Phase 5 — Wallet, payouts and operations
 
 - `PENDING` Payout account management.
 - `PENDING` Withdrawal request and approval policy.
@@ -124,8 +152,30 @@ Target flow:
 - `PENDING` Payout webhook/idempotency.
 - `PENDING` Ledger posting for blocked/completed/failed/unknown payouts.
 - `PENDING` Reconciliation views and admin tooling.
+- `PENDING` Implement wallet statement/read model.
+- `PENDING` Implement Pix top-up only after approved fund-flow/provider contract.
+- `PENDING` Implement Pix payment from balance where approved.
 
-## Phase 5 — Migration and cutover
+## Phase 6 — Revenue automation and integrations
+
+- `PENDING` Implement durable integration/outbox execution foundation.
+- `PENDING` Implement automation rules/executions without a generic workflow platform.
+- `PENDING` Implement unpaid-Pix recovery template.
+- `PENDING` Implement UTMify integration.
+- `PENDING` Implement n8n integration surface.
+- `PENDING` Implement WhatsApp integration through an approved provider/contract.
+- `PENDING` Implement Telegram integration.
+- `PENDING` Add seller ranking only after canonical sales eligibility/privacy spec is approved.
+
+## Phase 7 — Developer experience
+
+- `PENDING` Publish canonical OpenAPI and integration guide.
+- `PENDING` TypeScript SDK if it materially reduces integration friction.
+- `PENDING` SwiftPay CLI/bootstrap flow if justified.
+- `PENDING` Safe MCP/agent integration surface if approved.
+- `PENDING` Agent-readable examples for coding-agent workflows.
+
+## Phase 8 — Migration and cutover
 
 - `PENDING` Build legacy -> V2 migration mapping.
 - `PENDING` Create replay/parity test harness.
@@ -146,9 +196,15 @@ Target flow:
 - Merchant payout reservation, public cashout, provider execution and terminal webhook financial-path audit.
 - Core public gateway auth/transactions/balance and merchant outbound-webhook audit.
 - Critical legacy behaviors/risks converted into explicit V2 requirements rather than copied blindly.
+- Product direction formalized around Payments + Conversion Intelligence + Revenue Automation for digital sellers.
+- Checkout, Payment Links, Quick Pix, conversion observability, wallet top-up semantics, integrations/automation, provider choice and seller ranking captured as intended product capabilities without multiplying the financial core.
+- Merchant UX simplicity/progressive disclosure and Brand System v0 captured as canonical design inputs.
 
 ### Durable evidence added
 
+- `docs/product/product-vision.md`
+- `docs/product/experience-principles.md`
+- `docs/design/brand-system-v0.md`
 - `docs/reverse-engineering/provider-inventory.md`
 - `docs/reverse-engineering/hyperswitch-fit.md`
 - `docs/reverse-engineering/financial-ledger.md`
@@ -160,8 +216,9 @@ Target flow:
 ### Verification
 
 - All reconstruction changes remain isolated on `agent/foundation-phase-0`.
-- Draft PR #1 tracks the foundation/audit work.
+- Draft PR #1 tracks the foundation/audit/product-definition work.
 - No production implementation or legacy production repository mutation has been introduced.
+- Product breadth has been separated from architectural breadth: new seller surfaces are specified to reuse Payment/Event/Ledger cores.
 
 ### Highest-value next concrete action
 
@@ -175,4 +232,4 @@ Continue the Phase 0 audit with the remaining high-risk boundaries in this order
 6. frontend capability inventory;
 7. migration data classification.
 
-Only after these boundaries are mapped should Phase 1 close the chart of accounts, provider strategy and public compatibility contract.
+Only after these boundaries are mapped should Phase 1 close the chart of accounts, provider strategy and public compatibility contract. Product/design specifications can continue in parallel only when they do not prejudge unresolved financial/provider contracts.
