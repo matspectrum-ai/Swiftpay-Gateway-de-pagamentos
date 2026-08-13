@@ -8,10 +8,18 @@ This directory is part of the canonical source of truth for the reconstruction.
 2. [`../TODOS.md`](../TODOS.md) — canonical backlog/handoff
 3. [`reverse-engineering/audit-method.md`](reverse-engineering/audit-method.md) — how legacy evidence is audited
 4. [`reverse-engineering/legacy-inventory.md`](reverse-engineering/legacy-inventory.md) — current legacy capability map
-5. [`reverse-engineering/provider-inventory.md`](reverse-engineering/provider-inventory.md) — audited legacy Pix provider adapter matrix
-6. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md) — target product scope
-7. [`architecture/target-architecture.md`](architecture/target-architecture.md) — target system architecture
-8. [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable financial contracts
+5. [`specs/rebuild-scope-v0.md`](specs/rebuild-scope-v0.md) — target product scope
+6. [`architecture/target-architecture.md`](architecture/target-architecture.md) — target system architecture
+7. [`contracts/financial-invariants.md`](contracts/financial-invariants.md) — non-negotiable financial contracts
+
+## Reverse-engineering audits
+
+- [`reverse-engineering/provider-inventory.md`](reverse-engineering/provider-inventory.md) — all 12 legacy `IAcquirerService` adapters and provider-specific capability/contract observations
+- [`reverse-engineering/hyperswitch-fit.md`](reverse-engineering/hyperswitch-fit.md) — current Hyperswitch connector-coverage evidence for the legacy provider set
+- [`reverse-engineering/financial-ledger.md`](reverse-engineering/financial-ledger.md) — ledger accounts, posting matrix, payout reservation/idempotency/concurrency and balance semantics
+- [`reverse-engineering/financial-calculation.md`](reverse-engineering/financial-calculation.md) — fee rounding, provider/platform economics and legacy withdrawal equations
+- [`reverse-engineering/reconciliation.md`](reverse-engineering/reconciliation.md) — internal business-record-to-ledger reconciliation and reserve incompatibility
+- [`reverse-engineering/public-gateway-api.md`](reverse-engineering/public-gateway-api.md) — client credentials, public transaction/balance contracts, rate limits and merchant webhooks
 
 ## Decisions
 
