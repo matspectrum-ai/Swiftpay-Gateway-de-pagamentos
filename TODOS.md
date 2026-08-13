@@ -27,12 +27,12 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Record Brand System v0 exploration baseline; final brand lock requires representative UI concepts and accessibility validation.
 - `PENDING` Complete line-oriented audit of all author-written legacy source and relevant configuration.
 - `IN_PROGRESS` Produce legacy capability matrix with `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER` decisions.
-- `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/cashout/webhook surface audited, internal/OpenAPI remainder pending.
-- `IN_PROGRESS` Produce provider integration inventory, including webhook/status quirks; all 12 `IAcquirerService` implementations audited, client/DTO/webhook/status-converter detail still pending for retained providers.
+- `IN_PROGRESS` Produce endpoint inventory and public compatibility matrix; core auth/transactions/balance/cashout/webhook/sandbox-refund surface audited, internal/OpenAPI remainder pending.
+- `IN_PROGRESS` Produce provider integration inventory, including webhook/status quirks; all 12 `IAcquirerService` implementations audited, retained-provider client/DTO/webhook/status/refund-contract detail still pending.
 - `DONE` Audit current exact-brand Hyperswitch connector coverage for the 12 legacy SwiftPay provider names; no first-party exact-brand connector occurrence found in the current connector crate. Alias/upstream mapping remains a separate check.
 - `IN_PROGRESS` Produce database/entity inventory and identify duplicated/derived state; core payment/ledger/account/payout entities and DbContext financial mappings audited.
 - `PENDING` Produce frontend route/capability inventory.
-- `IN_PROGRESS` Produce event/queue/job inventory and determine which asynchronous flows are genuinely required; payment merchant-webhook and cashout processing consumer/retry paths audited, complete queue/consumer/job inventory pending.
+- `IN_PROGRESS` Produce event/queue/job inventory and determine which asynchronous flows are genuinely required; payment merchant-webhook, refund-state consumer path and cashout processing/retry paths audited, complete queue/consumer/job inventory pending.
 - `IN_PROGRESS` Produce security/authentication inventory; public API credential/JWT/revocation/rate-limit and selected provider-webhook auth paths audited.
 - `PENDING` Produce migration data classification: migrate, recompute, archive, discard.
 
@@ -52,7 +52,13 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Record legacy reserve-vs-reconciliation model incompatibility.
 - `DONE` Record legacy platform-profit vs platform-withdrawable calculation discrepancy as unresolved fund-flow risk.
 - `PENDING` Audit platform payout execution end-to-end.
-- `PENDING` Audit refund provider execution/endpoints and partial-refund event identity.
+- `DONE` Audit core refund execution/endpoints, state transitions and partial-refund event identity; retained-provider external refund contracts remain in provider deep-dive.
+- `DONE` Record absence of a generic production refund execution abstraction; MagicPay contains an uncalled concrete refund HTTP method while production core primarily reacts to refund webhooks.
+- `DONE` Record refund state-machine defect: after first `PartiallyRefunded`, later partial or final refund events cannot be represented because refund targets accept only `Completed` source state.
+- `DONE` Record Bankizi refund-request dead-end: `Completed -> Processing` on `RequestedRefund`, while final refund targets do not accept `Processing`.
+- `DONE` Record lack of first-class refund/source-event identity and ambiguity between provider cumulative refunded totals and per-event refund deltas.
+- `DONE` Record HeartPay partial-refund normalization gap: status can map to `PartiallyRefunded` but inspected webhook path does not pass a refund amount to the consumer/ledger.
+- `DONE` Record Sandbox refund parity mismatch: Sandbox can directly simulate full refund, but no equivalent generic production refund-request contract was found; no partial-refund simulation exists in the inspected path.
 - `PENDING` Audit all financial migrations/constraints relevant to source-event idempotency.
 - `PENDING` Determine current production usage of non-zero merchant reserve/compensation settings from safe configuration evidence.
 
@@ -63,6 +69,7 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `DONE` Audit public Pix transaction create/get/list core contract.
 - `DONE` Audit public balance projection and record available/withdrawable/reserved/blocked semantic mismatch.
 - `DONE` Audit core public cashout create/get/list/cancel semantics and payout execution lifecycle.
+- `DONE` Audit public Sandbox transaction simulation refund path.
 - `DONE` Audit payment and payout merchant-webhook signing services.
 - `DONE` Record cryptographic weakness: legacy merchant webhook HMAC key is public payment/payout ID.
 - `DONE` Audit merchant webhook retry layering and record mismatch between persisted attempt count and actual HTTP transport retries.
@@ -86,7 +93,7 @@ This file is the durable backlog and handoff ledger for the reconstruction.
 - `PENDING` Define ledger chart of accounts and posting rules.
 - `PENDING` Define balance semantics: pending, available, reserved, blocked.
 - `PENDING` Define payout/withdrawal state machine; V2 must distinguish definitive provider failure from `execution_unknown/recovery_required`.
-- `PENDING` Define refund rules if refunds remain in V2 scope.
+- `PENDING` Define first-class refund resource/state machine and refundable-balance concurrency contract based on `docs/reverse-engineering/refunds.md`.
 - `PENDING` Define merchant webhook contract, signing, retries and delivery log.
 - `PENDING` Define sandbox semantics.
 - `PENDING` Define reconciliation boundary.
@@ -195,6 +202,7 @@ Target flow:
 - Full audit of legacy ledger repository/service, financial calculation/rounding and internal reconciliation service.
 - Merchant payout reservation, public cashout, provider execution and terminal webhook financial-path audit.
 - Core public gateway auth/transactions/balance and merchant outbound-webhook audit.
+- Core refund audit covering production execution boundary, webhook-driven state model, partial-refund identity/state defects and Sandbox mismatch.
 - Critical legacy behaviors/risks converted into explicit V2 requirements rather than copied blindly.
 - Product direction formalized around Payments + Conversion Intelligence + Revenue Automation for digital sellers.
 - Checkout, Payment Links, Quick Pix, conversion observability, wallet top-up semantics, integrations/automation, provider choice and seller ranking captured as intended product capabilities without multiplying the financial core.
@@ -212,6 +220,7 @@ Target flow:
 - `docs/reverse-engineering/reconciliation.md`
 - `docs/reverse-engineering/public-gateway-api.md`
 - `docs/reverse-engineering/cashout-and-pixout.md`
+- `docs/reverse-engineering/refunds.md`
 
 ### Verification
 
@@ -219,17 +228,18 @@ Target flow:
 - Draft PR #1 tracks the foundation/audit/product-definition work.
 - No production implementation or legacy production repository mutation has been introduced.
 - Product breadth has been separated from architectural breadth: new seller surfaces are specified to reuse Payment/Event/Ledger cores.
+- Refund V2 direction now requires a first-class refund resource/source identity instead of mutating payment status/amount as the execution primitive.
 
 ### Highest-value next concrete action
 
 Continue the Phase 0 audit with the remaining high-risk boundaries in this order:
 
-1. refund execution/event identity and provider unknown-result behavior;
-2. retained-provider webhook/client/status-converter details;
-3. API credential management endpoints and internal API authentication;
-4. KYC/onboarding + storage/security;
-5. complete async queue/job inventory;
-6. frontend capability inventory;
-7. migration data classification.
+1. retained-provider webhook/client/status/refund-contract details and provider retention decision;
+2. API credential management endpoints and internal API authentication;
+3. KYC/onboarding + storage/security;
+4. complete async queue/job inventory;
+5. frontend capability inventory;
+6. migration data classification;
+7. remaining platform-payout/migration-constraint financial details.
 
 Only after these boundaries are mapped should Phase 1 close the chart of accounts, provider strategy and public compatibility contract. Product/design specifications can continue in parallel only when they do not prejudge unresolved financial/provider contracts.
