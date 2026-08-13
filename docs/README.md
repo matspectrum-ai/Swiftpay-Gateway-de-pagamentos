@@ -26,6 +26,7 @@ This directory is part of the canonical source of truth for the reconstruction.
 - [`reverse-engineering/public-gateway-api.md`](reverse-engineering/public-gateway-api.md)
 - [`reverse-engineering/cashout-and-pixout.md`](reverse-engineering/cashout-and-pixout.md)
 - [`reverse-engineering/refunds.md`](reverse-engineering/refunds.md)
+- [`reverse-engineering/platform-payouts.md`](reverse-engineering/platform-payouts.md)
 - [`reverse-engineering/api-credentials-and-internal-auth.md`](reverse-engineering/api-credentials-and-internal-auth.md)
 - [`reverse-engineering/kyc-onboarding-storage.md`](reverse-engineering/kyc-onboarding-storage.md)
 - [`reverse-engineering/async-jobs-and-outbox.md`](reverse-engineering/async-jobs-and-outbox.md)
