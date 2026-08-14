@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(28);
+select plan(29);
 
 select has_table('app', 'payout_accounts', 'approved payout destinations must persist independently');
 select has_table('app', 'payouts', 'payouts must be first-class resources');
@@ -18,6 +18,7 @@ select has_column('app', 'payouts', 'recipient_amount_cents', 'recipient amount 
 select has_column('app', 'payouts', 'state', 'payout certainty state must persist');
 select has_column('app', 'payouts', 'destination_snapshot', 'immutable payout destination snapshot must persist');
 select has_column('app', 'payouts', 'idempotency_key', 'payout request idempotency identity must persist');
+select has_column('app', 'payments', 'refund_fee_policy', 'Payment must snapshot the refund fee policy before refunds are enabled');
 select has_column('app', 'refunds', 'payment_id', 'refund must reference its paid Payment');
 select has_column('app', 'refunds', 'merchant_id', 'refund merchant ownership must be explicit');
 select has_column('app', 'refunds', 'environment', 'refund environment must be explicit');
