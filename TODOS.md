@@ -247,12 +247,49 @@ Migrations:
 
 Validation after I1 GREEN: **16 pgTAP files / 457 tests / PASS**.
 
-#### I2/I3 — durable operations and provider evidence
+#### I2 — durable reconciliation operations
 
-- `PENDING` Durable reconciliation run/discrepancy persistence and operator lifecycle.
-- `PENDING` Explicit acknowledgement/resolution metadata without automatic financial repair.
-- `PENDING` External provider-evidence reconciliation surfaces.
-- `PENDING` Provider settlement/balance/report comparisons once retained-provider evidence contracts exist.
+- `DONE` Freeze `docs/specs/reconciliation-operations-v0.yaml` before behavior implementation.
+- `DONE` Durable reconciliation Run, stable Discrepancy, immutable run-observation and lifecycle-event persistence.
+- `DONE` Zero-finding runs remain durable completed executions with explicit scope/version/environment.
+- `DONE` Rediscovery reuses stable discrepancy identity, preserves first-seen evidence and advances occurrence/latest-observation metadata.
+- `DONE` Explicit `open -> acknowledged -> resolved` operator lifecycle with idempotent replay semantics.
+- `DONE` Disappearance from a later detector run never auto-resolves a discrepancy.
+- `DONE` Observation/event history is append-only and Sandbox/Production remain isolated.
+- `DONE` Reconciliation capture and lifecycle operations perform no ledger posting, job enqueue or automatic financial repair.
+
+Migrations:
+
+- `20260814060000_reconciliation_operations_foundation.sql`
+- `20260814061000_reconciliation_operations_behavior.sql`
+
+Validation after I2 GREEN: **18 pgTAP files / 608 tests / PASS**.
+
+#### I3a — durable normalized provider evidence envelope
+
+- `DONE` Freeze `docs/specs/provider-reconciliation-evidence-v0.yaml` before behavior implementation.
+- `DONE` `app.provider_reconciliation_evidence` persists already-normalized provider-authoritative facts independently from canonical domain rows.
+- `DONE` Provider/account/environment ownership validation is fail-closed before evidence insertion.
+- `DONE` Logical source identity is idempotent for an identical request fingerprint and conflicts on changed fingerprint.
+- `DONE` Operation, settlement-item and provider-balance shapes are explicitly constrained; V1 currency is BRL.
+- `DONE` Sandbox/Production evidence identity is isolated by provider account/environment scope.
+- `DONE` Disabled provider accounts remain eligible for historical reconciliation evidence.
+- `DONE` Provider reconciliation evidence history is append-only.
+- `DONE` Recording normalized external evidence has zero side effects on Payment/Payout/Refund state, ledger, jobs or existing provider/payout/refund evidence.
+- `DONE` PostgreSQL never performs provider HTTP/report fetching in this slice.
+
+Migrations:
+
+- `20260814062000_provider_reconciliation_evidence_foundation.sql`
+- `20260814063000_provider_reconciliation_evidence_behavior.sql`
+
+Validation after I3a GREEN: **20 pgTAP files / 685 tests / PASS**.
+
+#### I3b — provider-vs-SwiftPay comparison
+
+- `EVIDENCE_REQUIRED` Current authoritative AkkadPag/FlevoPay query/report/balance sources, stable operation identifiers and provider-absence semantics before correlation/comparison views are frozen.
+- `PENDING` External provider-evidence reconciliation findings after retained-provider conformance evidence is captured.
+- `PENDING` Provider settlement/balance/report comparisons once their exact evidence contracts exist.
 - `PENDING` Admin step-up/approval boundary for any future append-only correction flow.
 
 ## Remaining platform foundation
@@ -368,7 +405,11 @@ payout prepare -> one-shot execution claim -> normalized evidence
         |
 payout/refund processing / execution_unknown -> completed | failed
         |
-read-only internal reconciliation detection   <- current GREEN boundary
+read-only internal reconciliation detection
+        |
+durable reconciliation run/discrepancy lifecycle
+        |
+append-only normalized provider evidence envelope   <- current GREEN boundary
 ```
 
 Provider runtime scope is frozen:
@@ -392,11 +433,10 @@ withdrawable
 
 ## Immediate execution order
 
-1. durable reconciliation run/discrepancy persistence RED -> GREEN, without automatic financial repair;
-2. external provider-evidence reconciliation only where retained-provider evidence is contractually proven;
-3. RLS/KYC-storage/audit/seed/deployment foundation;
-4. trusted backend/worker vertical slice;
-5. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
+1. capture retained-provider conformance evidence required to unlock provider-specific I3b comparisons; do not guess unavailable PSP semantics;
+2. RLS/KYC-storage/audit/seed/deployment foundation;
+3. trusted backend/worker vertical slice;
+4. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
 
 ## Verification
 
@@ -404,7 +444,8 @@ withdrawable
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
 - Phase 2 PostgreSQL/Supabase implementation is active and test-driven.
-- Latest internal-reconciliation I1 boundary: **16 pgTAP files / 457 tests / PASS** on GitHub Actions.
+- Latest database boundary after I3a: **20 pgTAP files / 685 tests / PASS** on GitHub Actions.
+- I3b provider-vs-SwiftPay comparison remains `EVIDENCE_REQUIRED`; no provider-specific absence/query/report semantics were invented.
 - Refund provider execution remains intentionally disabled; the database refund-resolution machine is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
 - No production HTTP API/provider adapter has been introduced yet.
 - Repository artifacts, not chat context, are the canonical engineering source of truth.
