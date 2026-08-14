@@ -313,14 +313,16 @@ begin
             using errcode = '23514';
     end if;
 
-    -- Lock every affected account in deterministic UUID order before validating
-    -- balances. This is the concurrency boundary for cached account mutations.
+    -- Lock each affected account exactly once, in deterministic UUID order.
+    -- The DISTINCT lives only inside EXISTS semantics, so PostgreSQL can legally
+    -- apply FOR UPDATE to the account rows themselves.
     perform a.id
     from app.accounts a
-    join (
-        select distinct (e->>'account_id')::uuid as account_id
+    where exists (
+        select 1
         from jsonb_array_elements(p_entries) e
-    ) x on x.account_id = a.id
+        where (e->>'account_id')::uuid = a.id
+    )
     order by a.id
     for update;
 
