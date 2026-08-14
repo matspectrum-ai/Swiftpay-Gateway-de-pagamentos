@@ -1,0 +1,59 @@
+# SwiftPay V2 local Supabase configuration.
+# Keep the financial/domain schema server-owned: `app` is intentionally NOT exposed by the Data API.
+project_id = "swiftpay-v2"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+health_timeout = "2m"
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = false
+sql_paths = []
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+# Auth is part of the target product, but database-contract CI starts only Postgres with
+# `supabase db start`. These settings keep a full local stack usable later without secrets.
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+enable_manual_linking = false
+minimum_password_length = 8
+password_requirements = ""
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+openai_api_key = "env(OPENAI_API_KEY)"
