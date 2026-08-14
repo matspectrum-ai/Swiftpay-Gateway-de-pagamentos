@@ -226,6 +226,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23505',
+null,
 'same logical source with changed fingerprint conflicts instead of overwriting history'
 );
 
@@ -255,6 +256,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23514',
+null,
 'provider account belonging to another provider is rejected'
 );
 
@@ -283,6 +285,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23514',
+null,
 'provider account from another environment is rejected'
 );
 
@@ -312,6 +315,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23514',
+null,
 'unrecognized provider evidence source kind is rejected'
 );
 
@@ -340,6 +344,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23514',
+null,
 'provider balance evidence cannot claim an operation type'
 );
 
@@ -368,6 +373,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23514',
+null,
 'operation evidence cannot claim provider balance'
 );
 
@@ -396,6 +402,7 @@ select app.record_provider_reconciliation_evidence(
 )
 $i3a$,
 '23514',
+null,
 'report evidence window ending before it starts is rejected'
 );
 
@@ -537,6 +544,7 @@ update app.provider_reconciliation_evidence
    and environment='sandbox'
 $i3a$,
 '55000',
+null,
 'persisted provider reconciliation evidence cannot be updated'
 );
 
@@ -547,6 +555,7 @@ delete from app.provider_reconciliation_evidence
    and environment='sandbox'
 $i3a$,
 '55000',
+null,
 'persisted provider reconciliation evidence cannot be deleted'
 );
 
