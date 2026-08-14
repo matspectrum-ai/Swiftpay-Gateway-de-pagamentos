@@ -1,0 +1,235 @@
+feature: refund-resolution-v0
+status: specified
+phase: 2
+
+objectives:
+  - Apply Refund certainty and terminal financial effects exactly once without changing canonical Payment collection truth from paid.
+  - Support sandbox simulation and authoritative reconciliation now without pretending retained providers expose a proven refund execution API.
+  - Keep merchant refund funding blocked while execution is unknown.
+  - Preserve exact provider/source evidence identity and amount semantics for repeated partial refunds.
+
+requirements:
+  scope:
+    executable_fee_policy:
+      - merchant_fee_non_refundable
+    executable_evidence_sources:
+      - sandbox_simulation
+      - reconciliation
+    persistable_but_not_executable_provider_sources:
+      - execution_result
+      - provider_query
+      - provider_event
+    provider_refund_execution:
+      enabled: false
+      reason: retained_provider_refund_identity_idempotency_recovery_contract_not_proven
+
+  evidence:
+    resource: app.refund_evidence
+    fields:
+      - id
+      - refund_id
+      - provider_account_id
+      - environment
+      - source_kind
+      - source_reference
+      - outcome
+      - amount_semantics
+      - provider_reported_amount_cents
+      - provider_status_raw
+      - provider_refund_id
+      - payload_hash
+      - occurred_at
+      - application_state
+      - application_reason
+      - applied_at
+      - created_at
+    source_kinds:
+      - sandbox_simulation
+      - reconciliation
+      - execution_result
+      - provider_query
+      - provider_event
+    outcomes:
+      - processing
+      - execution_unknown
+      - completed
+      - definitively_failed
+    amount_semantics:
+      - event_delta
+      - cumulative_total
+      - not_supplied
+    identity:
+      unique: [provider_account_id, environment, source_kind, source_reference]
+      replay:
+        same_identity_same_normalized_payload: return_existing_evidence
+        same_identity_different_normalized_payload: conflict_23505
+    provider_account_scope:
+      rule: provider_account_id must equal the provider account of the unique succeeded create_pix_charge attempt for the source Payment
+      failure: reject_23514
+    sandbox:
+      rule: sandbox_simulation is structurally forbidden for Production Refunds
+      failure: reject_23514
+
+  amount_proof:
+    event_delta:
+      completed_rule: provider_reported_amount_cents must equal Refund.amount_cents
+    cumulative_total:
+      completed_rule: provider_reported_amount_cents minus Payment.refunded_amount_cents before this application must equal Refund.amount_cents
+      regression_rule: provider_reported_amount_cents below current Payment.refunded_amount_cents is rejected
+    not_supplied:
+      completed_rule: forbidden
+    general:
+      - provider_reported_amount_cents, when supplied, must be positive
+      - completion must prove exactly this Refund movement, never infer identity from amount
+
+  state_machine:
+    requested:
+      executable_evidence_application: false
+    processing:
+      processing: processing
+      execution_unknown: execution_unknown
+      completed: completed
+      definitively_failed: failed
+    execution_unknown:
+      processing: execution_unknown
+      execution_unknown: execution_unknown
+      completed: completed
+      definitively_failed: failed
+    terminal:
+      same_terminal_evidence: absorbed
+      contradictory_terminal_evidence: conflict
+      financial_rewind: forbidden
+
+  source_activation:
+    sandbox_simulation:
+      allowed_environment: sandbox
+      application: enabled
+    reconciliation:
+      allowed_environment: [sandbox, production]
+      application: enabled
+    execution_result:
+      application: disabled_0A000
+    provider_query:
+      application: disabled_0A000
+    provider_event:
+      application: disabled_0A000
+
+  locking:
+    application_order:
+      - Payment
+      - Refund
+      - refund_evidence
+    rationale:
+      - Serialize cumulative refunded amount with concurrent refund reservations/completions.
+      - Prevent two distinct Refund completions from racing Payment.refunded_amount_cents.
+      - Serialize contradictory evidence for one Refund before ledger mutation.
+
+  financial_policy:
+    merchant_fee_non_refundable:
+      reservation:
+        debit: merchant_available_liability
+        credit: merchant_refund_blocked_liability
+        amount: Refund.amount_cents
+      completed:
+        debit: merchant_refund_blocked_liability
+        credit: provider_settlement_asset
+        amount: Refund.amount_cents
+        payment_fee_reversal_cents: 0
+        provider_refund_cost: unsupported_in_v0
+      failed:
+        debit: merchant_refund_blocked_liability
+        credit: merchant_available_liability
+        amount: Refund.amount_cents
+      execution_unknown:
+        ledger_posting: none
+        blocked_funding: unchanged
+    unsupported_fee_policy:
+      behavior: fail_closed_0A000
+
+  payment_projection:
+    canonical_collection_status:
+      invariant: remains_paid
+    refunded_amount_cents:
+      authoritative_update: increment exactly once by completed Refund.amount_cents
+      source_of_truth_projection: sum_completed_refunds
+      upper_bound: Payment.amount_cents
+
+  ledger_identity:
+    completed: [refund, refund_id, completed]
+    failure_release: [refund, refund_id, release_failure]
+
+  merchant_events:
+    completed: refund.completed
+    failed: refund.failed
+    source_type: refund_evidence
+    transactionality: state_ledger_event_same_postgresql_transaction
+    public_payload:
+      include:
+        - refund_id
+        - payment_id
+        - state
+        - amount_cents
+        - currency
+        - occurred_at
+      exclude:
+        - provider_account_id
+        - provider_refund_id
+        - provider_status_raw
+        - internal_routing
+        - provider_credentials
+
+contracts:
+  functions:
+    record_refund_evidence:
+      signature: record_refund_evidence(uuid,uuid,text,text,text,text,bigint,text,text,text,timestamptz) -> uuid
+      args:
+        - refund_id
+        - provider_account_id
+        - source_kind
+        - source_reference
+        - outcome
+        - amount_semantics
+        - provider_reported_amount_cents
+        - provider_status_raw
+        - provider_refund_id
+        - payload_hash
+        - occurred_at
+    apply_refund_evidence:
+      signature: apply_refund_evidence(uuid) -> text
+      arg: refund_evidence_id
+
+acceptance_criteria:
+  - Exact evidence replay creates one durable row and returns one identity.
+  - One provider source identity cannot be rebound to another Refund or normalized payload.
+  - Production sandbox simulation is rejected.
+  - Unproven provider execution/query/event evidence may be stored but cannot mutate Refund, Payment or ledger.
+  - execution_unknown leaves merchant_refund_blocked_liability and Payment.refunded_amount_cents unchanged.
+  - Completed event_delta evidence must prove exactly Refund.amount_cents.
+  - Completed cumulative_total evidence applies only when its newly proven delta equals Refund.amount_cents.
+  - Completion keeps Payment.collection_status paid and increments Payment.refunded_amount_cents once.
+  - Two distinct same-value Refunds can each complete because source identity is refund_id, not amount.
+  - Definitive failure releases blocked funding exactly once without changing Payment.refunded_amount_cents.
+  - Same-terminal evidence is absorbed; contradictory terminal evidence becomes conflict with no financial rewind.
+  - Completed/failed merchant event creation is atomic with state and ledger effects.
+  - Browser-facing roles cannot directly call evidence recording/application functions.
+
+edge_cases:
+  - stale cumulative provider total
+  - duplicate same-value partial refunds
+  - partial refund followed by final refund
+  - completed evidence with not_supplied amount
+  - completed evidence with wrong event delta
+  - evidence source identity reused for a different Refund
+  - refund provider account differs from original paid Payment provider account
+  - sandbox simulation pointed at Production
+  - provider_event received before provider refund conformance activation
+  - stale definitive failure after completed
+  - duplicate completion reconciliation evidence
+
+excluded:
+  - Real provider refund HTTP execution or claim/lease boundary.
+  - Provider refund fee/cost accounting.
+  - Payment-fee-refundable economics.
+  - Cross-provider refund funding.
+  - Provider-initiated Refund creation when no local Refund exists.
+  - Manual financial repair/correction policy.
