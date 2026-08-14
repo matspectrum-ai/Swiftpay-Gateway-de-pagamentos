@@ -190,12 +190,19 @@ Migration: `20260814022000_merchant_webhook_persistence.sql`
 - `DONE` First-class payout-account, Payout and payout-attempt resource schema.
 - `DONE` Atomic Available -> payout-blocked reservation with database-enforced non-negative merchant liability.
 - `DONE` Payout request replay/idempotency conflict behavior.
-- `PENDING` Payout terminal/`execution_unknown` resolution functions and ledger coupling.
+- `DONE` Payout routing-policy snapshot at reservation.
+- `DONE` Durable payout provider-operation preparation with stable client/request identity.
+- `DONE` One-shot payout execution claim with fencing token; lease expiry never authorizes a blind second monetary POST.
+- `DONE` `app.payout_evidence` normalized durable evidence boundary with provenance and stable source identity.
+- `DONE` Payout `processing` / `execution_unknown` application semantics; unknown external execution leaves blocked funds untouched.
+- `DONE` Payout authoritative completion with exactly-once ledger consumption, provider cost/asset accounting and durable `payout.completed` merchant event.
+- `DONE` Payout authoritative definitive failure with exactly-once blocked -> available release and durable `payout.failed` merchant event.
+- `DONE` Same-terminal evidence absorption and contradictory terminal evidence conflict classification without financial rewind.
 - `DONE` First-class Refund and refund-attempt resource schema.
 - `DONE` Payment refund-fee policy snapshot boundary.
 - `DONE` Refund funding reservation with source-Payment serialization and cumulative refundable-limit enforcement.
 - `DONE` Refund request replay/idempotency conflict behavior; canonical Payment collection state remains `paid`.
-- `PENDING` Refund terminal/`execution_unknown` resolution functions and ledger coupling.
+- `PENDING` Refund terminal/`execution_unknown` evidence application and ledger coupling.
 - `DONE` Current executable refund-reservation economics are fail-closed to `merchant_fee_non_refundable`; refundable-fee policies remain pending their own allocation tests.
 
 Migrations:
@@ -203,8 +210,12 @@ Migrations:
 - `20260814043000_payout_refund_foundation.sql`
 - `20260814044000_payment_refund_policy_snapshot.sql`
 - `20260814050000_financial_reservations.sql`
+- `20260814052000_payout_execution_claim_foundation.sql`
+- `20260814053000_payout_execution_claim_behavior.sql`
+- `20260814054000_payout_resolution_foundation.sql`
+- `20260814055000_payout_resolution_behavior.sql`
 
-Validation after reservation GREEN: **8 pgTAP files / 180 tests / PASS**.
+Validation after payout-resolution GREEN: **12 pgTAP files / 301 tests / PASS**.
 
 ### I — reconciliation
 
@@ -270,7 +281,8 @@ signup
 - `EVIDENCE_REQUIRED` AkkadPag Pix-out conformance: withdrawal key, non-terminal Processing, idempotency/recovery/unknown-result semantics.
 - `PENDING` AkkadPag Pix-out adapter execution/recovery.
 - `DONE` FlevoPay Pix-out is outside capability; route must reject locally.
-- `PENDING` Payout event/idempotency/reconciliation and ledger postings.
+- `DONE` Provider-independent payout reservation/execution-claim/evidence/terminal ledger primitives.
+- `PENDING` AkkadPag payout evidence normalization plus external reconciliation integration.
 - `PENDING` Wallet statement/read model.
 - `PENDING` Reconciliation/admin operations.
 - `DEFERRED` Platform treasury/provider sweep.
@@ -317,7 +329,11 @@ durable PostgreSQL jobs/outbox
         |
 merchant webhook persistence
         |
-payout/refund resources + atomic reservations   <- current GREEN boundary
+payout/refund resources + atomic reservations
+        |
+payout prepare -> one-shot execution claim -> normalized evidence
+        |
+processing / execution_unknown -> completed | failed   <- current GREEN boundary
 ```
 
 Provider runtime scope is frozen:
@@ -341,7 +357,7 @@ withdrawable
 
 ## Immediate execution order
 
-1. payout/refund terminal + `execution_unknown` RED -> GREEN;
+1. refund terminal/`execution_unknown` evidence application RED -> GREEN without enabling an unproven provider refund endpoint;
 2. internal/external reconciliation foundation;
 3. RLS/KYC-storage/audit/seed/deployment foundation;
 4. trusted backend/worker vertical slice;
@@ -353,6 +369,6 @@ withdrawable
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
 - Phase 2 PostgreSQL/Supabase implementation is active and test-driven.
-- Latest reservation boundary: **8 pgTAP files / 180 tests / PASS** on GitHub Actions.
+- Latest payout-resolution boundary: **12 pgTAP files / 301 tests / PASS** on GitHub Actions.
 - No production HTTP API/provider adapter has been introduced yet.
 - Repository artifacts, not chat context, are the canonical engineering source of truth.
