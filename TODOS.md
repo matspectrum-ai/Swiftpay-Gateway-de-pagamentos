@@ -1,6 +1,6 @@
 # SwiftPay V2 — Canonical Work Ledger
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 This is the durable backlog and handoff ledger for the reconstruction. Detailed evidence lives in the linked contracts, ADRs, reverse-engineering notes, specs, migrations and tests. This file records current status and sequencing.
 
@@ -177,17 +177,34 @@ Validation after slice F: **4 pgTAP files / 95 tests / PASS**.
 
 ### G — merchant webhook persistence
 
-- `IN_PROGRESS` Fail-first `005_merchant_webhooks.test.sql` introduced.
-- `PENDING` `app.webhook_endpoints`
-- `PENDING` `app.webhook_events`
-- `PENDING` `app.webhook_deliveries`
-- `PENDING` Atomic logical-event -> endpoint-delivery -> durable-job materialization.
+- `DONE` Fail-first `005_merchant_webhooks.test.sql`.
+- `DONE` `app.webhook_endpoints`.
+- `DONE` `app.webhook_events`.
+- `DONE` `app.webhook_deliveries`.
+- `DONE` Atomic logical-event -> endpoint-delivery -> durable-job materialization.
+
+Migration: `20260814022000_merchant_webhook_persistence.sql`
 
 ### H — payouts/refunds
 
-- `PENDING` Payout account/resource schema and atomic Available -> Blocked reservation.
-- `PENDING` Payout terminal/unknown result functions and ledger coupling.
-- `PENDING` First-class Refund resource and refund funding/resolution functions.
+- `DONE` First-class payout-account, Payout and payout-attempt resource schema.
+- `DONE` Atomic Available -> payout-blocked reservation with database-enforced non-negative merchant liability.
+- `DONE` Payout request replay/idempotency conflict behavior.
+- `PENDING` Payout terminal/`execution_unknown` resolution functions and ledger coupling.
+- `DONE` First-class Refund and refund-attempt resource schema.
+- `DONE` Payment refund-fee policy snapshot boundary.
+- `DONE` Refund funding reservation with source-Payment serialization and cumulative refundable-limit enforcement.
+- `DONE` Refund request replay/idempotency conflict behavior; canonical Payment collection state remains `paid`.
+- `PENDING` Refund terminal/`execution_unknown` resolution functions and ledger coupling.
+- `DONE` Current executable refund-reservation economics are fail-closed to `merchant_fee_non_refundable`; refundable-fee policies remain pending their own allocation tests.
+
+Migrations:
+
+- `20260814043000_payout_refund_foundation.sql`
+- `20260814044000_payment_refund_policy_snapshot.sql`
+- `20260814050000_financial_reservations.sql`
+
+Validation after reservation GREEN: **8 pgTAP files / 180 tests / PASS**.
 
 ### I — reconciliation
 
@@ -298,7 +315,9 @@ canonical double-entry ledger
         |
 durable PostgreSQL jobs/outbox
         |
-merchant webhook persistence   <- current RED/GREEN slice
+merchant webhook persistence
+        |
+payout/refund resources + atomic reservations   <- current GREEN boundary
 ```
 
 Provider runtime scope is frozen:
@@ -322,12 +341,11 @@ withdrawable
 
 ## Immediate execution order
 
-1. finish merchant webhook persistence RED -> GREEN;
-2. payout/refund database state and atomic financial operations;
-3. internal/external reconciliation foundation;
-4. RLS/KYC-storage/audit/seed/deployment foundation;
-5. trusted backend/worker vertical slice;
-6. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
+1. payout/refund terminal + `execution_unknown` RED -> GREEN;
+2. internal/external reconciliation foundation;
+3. RLS/KYC-storage/audit/seed/deployment foundation;
+4. trusted backend/worker vertical slice;
+5. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
 
 ## Verification
 
@@ -335,5 +353,6 @@ withdrawable
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
 - Phase 2 PostgreSQL/Supabase implementation is active and test-driven.
+- Latest reservation boundary: **8 pgTAP files / 180 tests / PASS** on GitHub Actions.
 - No production HTTP API/provider adapter has been introduced yet.
 - Repository artifacts, not chat context, are the canonical engineering source of truth.
