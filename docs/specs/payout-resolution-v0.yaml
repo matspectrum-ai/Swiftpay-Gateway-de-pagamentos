@@ -1,0 +1,253 @@
+feature: payout_resolution_v0
+status: specified_before_tests
+
+problem_analysis:
+  gaps:
+    - The existing resolve_payout(payout_id, outcome, evidence_id, occurred_at) stub accepts an untyped UUID as evidence and cannot prove provenance, deduplicate normalized observations, or audit contradictory terminal evidence.
+    - Payout completion requires provider account identity and authoritative provider cost to produce the balanced provider-asset/expense/revenue posting.
+    - execution_unknown must be durable without releasing blocked merchant funds and must be recoverable by later authoritative evidence.
+    - Terminal domain transition, ledger posting, and merchant webhook event must not become separate dual writes.
+  risks:
+    - treating transport ambiguity as failure and releasing funds;
+    - duplicate success/failure evidence creating duplicate financial postings;
+    - stale failure after completion moving funds backward;
+    - contradictory evidence silently rewriting a terminal financial state;
+    - recording success before provider cost is known, producing unexplained accounting residuals;
+    - provider event/query/reconciliation evidence using incompatible ad-hoc identities.
+  constraints:
+    - provider HTTP stays outside PostgreSQL;
+    - ledger entries remain append-only and source-idempotent;
+    - merchant liability must not become negative;
+    - terminal payout states are not rewound automatically;
+    - manual financial correction is outside this slice and requires the future admin correction contract.
+
+objectives:
+  - Persist normalized, source-identifiable payout evidence before applying it.
+  - Resolve processing or execution_unknown payouts deterministically from authoritative evidence.
+  - Keep execution_unknown financially inert while preserving blocked funds.
+  - Apply completed or definitively_failed financial effects exactly once.
+  - Persist contradictory terminal evidence without automatically rewriting financial history.
+  - Materialize canonical merchant payout webhook events in the same transaction as terminal state and ledger changes.
+
+scope:
+  included:
+    - payout_evidence durable resource
+    - normalized payout evidence source identity
+    - processing, execution_unknown, completed, definitively_failed outcomes
+    - provider payout cost finalization on completed evidence
+    - terminal payout ledger postings
+    - payout.completed and payout.failed durable merchant events
+    - stale/contradictory evidence absorption/conflict marking
+  excluded:
+    - provider HTTP/query/webhook authentication itself
+    - provider-specific status mapping
+    - manual operator correction
+    - payout rejection/cancellation before external execution
+    - retry/new-attempt policy after proven_not_executed
+    - reconciliation discrepancy tables
+    - refund resolution
+
+requirements:
+  - id: PAYOUT-RES-001
+    statement: Every normalized payout observation is persisted as app.payout_evidence before it can mutate Payout, PayoutAttempt, ledger, or merchant webhook state.
+  - id: PAYOUT-RES-002
+    statement: Evidence identity is unique by payout_attempt_id, source_kind, and source_reference; amount is never an evidence identity.
+  - id: PAYOUT-RES-003
+    statement: Re-recording the same evidence identity with the same normalized payload returns the same evidence resource; reusing that identity for different normalized evidence is a deterministic conflict.
+  - id: PAYOUT-RES-004
+    statement: source_kind is one of execution_result, provider_query, provider_event, reconciliation, sandbox_simulation. Manual operation evidence is excluded until the admin correction contract exists.
+  - id: PAYOUT-RES-005
+    statement: outcome is one of processing, execution_unknown, completed, definitively_failed.
+  - id: PAYOUT-RES-006
+    statement: completed evidence requires an explicit non-negative provider_cost_cents value. Zero is valid only when the normalized provider evidence/configuration authoritatively means zero.
+  - id: PAYOUT-RES-007
+    statement: Evidence belongs to exactly one payout attempt and derives provider/provider-account/environment identity from that attempt and payout; callers cannot substitute another provider account during application.
+  - id: PAYOUT-RES-008
+    statement: Applying processing evidence to a processing payout marks the attempt processing and performs no ledger posting.
+  - id: PAYOUT-RES-009
+    statement: Applying execution_unknown from processing or execution_unknown marks payout and attempt execution_unknown, performs no release/completion ledger posting, and leaves merchant_payout_blocked_liability unchanged.
+  - id: PAYOUT-RES-010
+    statement: Applying completed from processing or execution_unknown atomically posts payout completion, marks payout completed, marks attempt succeeded, stores provider cost/status/external payout identity, and materializes payout.completed merchant event.
+  - id: PAYOUT-RES-011
+    statement: Payout completion posting is exactly DEBIT payout_blocked gross, DEBIT provider_payout_fee_expense provider_cost, CREDIT provider_settlement_asset recipient_amount plus provider_cost, CREDIT payout_fee_revenue merchant_fee.
+  - id: PAYOUT-RES-012
+    statement: Applying definitively_failed from processing or execution_unknown atomically releases gross payout-blocked funds to merchant available, marks payout failed, marks attempt definitively_failed, and materializes payout.failed merchant event.
+  - id: PAYOUT-RES-013
+    statement: Reapplying the same already-applied evidence is idempotent and creates no new ledger transaction or merchant logical event.
+  - id: PAYOUT-RES-014
+    statement: New same-terminal evidence after payout is already in that terminal state is absorbed without duplicate financial effects.
+  - id: PAYOUT-RES-015
+    statement: Evidence contradicting an existing terminal payout state is persisted and marked conflict; it cannot automatically reverse the terminal payout or its ledger effects.
+  - id: PAYOUT-RES-016
+    statement: Payout row is locked before payout-attempt/evidence application so concurrent completed and failed evidence cannot both mutate financial state.
+  - id: PAYOUT-RES-017
+    statement: Evidence observed while payout is requested/pre-execution cannot resolve the payout through this external-execution boundary.
+  - id: PAYOUT-RES-018
+    statement: Browser, anon, authenticated and service_role roles cannot record/apply payout evidence directly.
+
+contracts:
+  payout_evidence:
+    fields:
+      id: uuid
+      payout_id: uuid
+      payout_attempt_id: uuid
+      environment: sandbox_or_production
+      source_kind: execution_result_or_provider_query_or_provider_event_or_reconciliation_or_sandbox_simulation
+      source_reference: non_empty_text
+      outcome: processing_or_execution_unknown_or_completed_or_definitively_failed
+      provider_status_raw: nullable_text
+      provider_payout_id: nullable_text
+      provider_cost_cents: nullable_non_negative_bigint
+      payload_hash: non_empty_text
+      occurred_at: timestamptz
+      application_state: received_or_applied_or_absorbed_or_conflict
+      application_reason: nullable_text
+      applied_at: nullable_timestamptz
+      created_at: timestamptz
+  record_payout_evidence:
+    arguments:
+      - { name: payout_id, type: uuid, nullable: false }
+      - { name: payout_attempt_id, type: uuid, nullable: false }
+      - { name: source_kind, type: payout_evidence_source_kind, nullable: false }
+      - { name: source_reference, type: non_empty_text, nullable: false }
+      - { name: outcome, type: payout_evidence_outcome, nullable: false }
+      - { name: provider_status_raw, type: text, nullable: true }
+      - { name: provider_payout_id, type: text, nullable: true }
+      - { name: provider_cost_cents, type: bigint_non_negative, nullable: true }
+      - { name: payload_hash, type: non_empty_text, nullable: false }
+      - { name: occurred_at, type: timestamptz, nullable: false }
+    returns: payout_evidence_id_uuid
+  apply_payout_evidence:
+    arguments:
+      - { name: payout_evidence_id, type: uuid, nullable: false }
+    returns: canonical_payout_state_text
+
+state_machine:
+  processing:
+    processing: processing
+    execution_unknown: execution_unknown
+    completed: completed
+    definitively_failed: failed
+  execution_unknown:
+    processing: execution_unknown
+    execution_unknown: execution_unknown
+    completed: completed
+    definitively_failed: failed
+  completed:
+    completed: absorbed_noop
+    processing: conflict_noop
+    execution_unknown: conflict_noop
+    definitively_failed: conflict_noop
+  failed:
+    definitively_failed: absorbed_noop
+    processing: conflict_noop
+    execution_unknown: conflict_noop
+    completed: conflict_noop
+  requested:
+    any: reject_not_externally_executing
+
+financial_postings:
+  completed:
+    source_type: payout
+    source_id: payout_id
+    posting_type: completed
+    entries:
+      - debit: merchant_payout_blocked_liability
+        amount: payout.amount_cents
+      - debit: provider_payout_fee_expense
+        amount: evidence.provider_cost_cents
+        omit_when_zero: true
+      - credit: provider_settlement_asset
+        amount: payout.recipient_amount_cents + evidence.provider_cost_cents
+      - credit: payout_fee_revenue
+        amount: payout.merchant_fee_cents
+        omit_when_zero: true
+  definitively_failed:
+    source_type: payout
+    source_id: payout_id
+    posting_type: release_failure
+    entries:
+      - debit: merchant_payout_blocked_liability
+        amount: payout.amount_cents
+      - credit: merchant_available_liability
+        amount: payout.amount_cents
+  execution_unknown:
+    posting: none
+  processing:
+    posting: none
+
+merchant_events:
+  completed:
+    type: payout.completed
+    source_type: payout_evidence
+    source_id: payout_evidence_id
+    payload_version: v1
+    public_projection_fields:
+      - payout_id
+      - state
+      - amount_cents
+      - merchant_fee_cents
+      - recipient_amount_cents
+      - currency
+      - occurred_at
+    excluded:
+      - provider_id
+      - provider_account_id
+      - provider_cost_cents
+      - provider_status_raw
+      - execution_token
+      - routing_policy_version
+  definitively_failed:
+    type: payout.failed
+    source_type: payout_evidence
+    source_id: payout_evidence_id
+    payload_version: v1
+    public_projection_fields:
+      - payout_id
+      - state
+      - amount_cents
+      - currency
+      - occurred_at
+
+acceptance_criteria:
+  - Timeout/ambiguous transport evidence moves processing payout to execution_unknown and blocked funds are byte-for-byte unchanged.
+  - Authoritative completed evidence can recover execution_unknown and creates exactly one balanced completion posting.
+  - Authoritative definitive failure can recover execution_unknown and releases blocked funds exactly once.
+  - Duplicate completed evidence cannot duplicate payout completion posting or merchant logical event.
+  - Stale failure after completed cannot release merchant funds and is visibly marked conflict.
+  - Concurrent contradictory terminal evidence cannot both apply because payout state is serialized under row lock.
+  - Completed accounting uses the provider account attached to the payout attempt and explicit provider cost from evidence.
+  - Merchant webhook snapshot contains no provider cost, routing or credential internals.
+
+edge_cases:
+  - completed_with_null_provider_cost: reject_evidence
+  - completed_with_zero_provider_cost: allowed
+  - negative_provider_cost: reject_evidence
+  - evidence_attempt_not_owned_by_payout: reject
+  - duplicate_source_same_payload: return_same_evidence_id
+  - duplicate_source_different_payload: conflict_23505
+  - repeated_unknown_observation: no_ledger_no_release
+  - processing_evidence_after_execution_unknown: keep_execution_unknown
+  - terminal_same_outcome_new_evidence: absorbed
+  - terminal_conflicting_outcome_new_evidence: conflict
+  - zero_merchant_payout_fee: omit_zero_revenue_entry_and_keep_balanced
+  - zero_provider_cost: omit_zero_expense_entry_and_keep_balanced
+
+observability:
+  metrics_to_emit_in_trusted_application_or_worker:
+    - payout_evidence_recorded_total_by_source_kind_and_outcome
+    - payout_execution_unknown_total
+    - payout_resolution_conflict_total
+    - payout_resolution_latency_seconds
+  durable_audit_fields:
+    - payout_evidence_id
+    - payout_id
+    - payout_attempt_id
+    - source_kind
+    - source_reference
+    - outcome
+    - payload_hash
+    - application_state
+    - application_reason
+    - occurred_at
+    - applied_at
