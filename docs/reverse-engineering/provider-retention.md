@@ -1,113 +1,148 @@
-# Provider Retention — Engineering Shortlist
+# Provider Retention — SwiftPay V2 Initial Scope
 
-Status: provisional engineering shortlist; commercial/production evidence still required
+Status: **FROZEN for the initial release**
 
 Date: 2026-08-13
-Legacy revision: `SwiftPay-Prod/swiftpay---Prod@f60a515d2bbfa6ed8142f46fa778fb27068a700d`
+Legacy revision audited: `SwiftPay-Prod/swiftpay---Prod@f60a515d2bbfa6ed8142f46fa778fb27068a700d`
 
-## Goal
+## Decision
 
-Do not port all 12 legacy providers by default. Retain only providers whose Pix-in/Pix-out/refund contracts can be made deterministic and whose business value exceeds their maintenance cost.
+SwiftPay V2 will initially support exactly two payment processors:
 
-This ranking is based on source-code/protocol evidence. It does not rank real approval rate, fees, uptime, support or current production volume.
+1. **AkkadPag**
+2. **FlevoPay**
 
-## V2 retention gates
+No other legacy processor is in the active V1 implementation matrix.
 
-A retained Pix-in provider must have create, recovery/status lookup, authenticated webhook normalization, explicit customer requirements, amount/expiration semantics and a defined unknown-result path.
+This is a product-scope decision. The previous engineering ranking was useful to expose protocol risks, but it is no longer a provider-selection recommendation.
 
-A provider used for Pix-out must additionally have a stable payout identity plus a proven provider-side idempotency/deduplication contract and deterministic recovery. A provider used for refunds must have a stable refund identity, request operation, provider event/reference and ambiguous-result recovery.
+## Active capability matrix
 
-Provider capabilities are per operation: a provider may be valid for Pix-in but not Pix-out/refund.
+| Provider | V1 status | Pix In | Status / recovery lookup | Pix Out | Refund | V1 note |
+|---|---|---:|---:|---:|---:|---|
+| **AkkadPag** | **RETAIN** | yes | yes | yes | **must be proven by retained-provider deep audit before enabling** | Primary bidirectional candidate. Webhook authentication and payout `Processing` semantics must be corrected, not copied. |
+| **FlevoPay** | **RETAIN** | yes | yes | **no in audited legacy implementation** | **must be proven by retained-provider deep audit before enabling** | Inbound Pix provider. V1 capability metadata must explicitly reject Pix Out. |
 
-## Cross-provider findings
+`RETAIN` means SwiftPay will implement and maintain a native thin adapter for that provider. It does not mean every optional operation is automatically enabled.
 
-Ten legacy clients use `AddAcquirerHttpClient`: ActivePayments, Bankizi, IHubBanking, Rapdyn, Coldfy, Pluggou, HunterPay, HeartPay, Accithus and MagicPay. That shared handler retries HTTP 5xx, transport errors and timeouts up to 3 times without checking HTTP method. AkkadPag and FlevoPay use plain `AddHttpClient`.
+Capabilities are operation-specific and fail closed. If a capability has not passed its conformance contract, the router must treat it as unsupported.
 
-V2 must not copy this behavior. GET/read operations may retry; monetary POSTs do not receive blind transport retries. Ambiguous `createCharge`, `createPayout` or `createRefund` results enter recovery.
+## Explicitly deferred processors
 
-Exact code search for `Idempotency-Key`/`idempotencyKey` found explicit Pix-out keys only in:
+The following legacy processors are **not part of the initial SwiftPay V2 runtime**:
 
-- Accithus;
-- Coldfy;
-- HunterPay.
+- Accithus
+- ActivePayments
+- Bankizi
+- Coldfy
+- HeartPay
+- HunterPay
+- IHubBanking
+- MagicPay
+- Pluggou
+- Rapdyn
 
-All three pass the stable SwiftPay `PayoutId`. This is positive evidence but still requires provider contract/conformance proof that the PSP honors the key.
+Their legacy audit remains useful historical knowledge, but no V1 adapter, credential surface, webhook endpoint, routing branch, provider-specific migration or test fixture should be added for them.
 
-No equivalent external idempotency header was observed for audited Pix-in creates. Stable external references are correlation identifiers, not assumed idempotency guarantees.
+Reintroducing any deferred processor requires a new explicit scope decision plus the same conformance gate required for AkkadPag/FlevoPay.
 
-## Provisional tiers
+## Why this changes the architecture
 
-### Tier A — prove first
+The provider layer is now deliberately small:
 
-**Accithus — CANDIDATE**
+```text
+PaymentOrchestrator
+  -> ProviderRouter
+      -> AkkadPagAdapter
+      -> FlevoPayAdapter
+```
 
-- Pix-in + polling + Pix-out.
-- Explicit payout `Idempotency-Key` using `PayoutId`.
-- Standard webhook-auth preprocessor path.
-- Refund statuses recognized.
-- Legacy synthetic name/email/CPF must be removed.
-- Pix-in create has no observed external idempotency and inherits unsafe legacy retry.
+There is no need for a general-purpose twelve-provider migration framework.
 
-**MagicPay — CANDIDATE**
+The router remains capability-oriented so that provider choice never implies unsupported behavior. In particular:
 
-- Simple API-key auth, Pix-in + polling + Pix-out.
-- Optional payer object reduces checkout data friction.
-- Provider payment ID and external correlation remain separate.
-- Provider-specific HMAC verification via `X-Signature`.
-- Concrete `POST /payment/{id}/refund` client method exists.
-- Refund method is uncalled in production legacy and has no observed refund idempotency key.
-- Payout deduplication through `ExternalRef` is not proven.
+```text
+Pix In
+  -> AkkadPag OR FlevoPay, subject to routing policy and health
 
-**Coldfy — CANDIDATE WITH FRICTION**
+Pix Out
+  -> AkkadPag only, unless a future audited FlevoPay contract proves support
 
-- Pix-in + polling + Pix-out.
-- Explicit payout `Idempotency-Key` using `PayoutId`.
-- Legacy fabricates email/phone/CPF.
-- Expiration is whole-day based (1–7 days), not minute-granular.
-- Pix-in external idempotency/refund execution not proven.
+Refund
+  -> disabled per provider until exact execution/recovery semantics are proven
+```
 
-**HunterPay — CANDIDATE WITH COMPATIBILITY COST**
+Provider routing changes funding location, not merchant ownership or ledger semantics.
 
-- Pix-in + polling + Pix-out.
-- Explicit payout `Idempotency-Key` using `PayoutId`.
-- Refund status/amount fields exist.
-- Legacy fabricates CPF/phone/email, uses whole-day expiration, rewrites hosts and tries multiple Basic-auth variants.
-- Pix-in external idempotency not proven.
+## Retained-provider risks that must be closed
 
-### Tier B — unresolved; require operational justification
+### AkkadPag
 
-**ActivePayments** — clear real-customer validation and Pix-in/out, but decimal-BRL conversion, mandatory identity data, no observed payout idempotency header and unsafe legacy POST retry.
+Confirmed legacy facts:
 
-**Bankizi** — optional payer, Pix-in/out/polling and rich refund metadata, but OAuth/token complexity, no observed payout idempotency, unsafe legacy POST retry and a broken `RequestedRefund -> Processing -> terminal refund` legacy state path.
+- Pix In uses `publicKey` + `secretKey`;
+- Pix Out additionally uses `withdrawalKey`;
+- Pix create uses `/transactions`;
+- Pix Out uses `/transfers`;
+- status polling exists;
+- legacy code fabricates placeholder customer data when fields are missing;
+- legacy `WithdrawAsync` treats a valid provider `Processing` state as unsuccessful/rejection-like;
+- the AkkadPag webhook group is the known exception that did not register the standard application-layer provider authentication preprocessor.
 
-**IHubBanking** — Pix-in/out/polling with useful lookup fallback, but broad mandatory customer data, legacy placeholders, specialized identifier/webhook token semantics and no observed payout idempotency.
+V2 requirements before the adapter can be production-enabled:
 
-**Pluggou** — Pix-in/out/polling, but synthetic buyer data, no observed payout idempotency and no proven refund execution contract.
+1. exact request/response DTO contract;
+2. exact amount and expiration semantics;
+3. stable client/provider identifiers for create and payout;
+4. explicit customer-field requirements with no hidden fake identity;
+5. status normalization including `Processing` as non-terminal when appropriate;
+6. fail-closed webhook verification;
+7. no blind retry of monetary POSTs;
+8. `execution_unknown` recovery for ambiguous transport/provider outcomes;
+9. payout idempotency/deduplication evidence before automatic retry is ever allowed;
+10. refund capability disabled until exact execution identity and recovery are proven.
 
-### Tier C — defer by default
+### FlevoPay
 
-**AkkadPag** — Pix-in/out exists, but legacy payout `Processing` semantics are inconsistent and it is the known provider group missing the standard application-layer webhook-auth preprocessor.
+Confirmed legacy facts:
 
-**HeartPay** — HMAC/timestamp webhook verification is positive, but customer identity is synthesized; partial-refund status can be normalized without the amount needed by the ledger path; payout idempotency is unproven.
+- requires `secretKey`;
+- Pix In is supported;
+- status polling is supported;
+- client reference prefers merchant external id and otherwise uses a generated tx id;
+- provider transaction id is returned and persisted;
+- QR string is usable as Pix copy-and-paste data;
+- seller/health lookup exists and legacy caches it briefly;
+- Pix Out is explicitly unsupported;
+- legacy code supplies placeholder customer values.
 
-**Rapdyn** — Pix-in/out exists, but legacy fabricates customer/delivery-address data; payload is more commerce-specific than the desired small Pix core; payout idempotency/refund execution unproven.
+V2 requirements before the adapter can be production-enabled:
 
-**FlevoPay** — Pix-in/polling only; Pix-out explicitly unsupported. Consider only as an inbound-only provider if conversion/fees/reliability justify it.
+1. exact create/status DTO and endpoint contract;
+2. exact provider reference semantics and recovery lookup order;
+3. explicit real-customer requirements, with no placeholder identity;
+4. fail-closed webhook verification and normalized event identity;
+5. no blind retry of Pix-create POSTs;
+6. `execution_unknown` recovery for ambiguous create outcomes;
+7. capability metadata must expose `supports_pix_out = false`;
+8. payout router must reject FlevoPay before any external request;
+9. refund capability disabled until an exact supported provider contract is proven.
 
-## Recommended proof order
+## Retry and uncertainty policy
 
-Do not port all providers.
+AkkadPag and FlevoPay used plain `AddHttpClient` in the audited legacy system, unlike ten other providers that inherited a shared retry handler. V2 still does not infer safety from that fact.
 
-1. Prove Accithus or MagicPay end-to-end.
-2. Prove the other if its real operational/commercial evidence is strong.
-3. Add Coldfy/HunterPay only when their customer-data/expiration costs are acceptable.
-4. Add any Tier B/C provider only for a measurable reason: conversion, reliability, fee, settlement/liquidity fit or merchant demand.
+Rules for both retained providers:
 
-The exact first provider is not frozen by source code alone. Current credentials, contract, production relationship, fees, uptime and support quality can override this engineering order.
+- read-only GET/status calls may use bounded retry when semantically safe;
+- Pix-create, payout and refund POSTs are never blindly transport-retried;
+- a timeout, connection reset, lost response, ambiguous 5xx or crash after possible transmission produces an unresolved `ProviderAttempt`;
+- unresolved attempts enter recovery using provider query/webhook evidence;
+- a new monetary attempt is allowed only when the previous attempt is authoritatively non-executed or a provider idempotency contract makes replay safe.
 
-## V2 provider boundary
+## Provider boundary
 
-The legacy three-method interface is too vague. Target capability-oriented shape:
+Target interface remains small and capability-oriented:
 
 ```text
 PixProvider
@@ -116,16 +151,46 @@ PixProvider
 ├── recoverCharge(attempt)
 ├── getCharge(reference)
 ├── verifyAndNormalizeWebhook(rawRequest)
-├── createPayout(input, attempt)   # capability gated
-├── recoverPayout(attempt)
-├── createRefund(input, attempt)   # capability gated
-└── recoverRefund(attempt)
+├── createPayout(input, attempt)   # AkkadPag only initially
+├── recoverPayout(attempt)         # AkkadPag only initially
+├── createRefund(input, attempt)   # disabled until proven
+└── recoverRefund(attempt)         # disabled until proven
 ```
 
-Each operation declares customer requirements, amount unit, expiration, stable correlation, provider idempotency evidence, recovery mechanism, webhook authentication, status mapping and unknown-result behavior.
+Public SwiftPay contracts never expose provider-specific DTOs or credentials.
 
-## Provider conformance gate
+## Conformance gate
 
-Before a provider becomes `RETAIN`, tests must cover amount conversion, missing required customer data without synthetic identity, effective expiration, create success/4xx/5xx/timeout, ambiguous-result recovery, duplicate/out-of-order webhook, invalid webhook auth, status recovery, payout duplicate/ambiguous behavior when enabled, refund duplicate/ambiguous behavior when enabled, and provider-field non-leakage.
+Before either adapter is production-enabled, tests must cover at minimum:
 
-A provider is `RETAIN` only when both its engineering contract and its business/operational value are proven.
+- credential/config validation;
+- canonical cents -> provider amount mapping;
+- missing required customer data without synthetic identity;
+- requested/effective expiration;
+- create success and deterministic identifier persistence;
+- provider 4xx;
+- provider 5xx;
+- timeout/connection-reset ambiguity;
+- recovery/status lookup;
+- duplicate and out-of-order webhook delivery;
+- invalid/missing webhook authentication;
+- canonical status mapping;
+- provider-field non-leakage into public API;
+- environment isolation;
+- capability rejection before unsupported operations are attempted.
+
+For AkkadPag payout additionally:
+
+- stable payout request identity;
+- `Processing` is not converted into definitive failure;
+- duplicate/ambiguous payout execution behavior;
+- unknown result keeps merchant funds blocked;
+- authoritative success/failure resolves exactly once.
+
+For FlevoPay:
+
+- a Pix Out request is rejected locally as unsupported and creates zero provider-side traffic.
+
+## Revisit rule
+
+Adding a third processor is not an implementation detail. It requires an explicit product/architecture decision and a complete provider conformance contract.
