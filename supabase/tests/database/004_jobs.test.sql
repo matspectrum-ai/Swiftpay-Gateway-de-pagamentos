@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(31);
+select plan(35);
 
 select has_table('app', 'jobs', 'one canonical PostgreSQL jobs/outbox table must exist');
 select has_column('app', 'jobs', 'kind', 'job kind must be explicit');
