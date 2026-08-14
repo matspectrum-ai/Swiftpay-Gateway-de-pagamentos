@@ -1,7 +1,7 @@
 create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
-select plan(8);
+select plan(9);
 
 insert into app.merchants (id,name,lifecycle_status) values ('00000000-0000-0000-0000-000000007001','Payout Merchant','active');
 select app.ensure_account('00000000-0000-0000-0000-000000007001',null,'sandbox','BRL','merchant_available_liability');
@@ -22,6 +22,7 @@ select is((select count(*)::bigint from app.ledger_transactions where source_typ
 
 select lives_ok($$select app.reserve_payout('00000000-0000-0000-0000-000000007001','sandbox','BRL',6000,500,'{"pix_key":"masked"}'::jsonb,'payout-key-1','fp-6000',now())$$,'same idempotency key and fingerprint returns existing payout without reposting');
 select is((select count(*)::bigint from app.payouts),1::bigint,'idempotent replay creates no second payout');
+select throws_ok($$select app.reserve_payout('00000000-0000-0000-0000-000000007001','sandbox','BRL',6000,500,'{"pix_key":"masked"}'::jsonb,'payout-key-1','fp-DIFFERENT',now())$$,'23505',null,'same payout idempotency key with different request fingerprint conflicts');
 select throws_ok($$select app.reserve_payout('00000000-0000-0000-0000-000000007001','sandbox','BRL',5000,500,'{"pix_key":"masked"}'::jsonb,'payout-key-2','fp-5000',now())$$,'23514',null,'insufficient available funds rejects reservation atomically');
 
 select * from finish();
