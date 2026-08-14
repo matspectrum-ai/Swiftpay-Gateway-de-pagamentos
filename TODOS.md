@@ -197,13 +197,18 @@ Migration: `20260814022000_merchant_webhook_persistence.sql`
 - `DONE` Payout `processing` / `execution_unknown` application semantics; unknown external execution leaves blocked funds untouched.
 - `DONE` Payout authoritative completion with exactly-once ledger consumption, provider cost/asset accounting and durable `payout.completed` merchant event.
 - `DONE` Payout authoritative definitive failure with exactly-once blocked -> available release and durable `payout.failed` merchant event.
-- `DONE` Same-terminal evidence absorption and contradictory terminal evidence conflict classification without financial rewind.
+- `DONE` Same-terminal payout evidence absorption and contradictory terminal evidence conflict classification without financial rewind.
 - `DONE` First-class Refund and refund-attempt resource schema.
 - `DONE` Payment refund-fee policy snapshot boundary.
 - `DONE` Refund funding reservation with source-Payment serialization and cumulative refundable-limit enforcement.
 - `DONE` Refund request replay/idempotency conflict behavior; canonical Payment collection state remains `paid`.
-- `PENDING` Refund terminal/`execution_unknown` evidence application and ledger coupling.
-- `DONE` Current executable refund-reservation economics are fail-closed to `merchant_fee_non_refundable`; refundable-fee policies remain pending their own allocation tests.
+- `DONE` `app.refund_evidence` normalized durable evidence boundary with stable provider/simulation/reconciliation source identity and explicit amount semantics.
+- `DONE` Refund `processing` / `execution_unknown` application semantics for approved non-provider evidence; unknown execution keeps merchant funding blocked.
+- `DONE` Refund completion with exactly-once blocked -> provider-settlement posting, first-class cumulative Payment refund projection, and durable `refund.completed` merchant event.
+- `DONE` Refund definitive failure with exactly-once blocked -> available release and durable `refund.failed` merchant event.
+- `DONE` Refund `event_delta` / `cumulative_total` validation, same-terminal absorption and contradictory-terminal conflict without collection-state rewind.
+- `DONE` Current executable refund economics are fail-closed to `merchant_fee_non_refundable`; refundable-fee policies remain pending their own allocation tests.
+- `DEFERRED` Provider-originated refund execution/application until an exact retained-provider refund endpoint, operation identity, duplicate protection, recovery/status and event contract is proven.
 
 Migrations:
 
@@ -214,13 +219,41 @@ Migrations:
 - `20260814053000_payout_execution_claim_behavior.sql`
 - `20260814054000_payout_resolution_foundation.sql`
 - `20260814055000_payout_resolution_behavior.sql`
+- `20260814056000_refund_resolution_foundation.sql`
+- `20260814057000_refund_resolution_behavior.sql`
 
-Validation after payout-resolution GREEN: **12 pgTAP files / 301 tests / PASS**.
+Validation after refund-resolution GREEN: **14 pgTAP files / 390 tests / PASS**.
 
 ### I — reconciliation
 
-- `PENDING` Internal source/domain/ledger/cache reconciliation views/functions.
+#### I1 — internal read-only detection
+
+- `DONE` Freeze `docs/specs/internal-reconciliation-v0.yaml` before behavior implementation.
+- `DONE` `app.reconciliation_account_cache`: rebuild every canonical account balance from ledger entries using the account natural side.
+- `DONE` `app.reconciliation_expected_postings`: rebuild required Payout/Refund reservation and terminal posting identities from canonical state.
+- `DONE` `app.reconciliation_refund_projection`: rebuild Payment refund aggregate exclusively from completed first-class Refund resources.
+- `DONE` `app.internal_reconciliation_findings`: deterministic, environment-scoped, non-secret read-only findings.
+- `DONE` Detect cached-balance drift as `cache_mismatch`.
+- `DONE` Detect canonical financial state missing a required posting as `missing_required_posting`.
+- `DONE` Detect payout/refund ledger source without canonical resource as `orphan_posting`.
+- `DONE` Detect posting invalid for the current canonical resource state as `unexpected_posting`.
+- `DONE` Detect Payment cached refunded aggregate drift as `refund_projection_mismatch`.
+- `DONE` Re-reading reconciliation surfaces is side-effect-free and preserves deterministic stable finding identity.
+
+Migrations:
+
+- `20260814058000_internal_reconciliation_foundation.sql`
+- `20260814059000_internal_reconciliation_behavior.sql`
+
+Validation after I1 GREEN: **16 pgTAP files / 457 tests / PASS**.
+
+#### I2/I3 — durable operations and provider evidence
+
+- `PENDING` Durable reconciliation run/discrepancy persistence and operator lifecycle.
+- `PENDING` Explicit acknowledgement/resolution metadata without automatic financial repair.
 - `PENDING` External provider-evidence reconciliation surfaces.
+- `PENDING` Provider settlement/balance/report comparisons once retained-provider evidence contracts exist.
+- `PENDING` Admin step-up/approval boundary for any future append-only correction flow.
 
 ## Remaining platform foundation
 
@@ -333,7 +366,9 @@ payout/refund resources + atomic reservations
         |
 payout prepare -> one-shot execution claim -> normalized evidence
         |
-processing / execution_unknown -> completed | failed   <- current GREEN boundary
+payout/refund processing / execution_unknown -> completed | failed
+        |
+read-only internal reconciliation detection   <- current GREEN boundary
 ```
 
 Provider runtime scope is frozen:
@@ -357,8 +392,8 @@ withdrawable
 
 ## Immediate execution order
 
-1. refund terminal/`execution_unknown` evidence application RED -> GREEN without enabling an unproven provider refund endpoint;
-2. internal/external reconciliation foundation;
+1. durable reconciliation run/discrepancy persistence RED -> GREEN, without automatic financial repair;
+2. external provider-evidence reconciliation only where retained-provider evidence is contractually proven;
 3. RLS/KYC-storage/audit/seed/deployment foundation;
 4. trusted backend/worker vertical slice;
 5. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
@@ -369,6 +404,7 @@ withdrawable
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
 - Phase 2 PostgreSQL/Supabase implementation is active and test-driven.
-- Latest payout-resolution boundary: **12 pgTAP files / 301 tests / PASS** on GitHub Actions.
+- Latest internal-reconciliation I1 boundary: **16 pgTAP files / 457 tests / PASS** on GitHub Actions.
+- Refund provider execution remains intentionally disabled; the database refund-resolution machine is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
 - No production HTTP API/provider adapter has been introduced yet.
 - Repository artifacts, not chat context, are the canonical engineering source of truth.
