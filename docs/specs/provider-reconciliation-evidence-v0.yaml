@@ -1,0 +1,91 @@
+feature: provider_reconciliation_evidence_v0
+status: frozen_for_tdd
+phase: 2
+slice: I3a
+
+objectives:
+  - Persist provider-authoritative facts independently from SwiftPay canonical state before any external comparison is attempted.
+  - Define a provider-agnostic evidence envelope that can be populated by trusted adapters/workers after provider-specific conformance is proven.
+  - Preserve source identity, evidence window, payload integrity and raw-evidence reference without embedding provider credentials or raw payload bytes in reconciliation rows.
+  - Keep external evidence ingestion side-effect-free with respect to Payments, Payouts, Refunds, ledger, jobs and existing provider evidence application state.
+
+requirements:
+  trusted_boundary:
+    - app.provider_reconciliation_evidence MUST live in the server-owned app schema.
+    - Direct access MUST remain revoked from public, anon, authenticated, and service_role.
+    - The database does not fetch provider APIs, reports, balances or statements.
+    - Only a trusted application/worker adapter may normalize provider evidence into this envelope.
+    - Provider-specific normalization is not considered proven until the retained provider has current conformance evidence for the corresponding source.
+
+  identity:
+    - Every evidence row MUST have a durable UUID.
+    - provider_id and provider_account_id MUST reference canonical provider configuration.
+    - provider_account_id MUST belong to provider_id and MUST have the same environment as the evidence row.
+    - Logical external evidence identity MUST be unique by provider_account_id + environment + source_kind + source_reference.
+    - Replaying the same logical evidence with the same canonical fingerprint MUST return the same row.
+    - Reusing the same logical evidence identity with a different canonical fingerprint MUST conflict rather than overwrite history.
+
+  source:
+    - source_kind MUST be one of provider_query, provider_event, settlement_report, balance_snapshot, or statement_export.
+    - source_reference MUST be explicit and non-empty; it is the stable identity supplied/derived by the trusted adapter for that provider-authoritative fact.
+    - payload_hash MUST be explicit and non-empty.
+    - raw_evidence_ref MAY point to protected raw evidence storage but MUST NOT contain raw payload bytes or credentials.
+    - observed_at MUST represent the provider fact observation/effective time when available.
+    - evidence_window_start/evidence_window_end MAY be set for report/statement/balance windows and MUST be temporally valid.
+
+  fact_shape:
+    - evidence_type MUST be operation_status, settlement_item, or provider_balance.
+    - operation_type MUST be payment, payout, or refund only when evidence_type is operation_status or settlement_item.
+    - provider_balance MUST NOT claim an operation_type.
+    - client_reference and provider_resource_id are correlation facts, not trusted local resource identities; either or both MAY be absent until retained-provider conformance proves availability.
+    - normalized_outcome MAY be processing, execution_unknown, completed, definitively_failed, or absent.
+    - normalized_outcome is only allowed for operation-shaped evidence and MUST be null for provider_balance evidence.
+    - amount_cents and provider_fee_cents MAY be supplied only when the provider source actually supplies those facts; values MUST be non-negative and amount_cents MUST be strictly positive when present.
+    - balance_cents MAY be supplied only for provider_balance evidence and MUST be non-negative.
+    - currency is BRL for V1.
+    - Provider absence is an explicit normalized fact; omission from an arbitrary non-exhaustive report MUST NOT be normalized as absent.
+
+  recording_boundary:
+    - app.record_provider_reconciliation_evidence(...) MUST validate provider/account/environment ownership before insert.
+    - Recording the same logical evidence with the same request_fingerprint MUST be idempotent and return the existing evidence ID.
+    - Same logical evidence identity with a different request_fingerprint MUST raise a conflict.
+    - Recording MUST NOT apply evidence to Payment/Payout/Refund state.
+    - Recording MUST NOT mutate app.provider_events, app.payout_evidence, or app.refund_evidence application state.
+    - Recording MUST NOT append ledger transactions/entries, enqueue jobs, or create reconciliation corrections.
+
+  immutability:
+    - Provider reconciliation evidence is append-only after insertion.
+    - UPDATE and DELETE of persisted evidence MUST fail closed.
+
+  environment_isolation:
+    - Sandbox evidence MUST reference a Sandbox provider account.
+    - Production evidence MUST reference a Production provider account.
+    - Identical source_reference text in Sandbox and Production remains distinct evidence identity.
+
+acceptance_criteria:
+  - A valid normalized provider fact can be persisted without any domain/ledger mutation.
+  - Identical replay returns the same evidence ID and does not add a row.
+  - Same logical identity with changed request_fingerprint conflicts.
+  - Provider/account mismatch is rejected.
+  - Provider-account/environment mismatch is rejected.
+  - Invalid fact/source shapes are rejected.
+  - Evidence rows cannot be updated or deleted.
+  - Sandbox and Production are isolated.
+  - All existing pgTAP suites remain green.
+
+edge_cases:
+  - Provider account is disabled after historical evidence was created; historical evidence remains valid and reconcilable.
+  - Evidence has no correlation identifier because the provider source does not expose one; it may still be retained as independent evidence but cannot be force-matched.
+  - Report/statement window with end before start.
+  - Explicit provider absence from a proven authoritative query versus mere omission from a report.
+  - Same source reference reused with a changed payload/fingerprint.
+  - Balance snapshot with operation fields accidentally supplied.
+  - Operation evidence with balance_cents accidentally supplied.
+
+out_of_scope:
+  - HTTP calls or SDK calls to AkkadPag/FlevoPay.
+  - Guessing current provider status names, report fields, pagination, rate limits, or absence semantics.
+  - Correlating evidence to local Payment/Payout/Refund when provider evidence does not expose a proven stable identifier.
+  - Provider-vs-SwiftPay discrepancy views and external reconciliation capture; planned for I3b after source-specific conformance evidence exists.
+  - Applying external evidence to resolve execution_unknown; existing domain evidence application functions remain the only canonical mutation boundary.
+  - Provider balance correction, settlement posting, or any automatic financial repair.
