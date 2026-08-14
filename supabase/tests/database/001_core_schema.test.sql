@@ -1,4 +1,7 @@
+create extension if not exists pgtap with schema extensions;
+
 begin;
+set local search_path = public, extensions;
 
 select plan(25);
 
@@ -21,42 +24,12 @@ select has_table('app', 'provider_attempts', 'provider attempts table must exist
 select has_table('app', 'provider_events', 'provider events table must exist');
 
 -- Critical operation identity must be enforced by PostgreSQL.
-select has_index(
-  'app',
-  'api_credentials',
-  'api_credentials_public_key_uq',
-  'API public keys must be unique'
-);
-select has_index(
-  'app',
-  'kyc_documents',
-  'kyc_documents_version_uq',
-  'KYC case/purpose/version must be unique'
-);
-select has_index(
-  'app',
-  'request_idempotency',
-  'request_idempotency_scope_uq',
-  'merchant/environment/operation/idempotency-key scope must be unique'
-);
-select has_index(
-  'app',
-  'provider_attempts',
-  'provider_attempts_payment_attempt_uq',
-  'provider attempt number must be unique per Payment'
-);
-select has_index(
-  'app',
-  'provider_attempts',
-  'provider_attempts_one_unresolved_uq',
-  'one unresolved provider create attempt per Payment must be enforced'
-);
-select has_index(
-  'app',
-  'provider_events',
-  'provider_events_fingerprint_uq',
-  'provider event/fingerprint identity must be database-unique in scope'
-);
+select has_index('app', 'api_credentials', 'api_credentials_public_key_uq', 'API public keys must be unique');
+select has_index('app', 'kyc_documents', 'kyc_documents_version_uq', 'KYC case/purpose/version must be unique');
+select has_index('app', 'request_idempotency', 'request_idempotency_scope_uq', 'merchant/environment/operation/idempotency-key scope must be unique');
+select has_index('app', 'provider_attempts', 'provider_attempts_payment_attempt_uq', 'provider attempt number must be unique per Payment');
+select has_index('app', 'provider_attempts', 'provider_attempts_one_unresolved_uq', 'one unresolved provider create attempt per Payment must be enforced');
+select has_index('app', 'provider_events', 'provider_events_fingerprint_uq', 'provider event/fingerprint identity must be database-unique in scope');
 
 -- Money/state columns are explicit and integer-based.
 select has_column('app', 'payments', 'amount_cents', 'Payment amount must be integer centavos');
