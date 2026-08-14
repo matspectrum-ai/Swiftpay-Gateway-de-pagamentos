@@ -28,6 +28,7 @@ merchant_net_cents
 provider_cost_cents?          # internal only when known
 platform_margin_cents?        # internal derived snapshot when valid
 rounding_policy_version
+refund_fee_policy             # immutable policy used by future Refund resources
 ```
 
 Payouts/refunds similarly retain the approved fee/economic snapshot needed to explain their posting later.
@@ -104,7 +105,28 @@ merchant_fee_refundable_pro_rata
 merchant_fee_refundable_full_on_full_refund
 ```
 
-The active policy is snapshotted on the source Payment/pricing version before refund execution is enabled.
+The active policy is persisted as immutable `Payment.refund_fee_policy` before refund execution is enabled. A Refund snapshots that source value into its own economic-policy field so later pricing changes cannot alter historical refund accounting.
+
+### Phase 2 executable refund-funding slice
+
+The first executable reservation slice enables only an explicitly snapshotted:
+
+```text
+merchant_fee_non_refundable
+```
+
+For this policy:
+
+```text
+refund principal requested = merchant funding reserved
+merchant available liability -> merchant refund-blocked liability
+```
+
+The original SwiftPay payment fee remains platform revenue and is not returned as part of the refund reservation. The Refund stores the policy identity used for that decision.
+
+`merchant_fee_refundable_pro_rata` and `merchant_fee_refundable_full_on_full_refund` are valid future policy values but are fail-closed for executable refund reservation until their proportional/final allocation postings have fail-first tests. They must not silently inherit the non-refundable posting template.
+
+A Payment without a persisted `refund_fee_policy` is not eligible for programmatic refund reservation.
 
 Provider-refund costs are separate and follow the retained provider contract.
 
