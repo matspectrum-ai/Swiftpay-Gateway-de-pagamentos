@@ -1,0 +1,19 @@
+name: Database contracts
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pgtap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v2
+        with:
+          version: latest
+      - run: supabase init
+      - run: supabase db start
+      - run: supabase test db
