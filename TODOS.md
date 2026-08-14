@@ -2,292 +2,338 @@
 
 Updated: 2026-08-13
 
-This is the durable backlog and handoff ledger for the reconstruction. Detailed evidence lives in the linked product, contract, reverse-engineering and ADR documents; this file tracks status and sequencing rather than duplicating every audit note.
+This is the durable backlog and handoff ledger for the reconstruction. Detailed evidence lives in the linked contracts, ADRs, reverse-engineering notes, specs, migrations and tests. This file records current status and sequencing.
 
 ## States
 
 - `PENDING`: known, not started
 - `IN_PROGRESS`: actively being worked
-- `EVIDENCE_REQUIRED`: design direction exists but external/live evidence is required before activation
-- `BLOCKED`: cannot proceed until an external dependency/decision is resolved
-- `DONE`: completed with durable evidence/contract recorded
-- `DEFERRED`: deliberately postponed from the current release
-- `DROPPED`: deliberately removed from scope
-- `SUPERSEDED`: replaced by a later decision
+- `EVIDENCE_REQUIRED`: implementation direction exists but current provider/live evidence is required before activation
+- `BLOCKED`: external dependency prevents progress
+- `DONE`: completed with durable evidence/tests
+- `DEFERRED`: deliberately outside the current release
+- `DROPPED`: removed from scope
+- `SUPERSEDED`: replaced by a later accepted decision
 
 # Phase 0 — Foundation and reverse engineering
 
 ## Foundation
 
-- `DONE` Create reconstruction repository and canonical documentation structure.
-- `DONE` Establish `AGENTS.md` governance and evidence standards.
-- `DONE` Record Pix-first rebuild scope and materially simpler architecture.
-- `DONE` Select Supabase/PostgreSQL as platform foundation behind a trusted SwiftPay API/worker boundary.
-- `DONE` Select modular monolith as first-release application topology.
-- `DONE` Define foundational financial invariants.
-- `DONE` Define product vision and merchant experience principles.
-- `DONE` Establish Brand System v0 exploration baseline.
+- `DONE` Reconstruction repository, governance and documentation structure.
+- `DONE` Pix-first scope and materially simpler architecture.
+- `DONE` Supabase/PostgreSQL platform foundation behind trusted SwiftPay API/worker boundaries.
+- `DONE` Modular-monolith first-release topology.
+- `DONE` Foundational financial/security invariants.
+- `DONE` Product vision and merchant experience direction.
+- `IN_PROGRESS` Brand/design system and representative UI validation.
 
 ## Legacy/product inventory
 
-- `DONE` Classify primary merchant/admin/frontend capabilities using `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER`.
-- `DONE` Inventory merchant/admin/checkout/payment-link/integration surfaces.
-- `DONE` Define first-release Pix selling spine and defer broad commerce/catalog/stock/digital-delivery breadth.
-- `DONE` Produce migration data classification: migrate, recompute, archive, discard or reconcile-at-cutover.
-- `PENDING` Complete exhaustive line-oriented sweep of remaining author-written legacy source/configuration. This is a completeness task; it does not block already-audited retained-domain contracts unless it reveals a contradiction.
+- `DONE` Merchant/admin/frontend capability inventory and `KEEP | SIMPLIFY | REPLACE | REMOVE | DEFER` classification.
+- `DONE` First-release selling spine; broad legacy commerce/catalog/stock/delivery breadth deferred.
+- `DONE` Migration data classification baseline.
+- `PENDING` Exhaustive residual author-written legacy sweep. This completeness task does not block already-proven retained-domain contracts unless contradictory evidence appears.
 
 ## Providers
 
-- `DONE` Audit all 12 legacy `IAcquirerService` implementations at adapter level.
-- `DONE` Audit exact-brand Hyperswitch connector coverage; no first-party exact-brand connector match was found for the 12 legacy provider names at the audited revision.
-- `DONE` Close provider-orchestration ADR: native thin Pix adapters are the first-release baseline; Hyperswitch is only a future optional adapter boundary.
-- `DONE` Produce engineering provider-retention tiers and operation-specific safety gates.
-- `DONE` Deep-dive Accithus vs MagicPay for first provider proof.
-- `EVIDENCE_REQUIRED` MagicPay Pix-in: first proof candidate; prove `ExternalRef` query/recovery or provider-side dedupe before `RETAIN`.
-- `EVIDENCE_REQUIRED` Accithus Pix-out: strong first proof candidate; prove provider honors repeated `Idempotency-Key: PayoutId` as one external transfer before `RETAIN`.
-- `IN_PROGRESS` Finish retained-provider client/webhook/status/refund contract deep dives for any provider that remains commercially relevant.
+- `DONE` Audit all 12 legacy `IAcquirerService` adapters.
+- `DONE` Audit Hyperswitch exact-brand coverage; no first-party exact-brand connector match was found for the audited legacy provider set.
+- `DONE` Accept ADR 0004: native thin provider adapters; Hyperswitch is not an initial dependency.
+- `SUPERSEDED` Engineering provider-retention tiers used during exploration.
+- `SUPERSEDED` MagicPay/Accithus first-proof candidate recommendation.
+- `DONE` Freeze V1 processor scope to exactly **AkkadPag + FlevoPay**.
+- `DEFERRED` Accithus, ActivePayments, Bankizi, Coldfy, HeartPay, HunterPay, IHubBanking, MagicPay, Pluggou and Rapdyn.
+- `DONE` Deep source audit of retained AkkadPag/FlevoPay client, DTO, status and webhook behavior.
+- `EVIDENCE_REQUIRED` AkkadPag current sandbox/docs: webhook auth, create recovery/idempotency, payout recovery/idempotency, current statuses/rate limits.
+- `EVIDENCE_REQUIRED` FlevoPay current sandbox/docs: webhook auth, authoritative create-recovery identifier, current statuses/rate limits.
+- `DONE` FlevoPay V1 capability rule: Pix-out unsupported and rejected locally before HTTP.
+- `DONE` AkkadPag V1 capability direction: Pix-in + Pix-out; production activation still requires conformance evidence.
+- `DEFERRED` Provider refunds until an exact retained-provider refund endpoint/identity/recovery contract is proven.
 
 ## Financial core
 
-- `DONE` Audit legacy `LedgerService` and `LedgerRepository`.
-- `DONE` Audit fee/calculation services.
-- `DONE` Audit internal reconciliation behavior.
-- `DONE` Audit merchant payout reservation/execution/webhook paths.
-- `DONE` Record payout concurrent overspend risk and require atomic reservation.
-- `DONE` Record unknown-result flaw where legacy provider exceptions can release funds despite possible external execution.
-- `DONE` Record method-agnostic HTTP retry risk on monetary provider POSTs.
-- `DONE` Audit refund state/source identity and repeated-partial-refund defects.
-- `DONE` Audit platform payout/provider sweep execution and defer it from initial V2 pending treasury/fund-ownership contracts.
-- `DONE` Audit material financial migrations/source-event constraints.
-- `DONE` Record historical duplicate `SettlementOut` repair as evidence that database idempotency is a launch requirement.
-- `DONE` Record nullable account identity/read-before-insert race and require deterministic database account identity/upsert.
-- `EVIDENCE_REQUIRED` Determine actual live use of non-zero reserve/compensation settings from safe production/configuration evidence. First-release design keeps risk reserve disabled until this evidence/ADR says otherwise.
+- `DONE` Audit legacy ledger, calculations, fees and reconciliation.
+- `DONE` Audit payout reservation/execution/webhooks and record concurrent overspend risk.
+- `DONE` Record unknown-result flaw and generic monetary POST retry risk.
+- `DONE` Audit refund source identity/state defects.
+- `DONE` Defer platform treasury/provider sweep from initial V2.
+- `DONE` Define canonical V2 double-entry chart/source identity/balance model.
+- `EVIDENCE_REQUIRED` Determine whether non-zero risk reserve/compensation is actually required. Initial V2 keeps risk reserve disabled.
 
-## Public API/security
+## Public API/security/KYC
 
-- `DONE` Audit client-credentials token flow and immediate credential revocation/secret-version behavior.
-- `DONE` Audit Pix create/get/list public contract.
-- `DONE` Audit public balance semantic mismatch (`available` vs `withdrawable`, reserve vs blocked).
-- `DONE` Audit public cashout create/get/list/cancel and sandbox relation.
-- `DONE` Audit merchant payment/payout webhook signing/retry behavior.
-- `DONE` Record legacy merchant-webhook HMAC weakness and non-durable delivery identity.
-- `DONE` Audit API credential lifecycle and internal API authentication boundary.
-- `DONE` Audit KYC lifecycle and prove legacy production financial access can precede approved KYC.
-- `DONE` Audit KYC storage visibility/ownership/deletion weaknesses.
-- `DONE` Audit BaseResponse/error envelope and source-level OpenAPI behavior.
-- `DONE` Record first-validation-error loss, inconsistent `error.code`, and source OpenAPI/runtime mismatch.
+- `DONE` Audit client-credentials token/revocation behavior.
+- `DONE` Audit Pix create/get/list and public balance semantics.
+- `DONE` Audit cashout and Sandbox defects.
+- `DONE` Audit merchant webhook signing/retry behavior and legacy public-ID HMAC flaw.
+- `DONE` Audit API credential lifecycle and internal API auth boundary.
+- `DONE` Audit KYC lifecycle and storage/ownership/immutability defects.
+- `DONE` Audit BaseResponse/error/OpenAPI behavior.
 
 ## Async consistency
 
-- `DONE` Inventory RabbitMQ/MassTransit logical queues/consumers.
-- `DONE` Inventory Hangfire/Valkey recurring work.
-- `DONE` Confirm lack of transactional outbox around audited financial/message boundaries.
-- `DONE` Record payment, Pix-create and cashout DB/message dual-write windows.
-- `DONE` Set first-release async baseline: PostgreSQL transactional outbox/jobs + small worker.
+- `DONE` Inventory legacy RabbitMQ/MassTransit and Hangfire/Valkey work.
+- `DONE` Confirm absence of transactional outbox around audited financial/message boundaries.
+- `DONE` Record payment/Pix-create/payout dual-write windows.
+- `DONE` Select PostgreSQL durable jobs/outbox + small worker as V1 async baseline.
 
 # Phase 1 — Product and domain specification
 
 ## Core contracts
 
-- `DONE` Product vision: `docs/product/product-vision.md`.
-- `DONE` Merchant experience principles: `docs/product/experience-principles.md`.
-- `IN_PROGRESS` Brand/design system; representative UI concepts and accessibility validation remain.
-- `DONE` Financial invariants: `docs/contracts/financial-invariants.md`.
-- `DONE` Payment + ProviderAttempt + create idempotency: `docs/contracts/payment-and-provider-attempt.md`.
-- `DONE` Ledger chart, posting/source identity and balance semantics: `docs/contracts/ledger-and-balance.md`.
-- `DONE` Native provider capability/adapter contract: `docs/contracts/native-pix-provider-adapter.md`.
-- `DONE` PostgreSQL transactional outbox/job/lease contract: `docs/contracts/outbox-and-jobs.md`.
-- `DONE` Payout/Pix-out state machine: `docs/contracts/payout.md`.
-- `DONE` First-class Refund resource/state machine: `docs/contracts/refund.md`.
-
-## Contracts still required before implementation-ready vertical slice
-
-- `PENDING` Merchant lifecycle + production KYC authorization contract.
-- `PENDING` API credential issuance/verification/rotation/revocation contract.
-- `PENDING` Canonical public API success/error/idempotency/status projection contract.
-- `PENDING` Fee/pricing model and deterministic rounding/snapshot contract.
-- `PENDING` Merchant webhook endpoint/event/delivery/signature/replay contract.
-- `PENDING` Sandbox semantics with structural Production exclusion.
-- `PENDING` Internal + external reconciliation contract.
-- `PENDING` Admin operational capability, step-up authorization and financial repair contract.
+- `DONE` `docs/contracts/financial-invariants.md`
+- `DONE` `docs/contracts/payment-and-provider-attempt.md`
+- `DONE` `docs/contracts/ledger-and-balance.md`
+- `DONE` `docs/contracts/native-pix-provider-adapter.md`
+- `DONE` `docs/contracts/outbox-and-jobs.md`
+- `DONE` `docs/contracts/payout.md`
+- `DONE` `docs/contracts/refund.md`
+- `DONE` `docs/contracts/merchant-kyc.md`
+- `DONE` `docs/contracts/api-credentials.md`
+- `DONE` `docs/contracts/public-api.md`
+- `DONE` `docs/contracts/fees-and-rounding.md`
+- `DONE` `docs/contracts/merchant-webhooks.md`
+- `DONE` `docs/contracts/sandbox.md`
+- `DONE` `docs/contracts/reconciliation.md`
+- `PENDING` Admin operational capability/step-up/financial repair contract.
 
 ## Selling/product surfaces
 
-- `PENDING` Hosted Pix Checkout contract and merchant-branding boundary.
-- `PENDING` Payment Link contract.
-- `PENDING` Quick Pix seller flow.
-- `PENDING` Canonical conversion-event taxonomy and denominators.
-- `PENDING` UTM attribution/retention/deduplication.
+- `DONE` Unified Hosted Checkout / Payment Link / Quick Pix / REST source model in `docs/contracts/selling-surfaces.md`.
+- `PENDING` Detailed hosted checkout branding/configuration contract.
+- `PENDING` Detailed payment-link management contract.
+- `PENDING` Conversion-event taxonomy/denominators and UTM attribution retention/deduplication.
 - `PENDING` Constrained automation model (`EVENT -> CONDITION -> ACTION`).
-- `PENDING` Integration contracts for UTMify, n8n, WhatsApp, Telegram and generic webhooks.
-- `DEFERRED` Wallet top-up until fund-flow/provider/legal contract is approved.
-- `PENDING` Direct Pix-out/payment-from-balance product contract where approved.
-- `DEFERRED` Seller ranking until canonical-sales eligibility/privacy rules are approved.
-- `PENDING` Developer experience roadmap: canonical OpenAPI, SDK, CLI and safe agent/MCP integration.
+- `PENDING` Integration contracts for UTMify, n8n, WhatsApp, Telegram and generic merchant integrations.
+- `DEFERRED` Wallet top-up until an explicit fund-flow/legal/provider contract exists.
+- `DEFERRED` Seller ranking until canonical eligibility/privacy rules exist.
 
 # Phase 2 — Supabase/PostgreSQL foundation
 
-No production schema implementation starts until the required Phase 1 core contracts above are closed and fail-first tests/specs are defined.
+Implementation is active under strict RED -> migration -> GREEN database TDD.
 
-- `PENDING` Define environment/project strategy.
-- `PENDING` Write fail-first database/schema tests.
-- `PENDING` Define schemas/migrations from contracts.
-- `PENDING` Configure Supabase Auth for dashboard users.
-- `PENDING` Implement fail-closed RLS policies and tests.
-- `PENDING` Configure public asset vs private KYC storage buckets/policies.
-- `PENDING` Create API credential/request-idempotency/provider-event source identity primitives.
-- `PENDING` Create ledger accounts/transactions/entries and controlled financial posting functions.
-- `PENDING` Create durable jobs/outbox claim/lease/recovery primitives.
-- `PENDING` Create audit/event infrastructure.
-- `PENDING` Create local seed/sandbox fixtures.
-- `PENDING` Decide trusted SwiftPay API/worker production deployment topology around managed Supabase.
+## Harness
 
-# Phase 3 — First vertical slice
+- `DONE` Versioned Supabase project configuration; PostgreSQL 17.
+- `DONE` Supabase CLI pinned in CI.
+- `DONE` pgTAP database-contract workflow with `supabase db start` + `supabase test db`.
+- `DONE` Server-owned `app` schema kept outside direct browser Data API mutation surface.
+- `IN_PROGRESS` Fail-first schema suites; each slice is introduced RED before its migration.
+
+## Implemented slices
+
+### A — merchant / KYC / provider configuration
+
+- `DONE` `app.merchants`
+- `DONE` `app.merchant_members`
+- `DONE` `app.kyc_cases`
+- `DONE` `app.kyc_documents`
+- `DONE` `app.api_credentials`
+- `DONE` `app.providers`
+- `DONE` `app.provider_accounts`
+
+Migration: `20260814005500_identity_compliance_and_providers.sql`
+
+### B/C/D — request idempotency / Payment / provider evidence
+
+- `DONE` `app.request_idempotency`
+- `DONE` `app.payments`
+- `DONE` `app.provider_attempts`
+- `DONE` `app.provider_events`
+- `DONE` Payment cents/BRL/fee/net/refund constraints.
+- `DONE` Request-idempotency database uniqueness.
+- `DONE` One unresolved provider-create attempt per Payment.
+- `DONE` Provider-event durable identity primitives.
+
+Migration: `20260814010000_payment_idempotency_and_provider_events.sql`
+
+### E — canonical ledger
+
+- `DONE` `app.accounts`
+- `DONE` `app.ledger_transactions`
+- `DONE` `app.ledger_entries`
+- `DONE` Deterministic merchant/provider/platform account identities.
+- `DONE` `app.ensure_account(...)` database-native upsert.
+- `DONE` `app.post_ledger_transaction(...)` double-entry/source-idempotency boundary.
+- `DONE` Deterministic row locking and non-negative merchant liability buckets.
+- `DONE` Cached balances update atomically by natural side.
+- `DONE` Risk-reserve account is not created by default payment posting.
+
+Migration: `20260814014500_ledger_foundation.sql`
+
+### F — PostgreSQL durable jobs/outbox
+
+- `DONE` `app.jobs`
+- `DONE` Logical dedupe uniqueness.
+- `DONE` Versioned job payloads.
+- `DONE` `enqueue_job(...)` idempotent enqueue.
+- `DONE` `claim_jobs(...)` with `FOR UPDATE SKIP LOCKED` and lease fencing token.
+- `DONE` `complete_job(...)` fenced completion.
+- `DONE` `reschedule_job(...)` retry/dead transition with structured error persistence.
+
+Migration: `20260814020500_jobs_foundation.sql`
+
+Validation after slice F: **4 pgTAP files / 95 tests / PASS**.
+
+### G — merchant webhook persistence
+
+- `IN_PROGRESS` Fail-first `005_merchant_webhooks.test.sql` introduced.
+- `PENDING` `app.webhook_endpoints`
+- `PENDING` `app.webhook_events`
+- `PENDING` `app.webhook_deliveries`
+- `PENDING` Atomic logical-event -> endpoint-delivery -> durable-job materialization.
+
+### H — payouts/refunds
+
+- `PENDING` Payout account/resource schema and atomic Available -> Blocked reservation.
+- `PENDING` Payout terminal/unknown result functions and ledger coupling.
+- `PENDING` First-class Refund resource and refund funding/resolution functions.
+
+### I — reconciliation
+
+- `PENDING` Internal source/domain/ledger/cache reconciliation views/functions.
+- `PENDING` External provider-evidence reconciliation surfaces.
+
+## Remaining platform foundation
+
+- `PENDING` Supabase Auth dashboard-user integration beyond schema identity reference.
+- `PENDING` Fail-closed RLS/role-policy tests where roles can reach app-owned objects.
+- `PENDING` Private KYC Storage buckets/policies.
+- `PENDING` Append-only audit-event infrastructure.
+- `PENDING` Local sandbox/seed fixtures.
+- `PENDING` Trusted API/worker production deployment topology around managed Supabase.
+
+# Phase 3 — First executable Pix vertical slice
 
 Target:
 
 ```text
 signup
 -> merchant
--> KYC
--> approve
+-> KYC approved
 -> API credential
 -> create Pix
--> native provider
--> authenticated provider event
--> Payment transition
+-> AkkadPag or FlevoPay
+-> authenticated provider evidence
+-> canonical Payment transition
 -> ledger posting
 -> balance
--> merchant webhook
+-> durable merchant webhook
 ```
 
-TDD rule: contracts and failing tests precede production implementation.
-
-- `PENDING` Vertical-slice acceptance/contract tests.
-- `PENDING` Auth/merchant profile.
-- `PENDING` Minimal KYC + approval capability gate.
-- `PENDING` API credential issuance/verification.
-- `PENDING` Pix create + request idempotency.
-- `EVIDENCE_REQUIRED` Promote first Pix-in provider to `RETAIN` through conformance/sandbox proof; current first proof candidate is MagicPay.
-- `PENDING` First retained provider adapter implementation.
-- `PENDING` Provider event authentication/normalization/source idempotency.
-- `PENDING` Atomic paid-payment ledger posting.
-- `PENDING` Canonical balance read model.
-- `PENDING` Durable outbox/worker execution.
-- `PENDING` Signed durable merchant webhook delivery.
+- `PENDING` Vertical-slice application/acceptance tests.
+- `PENDING` Trusted backend auth/merchant/KYC capability gate.
+- `PENDING` API credential issuance/verification endpoints.
+- `PENDING` Public Pix create/get/list with request idempotency.
+- `EVIDENCE_REQUIRED` AkkadPag Pix-in conformance/sandbox proof before production enablement.
+- `EVIDENCE_REQUIRED` FlevoPay Pix-in conformance/sandbox proof before production enablement.
+- `PENDING` `AkkadPagAdapter` implementation.
+- `PENDING` `FlevoPayAdapter` implementation.
+- `PENDING` Two-provider capability-aware router.
+- `PENDING` Provider webhook authentication/normalization/recovery application layer.
+- `PENDING` Atomic paid-Payment transition + ledger + merchant-event job orchestration.
+- `PENDING` Canonical balance API/read model.
+- `PENDING` Small SwiftPay worker for durable jobs.
+- `PENDING` HMAC-signed merchant webhook HTTP delivery with SSRF/replay controls.
 - `PENDING` Minimal merchant/admin UI for the slice.
 
 # Phase 4 — Selling surfaces and conversion
 
-- `PENDING` Hosted Pix Checkout over canonical Payment Core.
-- `PENDING` Payment Links over canonical Payment Core.
+- `PENDING` Hosted Pix Checkout over Payment Core.
+- `PENDING` Payment Links over Payment Core.
 - `PENDING` Quick Pix seller flow.
-- `PENDING` Canonical conversion event capture.
-- `PENDING` Conversion funnel and approved/lost sale metrics.
+- `PENDING` Conversion events/funnel/approved-lost metrics.
 - `PENDING` UTM/campaign attribution.
-- `PENDING` Provider conversion observability.
-- `PENDING` Actionable/recoverable-revenue insights with explicit estimate labeling.
+- `PENDING` Provider conversion observability and actionable revenue insights.
 
 # Phase 5 — Wallet, payouts and operations
 
 - `PENDING` Payout account management.
 - `PENDING` Withdrawal request/approval policy.
-- `EVIDENCE_REQUIRED` Promote a Pix-out provider through conformance proof; Accithus is current strong first proof candidate.
-- `PENDING` Pix-out adapter execution/recovery.
-- `PENDING` Payout event/idempotency/reconciliation.
-- `PENDING` Payout ledger postings for reservation/completion/failure/unknown recovery.
+- `EVIDENCE_REQUIRED` AkkadPag Pix-out conformance: withdrawal key, non-terminal Processing, idempotency/recovery/unknown-result semantics.
+- `PENDING` AkkadPag Pix-out adapter execution/recovery.
+- `DONE` FlevoPay Pix-out is outside capability; route must reject locally.
+- `PENDING` Payout event/idempotency/reconciliation and ledger postings.
 - `PENDING` Wallet statement/read model.
-- `PENDING` Reconciliation views/admin operations.
-- `DEFERRED` Platform treasury/provider sweep until explicit fund ownership, treasury controls and external reconciliation are approved.
+- `PENDING` Reconciliation/admin operations.
+- `DEFERRED` Platform treasury/provider sweep.
 
 # Phase 6 — Revenue automation and integrations
 
-- `PENDING` Durable integration execution foundation on canonical outbox/jobs.
+- `PENDING` Integration execution on canonical jobs/outbox.
 - `PENDING` Automation rules/executions.
-- `PENDING` Unpaid-Pix recovery template.
-- `PENDING` UTMify integration.
-- `PENDING` n8n integration surface.
-- `PENDING` WhatsApp integration through approved provider/contract.
-- `PENDING` Telegram integration.
+- `PENDING` Unpaid-Pix recovery automation.
+- `PENDING` UTMify, n8n, WhatsApp and Telegram integrations.
 
 # Phase 7 — Developer experience
 
-- `PENDING` Publish canonical OpenAPI/integration guide.
-- `PENDING` Add OpenAPI contract/breaking-change CI.
-- `PENDING` TypeScript SDK if it materially reduces integration friction.
-- `PENDING` SwiftPay CLI/bootstrap flow if justified.
+- `PENDING` Canonical OpenAPI/integration guide.
+- `PENDING` OpenAPI breaking-change CI.
+- `PENDING` TypeScript SDK if justified.
+- `PENDING` SwiftPay CLI/bootstrap if justified.
 - `PENDING` Safe MCP/agent integration if approved.
-- `PENDING` Agent-readable integration examples/fixtures.
 
 # Phase 8 — Migration and cutover
 
-- `PENDING` Build legacy -> V2 migration mapping from approved data classification.
-- `PENDING` Create replay/parity harness.
-- `PENDING` Capture deployed legacy OpenAPI and representative merchant compatibility fixtures.
-- `PENDING` Validate retained provider behavior against legacy/provider conformance cases.
-- `PENDING` Shadow-read/dual-run strategy where justified.
-- `PENDING` Migration dry run.
-- `PENDING` Reconcile open Pix/refunds/payouts and financial opening balances.
-- `PENDING` Rollback plan.
-- `PENDING` Production cutover plan and acceptance criteria.
+- `PENDING` Legacy -> V2 migration mapping/harness.
+- `PENDING` Representative compatibility fixtures and deployed legacy OpenAPI capture.
+- `PENDING` Retained AkkadPag/FlevoPay provider parity/conformance cases.
+- `PENDING` Shadow/dual-run strategy where justified.
+- `PENDING` Migration dry run and opening-balance reconciliation.
+- `PENDING` Open Pix/refund/payout cutover reconciliation.
+- `PENDING` Rollback and production-cutover acceptance plan.
 
 # Current handoff
 
-## Durable Phase 1 baseline now established
+Canonical implemented spine:
 
 ```text
-Payment / ProviderAttempt / RequestIdempotency
-                |
-                v
-Capability-aware native provider adapter
-                |
-       authenticated ProviderEvent
-                |
-                v
-canonical state transition
-+ double-entry ledger posting
-+ durable outbox/job
-                |
-                v
-small SwiftPay worker
+merchant / KYC / credentials
+        |
+request idempotency
+        |
+Payment -> ProviderAttempt -> ProviderEvent
+        |
+canonical double-entry ledger
+        |
+durable PostgreSQL jobs/outbox
+        |
+merchant webhook persistence   <- current RED/GREEN slice
 ```
 
-Merchant accounting is provider-independent:
+Provider runtime scope is frozen:
+
+```text
+Pix In : AkkadPag | FlevoPay
+Pix Out: AkkadPag only
+Refund : provider execution disabled until exact retained-provider contract is proven
+```
+
+Merchant accounting remains provider-independent:
 
 ```text
 pending_settlement
 available
-reserved            # disabled by default until explicitly enabled
+reserved            # disabled by default
 blocked_payouts
 blocked_refunds
 withdrawable
 ```
 
-Provider funding location/cost is represented on the provider asset/expense side and does not fragment merchant ownership by PSP.
+## Immediate execution order
 
-## Provider proof status
-
-- MagicPay: first Pix-in proof candidate because source exposes `ExternalRef`, provider payment ID, first-class webhook event ID and HMAC path; `ExternalRef` recovery/create dedupe remains unproven.
-- Accithus: weaker Pix-in recovery from inspected source, but strong Pix-out proof candidate because withdrawal sends explicit `Idempotency-Key` derived from `PayoutId`; PSP behavior still requires conformance proof.
-- Neither provider is `RETAIN` yet.
-
-## Next execution order
-
-1. define merchant lifecycle/KYC capability contract;
-2. define API credential contract;
-3. define public API/error/idempotency projection contract;
-4. define deterministic fee/pricing/rounding contract;
-5. define merchant webhook contract;
-6. define sandbox + reconciliation/admin contracts;
-7. write Phase 2 fail-first PostgreSQL/Supabase schema tests;
-8. only then begin production schema/application implementation.
-
-Remaining Phase 0 provider/live-evidence work continues in parallel and can reopen a contract only when concrete evidence contradicts it.
+1. finish merchant webhook persistence RED -> GREEN;
+2. payout/refund database state and atomic financial operations;
+3. internal/external reconciliation foundation;
+4. RLS/KYC-storage/audit/seed/deployment foundation;
+5. trusted backend/worker vertical slice;
+6. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
 
 ## Verification
 
-- All reconstruction work remains on `agent/foundation-phase-0` and draft PR #1.
-- `main` is untouched by this reconstruction branch.
-- No production application implementation has been introduced yet.
+- Work remains on `agent/foundation-phase-0` and draft PR #1.
+- `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
-- The repository, not chat context, is the canonical engineering source of truth.
+- Phase 2 PostgreSQL/Supabase implementation is active and test-driven.
+- No production HTTP API/provider adapter has been introduced yet.
+- Repository artifacts, not chat context, are the canonical engineering source of truth.
