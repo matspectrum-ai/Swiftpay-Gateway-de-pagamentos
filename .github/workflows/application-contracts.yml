@@ -7,10 +7,12 @@ on:
       - "apps/**"
       - "packages/**"
       - "tests/application/**"
+      - "scripts/provision-local-runtime-identities"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig*.json"
+      - "supabase/**"
       - ".github/workflows/application-contracts.yml"
   workflow_dispatch:
 
@@ -40,3 +42,36 @@ jobs:
         run: pnpm build
       - name: Run application contracts
         run: pnpm test
+
+  runtime-database-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+      SWIFTPAY_API_DATABASE_URL: postgresql://swiftpay_api_runtime:local_api_runtime_only@127.0.0.1:54322/postgres
+      SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Start isolated Postgres
+        run: supabase db start
+      - name: Provision K6 local runtime identities
+        run: bash scripts/provision-local-runtime-identities
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          test "$(pnpm --version)" = "11.17.0"
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build runtime
+        run: pnpm build
+      - name: Run real runtime database acceptance
+        run: bash tests/application/003_runtime_database_integration.sh
