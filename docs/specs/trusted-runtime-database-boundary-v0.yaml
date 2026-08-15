@@ -1,0 +1,229 @@
+feature: trusted_runtime_database_boundary_v0
+status: frozen_for_tdd
+phase: 2
+slice: K4
+
+problem:
+  statement: >-
+    SwiftPay's private app schema is fail-closed to browser/Data API/service roles, but the
+    trusted application and worker still need explicit least-privilege PostgreSQL identities.
+    Granting postgres, service_role, broad table access, EXECUTE on all app routines, or treating
+    session GUCs as tenant authority would collapse the security boundary established by J1-K3.
+    K4 must introduce versioned capability roles and one narrow dashboard request-context boundary
+    without granting unproven financial/provider capabilities.
+  risks:
+    - backend or worker connecting as postgres/service_role and bypassing intended boundaries
+    - one trusted workload inheriting capabilities intended for another workload
+    - bulk EXECUTE grants exposing financial, payout, refund, reconciliation, provider or audit primitives
+    - direct table DML bypassing contract functions and financial invariants
+    - client-supplied merchant_id being accepted without canonical membership validation
+    - arbitrary custom GUC/current_setting values being mistaken for authenticated tenant authority
+    - production passwords or LOGIN credentials being committed to migrations/source control
+    - future app objects silently becoming available to trusted roles through default privileges
+
+objectives:
+  - define separate NOLOGIN PostgreSQL capability roles for the trusted API and trusted worker
+  - keep production LOGIN credentials and password rotation outside schema migrations and defer them to K6
+  - grant only the minimum already-proven capabilities needed at the K4 boundary
+  - expose one API-only dashboard merchant/environment context helper that composes K3 membership truth
+  - keep worker authority resource/job-derived rather than tenant-GUC-derived
+  - preserve explicit per-capability grants for every future financial/provider operation
+  - keep PUBLIC, anon, authenticated and service_role excluded from all new trusted capabilities
+
+non_goals:
+  - production LOGIN users, passwords, connection strings or secret distribution
+  - public merchant API credential verification
+  - payment creation, provider execution, ledger posting, payout, refund or reconciliation grants
+  - KYC/merchant financial capability gates
+  - admin step-up or financial repair authorization
+  - browser/Data API exposure of app objects
+  - RLS-based merchant read/write surfaces
+  - generic request-context storage table
+  - using custom PostgreSQL GUCs as authorization truth
+  - network restrictions, Supavisor deployment or runtime process topology; those are K6
+
+sources_of_truth:
+  dashboard_identity: auth.users.id supplied only after trusted server-side Auth verification
+  membership: app.merchant_members via app.require_merchant_membership
+  selected_environment: validated request value in [sandbox, production]
+  worker_scope: durable job/resource identity, not a caller-supplied tenant setting
+  database_capabilities: explicit PostgreSQL role grants versioned by migration
+
+requirements:
+  - id: K4-R1
+    statement: >-
+      Two group/capability roles must exist: swiftpay_api and swiftpay_worker. Both are NOLOGIN,
+      NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION and NOBYPASSRLS. K4 stores no password.
+  - id: K4-R2
+    statement: >-
+      anon, authenticated, service_role and PUBLIC must not inherit or be members of swiftpay_api
+      or swiftpay_worker; the two SwiftPay roles must not inherit each other.
+  - id: K4-R3
+    statement: >-
+      swiftpay_api and swiftpay_worker receive USAGE on schema app only. They receive no direct
+      SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER privileges on current app relations
+      and no current app sequence privileges.
+  - id: K4-R4
+    statement: >-
+      Future app tables, sequences and routines do not become available to swiftpay_api or
+      swiftpay_worker through default privileges. Every positive capability remains explicit.
+  - id: K4-R5
+    statement: >-
+      K4 must not use GRANT EXECUTE ON ALL FUNCTIONS/ROUTINES IN SCHEMA app. Positive routine
+      grants are an exact allowlist.
+  - id: K4-R6
+    statement: >-
+      app.require_dashboard_merchant_context(user_id, merchant_id, environment, required_role)
+      returns exactly one normalized row containing merchant_id, environment and the actual active
+      membership role after invoking the canonical K3 membership boundary.
+  - id: K4-R7
+    statement: >-
+      require_dashboard_merchant_context accepts only sandbox or production. Null/invalid
+      environment is an invalid request and fails with SQLSTATE 23514. Membership failures retain
+      K3 fail-closed SQLSTATE 42501 semantics.
+  - id: K4-R8
+    statement: >-
+      require_dashboard_merchant_context is SECURITY DEFINER, uses a fixed search_path and has no
+      mutation/audit/ledger/job/webhook/Auth side effects. Its user_id argument is trusted only
+      because K6/API code must derive it from server-verified Supabase Auth; no browser-supplied
+      user_id becomes authoritative by reaching this SQL function.
+  - id: K4-R9
+    statement: >-
+      swiftpay_api may EXECUTE require_dashboard_merchant_context and no raw K3 helper grant is
+      required. PUBLIC, anon, authenticated, service_role and swiftpay_worker cannot execute the
+      K4 context helper.
+  - id: K4-R10
+    statement: >-
+      swiftpay_worker may EXECUTE only the already-proven durable job lease lifecycle functions
+      app.claim_jobs(text,integer,integer), app.complete_job(uuid,uuid) and
+      app.reschedule_job(uuid,uuid,text,text,integer) at the K4 baseline.
+  - id: K4-R11
+    statement: >-
+      swiftpay_api cannot execute the K4 worker job lease functions and swiftpay_worker cannot
+      execute app.require_merchant_membership or the K4 dashboard context helper.
+  - id: K4-R12
+    statement: >-
+      Neither trusted role may execute current financial/provider/reconciliation/domain mutation
+      routines unless separately allowlisted by a later frozen contract and tests. In particular,
+      K4 grants no execution of post_ledger_transaction, reserve_payout, reserve_refund,
+      prepare_payout_attempt, claim_payout_attempt, apply_payout_evidence, apply_refund_evidence,
+      record_provider_reconciliation_evidence, reconciliation lifecycle functions or
+      record_audit_event.
+  - id: K4-R13
+    statement: >-
+      current_setting/set_config/custom GUC values are not tenant, actor, environment or financial
+      authorization sources. Future GUC use is observational/correlation-only unless a later
+      contract introduces cryptographically or canonically verified binding.
+  - id: K4-R14
+    statement: >-
+      Worker domain handlers added later must derive merchant/environment from the claimed durable
+      job and canonical referenced resource inside their own contract boundary rather than trusting
+      a caller-supplied merchant/environment GUC.
+  - id: K4-R15
+    statement: >-
+      service_role remains denied direct app access and receives no membership in either trusted
+      capability role. K4 does not repurpose Supabase service_role as the SwiftPay backend identity.
+
+contracts:
+  roles:
+    swiftpay_api:
+      login: false
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      bypassrls: false
+      schema_usage:
+        - app
+      execute_allowlist:
+        - app.require_dashboard_merchant_context(uuid,uuid,text,text)
+    swiftpay_worker:
+      login: false
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      bypassrls: false
+      schema_usage:
+        - app
+      execute_allowlist:
+        - app.claim_jobs(text,integer,integer)
+        - app.complete_job(uuid,uuid)
+        - app.reschedule_job(uuid,uuid,text,text,integer)
+  context_function:
+    name: app.require_dashboard_merchant_context
+    arguments:
+      - p_user_id: uuid
+      - p_merchant_id: uuid
+      - p_environment: text
+      - p_required_role: text
+    returns_table:
+      merchant_id: uuid
+      environment: text
+      membership_role: text
+    security: SECURITY DEFINER
+    search_path: pg_catalog, app, auth
+    volatility: STABLE
+    authorization_dependency: app.require_merchant_membership
+    invalid_environment_sqlstate: '23514'
+    membership_failure_sqlstate: '42501'
+  credential_provisioning:
+    capability_roles: migration_versioned_NOLOGIN
+    login_roles_passwords: deferred_to_K6
+
+acceptance_criteria:
+  - swiftpay_api and swiftpay_worker exist with frozen non-privileged NOLOGIN attributes
+  - Data API/service roles are not members of either trusted role
+  - trusted roles are not members of each other and have no privileged role membership
+  - both trusted roles have app schema USAGE but zero direct app relation/sequence privileges
+  - future app object default ACL probes remain fail-closed to both trusted roles
+  - no bulk EXECUTE privilege exists for either trusted role
+  - swiftpay_api can execute only the K4 dashboard context helper from the K4 allowlist
+  - swiftpay_worker can execute the three durable job lease lifecycle functions from the K4 allowlist
+  - swiftpay_api cannot claim/complete/reschedule worker jobs
+  - swiftpay_worker cannot execute K3 membership or K4 dashboard context authorization
+  - active membership returns exact merchant/environment/actual role through K4 helper
+  - disabled/cross-merchant/insufficient membership retains 42501 denial
+  - sandbox and production are accepted; invalid/null environment fails with 23514
+  - context resolution remains independent of merchant lifecycle/KYC financial capability
+  - custom GUC spoof values do not change context-helper authorization result
+  - K4 grants no financial/provider/reconciliation/audit mutation routine
+  - K4 context checks have zero domain/financial/async/webhook/audit side effects
+  - PUBLIC/anon/authenticated/service_role remain unable to execute the new helper
+
+edge_cases:
+  - same user is active in multiple merchants; exact merchant pair is required
+  - merchant is suspended/draft; membership context still resolves because financial capability is separate
+  - application selects sandbox versus production for the same merchant; only frozen environment values are valid
+  - membership is disabled between requests; next helper call sees current K3 truth and denies
+  - a transaction sets arbitrary app.merchant_id/app.environment GUC values; helper ignores them
+  - worker role receives a job whose payload contains spoofed tenant fields; later domain handler must resolve scope from canonical resource, not payload/GUC alone
+  - a future app function is created after K4; trusted roles receive no EXECUTE until an explicit migration grants it
+
+security_notes:
+  - capability roles are deliberately NOLOGIN so repository migrations can version permissions without storing credentials
+  - K6 must provision distinct LOGIN identities/secrets for runtime services and attach them to the intended capability role only
+  - database role separation limits blast radius but does not replace server-side authentication and authorization
+  - the API must verify Supabase Auth server-side before passing p_user_id; the SQL role itself cannot prove that a caller-provided UUID came from a valid JWT
+  - direct table DML remains denied so trusted workloads cannot bypass financial/domain contract functions accidentally
+  - service_role remains a Supabase platform role, not SwiftPay's privileged application identity
+  - session GUCs may later carry request_id/trace_id for observability, but not authorization truth
+
+test_strategy:
+  structural_red:
+    - trusted roles absent before K4 migration
+    - context helper absent before K4 migration
+    - exact role attributes and memberships
+    - schema USAGE plus zero direct relation/sequence privileges
+    - exact EXECUTE allowlists and absence of broad current routine grants
+    - default-ACL probes for future app tables/sequences/functions
+    - helper signature, return columns, SECURITY DEFINER, fixed search_path and STABLE volatility
+  behavioral_red_green:
+    - SET ROLE swiftpay_api can resolve valid dashboard context
+    - role hierarchy/disabled/cross-merchant/invalid-environment behavior through K4 helper
+    - GUC spoof resistance
+    - SET ROLE swiftpay_worker can exercise job lease lifecycle only
+    - cross-workload execution denial
+    - financial/provider/reconciliation/audit execution denial
+    - zero direct-table access
+    - zero side effects from context authorization
