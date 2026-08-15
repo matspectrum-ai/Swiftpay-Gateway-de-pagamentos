@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "supabase/**"
+      - "scripts/seed-local-sandbox"
       - ".github/workflows/database-contracts.yml"
   workflow_dispatch:
 
@@ -25,3 +26,21 @@ jobs:
         run: supabase db start
       - name: Run pgTAP database contracts
         run: supabase test db supabase/tests/database
+
+  sandbox-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Start isolated Postgres
+        run: supabase db start
+      - name: Load deterministic local sandbox fixture
+        run: bash scripts/seed-local-sandbox
+      - name: Reload fixture to prove idempotency
+        run: bash scripts/seed-local-sandbox
+      - name: Run K5 fixture contracts
+        run: supabase test db supabase/tests/fixtures
