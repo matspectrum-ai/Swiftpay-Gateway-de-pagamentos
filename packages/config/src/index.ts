@@ -6,6 +6,7 @@ export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
+  readonly accessTokenSigningKey: string;
   readonly host: string;
   readonly port: number;
 }
@@ -64,10 +65,24 @@ function port(source: EnvironmentSource): number {
   return parsed;
 }
 
+function accessTokenSigningKey(source: EnvironmentSource): string {
+  const value = source[ACCESS_TOKEN_SIGNING_KEY_ENV];
+  if (value === undefined) {
+    throw new ConfigurationError(`Missing required environment variable: ${ACCESS_TOKEN_SIGNING_KEY_ENV}`);
+  }
+  if (Buffer.byteLength(value, 'utf8') < MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES) {
+    throw new ConfigurationError(
+      `${ACCESS_TOKEN_SIGNING_KEY_ENV} must contain at least ${MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES} UTF-8 bytes`,
+    );
+  }
+  return value;
+}
+
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
   return {
     environment: environment(source),
     databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
+    accessTokenSigningKey: accessTokenSigningKey(source),
     host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
     port: port(source),
   };
