@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(34);
+select plan(36);
 
 -- Frozen trusted capability roles.
 select ok(
