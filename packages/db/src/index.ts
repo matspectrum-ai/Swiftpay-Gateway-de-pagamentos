@@ -3,6 +3,7 @@ import pg from 'pg';
 const { Pool } = pg;
 
 type RuntimeWorkload = 'api' | 'worker';
+type AuthEnvironment = 'sandbox' | 'production';
 
 export interface RuntimePoolOptions {
   readonly databaseUrl: string;
@@ -14,10 +15,49 @@ export interface RuntimePool {
   end(): Promise<void>;
 }
 
+export interface ApiCredentialAuthRecord {
+  readonly credentialId: string;
+  readonly merchantId: string;
+  readonly environment: AuthEnvironment;
+  readonly credentialStatus: string;
+  readonly secretVerifier: string;
+  readonly secretVersion: number;
+  readonly ipAllowlist: unknown;
+  readonly merchantLifecycleStatus: string;
+}
+
+export interface ApiTokenIssuanceResult {
+  readonly allowed: boolean;
+  readonly remaining: number;
+  readonly retryAfterSeconds: number;
+}
+
+export interface ApiCredentialAuthState {
+  readonly credentialId: string;
+  readonly merchantId: string;
+  readonly environment: AuthEnvironment;
+  readonly credentialStatus: string;
+  readonly secretVersion: number;
+  readonly merchantLifecycleStatus: string;
+}
+
+export interface ApiCredentialAuthStore {
+  lookupCredentialForToken(publicKey: string): Promise<ApiCredentialAuthRecord | null>;
+  consumeTokenIssuance(credentialId: string): Promise<ApiTokenIssuanceResult>;
+  getCredentialAuthState(credentialId: string): Promise<ApiCredentialAuthState | null>;
+}
+
 export class RuntimeBoundaryError extends Error {
   constructor() {
     super('Runtime database readiness check failed');
     this.name = 'RuntimeBoundaryError';
+  }
+}
+
+export class RuntimeAuthStoreError extends Error {
+  constructor() {
+    super('Runtime authentication database operation failed');
+    this.name = 'RuntimeAuthStoreError';
   }
 }
 
@@ -86,4 +126,154 @@ export async function verifyRuntimeBoundary(pool: pg.Pool, workload: RuntimeWork
     }
     throw new RuntimeBoundaryError();
   }
+}
+
+interface CredentialLookupRow {
+  credential_id: string;
+  merchant_id: string;
+  environment: string;
+  credential_status: string;
+  secret_verifier: string;
+  secret_version: number;
+  ip_allowlist: unknown;
+  merchant_lifecycle_status: string;
+}
+
+interface TokenIssuanceRow {
+  allowed: boolean;
+  remaining: number;
+  retry_after_seconds: number;
+}
+
+interface CredentialAuthStateRow {
+  credential_id: string;
+  merchant_id: string;
+  environment: string;
+  credential_status: string;
+  secret_version: number;
+  merchant_lifecycle_status: string;
+}
+
+type QueryOnlyPool = Pick<RuntimePool, 'query'>;
+
+const LOOKUP_CREDENTIAL_SQL = `
+select *
+from app.lookup_api_credential_for_token($1::text)
+`;
+
+const CONSUME_TOKEN_ISSUANCE_SQL = `
+select *
+from app.consume_api_token_issuance($1::uuid)
+`;
+
+const GET_CREDENTIAL_AUTH_STATE_SQL = `
+select *
+from app.get_api_credential_auth_state($1::uuid)
+`;
+
+function isAuthEnvironment(value: string): value is AuthEnvironment {
+  return value === 'sandbox' || value === 'production';
+}
+
+function mapCredentialLookup(row: CredentialLookupRow): ApiCredentialAuthRecord {
+  if (
+    typeof row.credential_id !== 'string'
+    || typeof row.merchant_id !== 'string'
+    || !isAuthEnvironment(row.environment)
+    || typeof row.credential_status !== 'string'
+    || typeof row.secret_verifier !== 'string'
+    || !Number.isSafeInteger(row.secret_version)
+    || row.secret_version < 1
+    || typeof row.merchant_lifecycle_status !== 'string'
+  ) {
+    throw new RuntimeAuthStoreError();
+  }
+
+  return {
+    credentialId: row.credential_id,
+    merchantId: row.merchant_id,
+    environment: row.environment,
+    credentialStatus: row.credential_status,
+    secretVerifier: row.secret_verifier,
+    secretVersion: row.secret_version,
+    ipAllowlist: row.ip_allowlist,
+    merchantLifecycleStatus: row.merchant_lifecycle_status,
+  };
+}
+
+function mapTokenIssuance(row: TokenIssuanceRow | undefined): ApiTokenIssuanceResult {
+  if (
+    row === undefined
+    || typeof row.allowed !== 'boolean'
+    || !Number.isSafeInteger(row.remaining)
+    || row.remaining < 0
+    || !Number.isSafeInteger(row.retry_after_seconds)
+    || row.retry_after_seconds < 0
+    || (row.allowed && row.retry_after_seconds !== 0)
+    || (!row.allowed && row.retry_after_seconds < 1)
+  ) {
+    throw new RuntimeAuthStoreError();
+  }
+
+  return {
+    allowed: row.allowed,
+    remaining: row.remaining,
+    retryAfterSeconds: row.retry_after_seconds,
+  };
+}
+
+function mapCredentialAuthState(row: CredentialAuthStateRow): ApiCredentialAuthState {
+  if (
+    typeof row.credential_id !== 'string'
+    || typeof row.merchant_id !== 'string'
+    || !isAuthEnvironment(row.environment)
+    || typeof row.credential_status !== 'string'
+    || !Number.isSafeInteger(row.secret_version)
+    || row.secret_version < 1
+    || typeof row.merchant_lifecycle_status !== 'string'
+  ) {
+    throw new RuntimeAuthStoreError();
+  }
+
+  return {
+    credentialId: row.credential_id,
+    merchantId: row.merchant_id,
+    environment: row.environment,
+    credentialStatus: row.credential_status,
+    secretVersion: row.secret_version,
+    merchantLifecycleStatus: row.merchant_lifecycle_status,
+  };
+}
+
+export function createApiCredentialAuthStore(pool: QueryOnlyPool): ApiCredentialAuthStore {
+  return {
+    async lookupCredentialForToken(publicKey) {
+      try {
+        const result = await pool.query<CredentialLookupRow>(LOOKUP_CREDENTIAL_SQL, [publicKey]);
+        const row = result.rows[0];
+        return row === undefined ? null : mapCredentialLookup(row);
+      } catch {
+        throw new RuntimeAuthStoreError();
+      }
+    },
+
+    async consumeTokenIssuance(credentialId) {
+      try {
+        const result = await pool.query<TokenIssuanceRow>(CONSUME_TOKEN_ISSUANCE_SQL, [credentialId]);
+        return mapTokenIssuance(result.rows[0]);
+      } catch {
+        throw new RuntimeAuthStoreError();
+      }
+    },
+
+    async getCredentialAuthState(credentialId) {
+      try {
+        const result = await pool.query<CredentialAuthStateRow>(GET_CREDENTIAL_AUTH_STATE_SQL, [credentialId]);
+        const row = result.rows[0];
+        return row === undefined ? null : mapCredentialAuthState(row);
+      } catch {
+        throw new RuntimeAuthStoreError();
+      }
+    },
+  };
 }
