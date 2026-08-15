@@ -275,7 +275,7 @@ select is(
     (select count(*)::text || '|' ||
             (select count(*) from app.ledger_transactions)::text || '|' ||
             (select count(*) from app.jobs)::text || '|' ||
-            (select count(*) from app.merchant_webhook_events)::text
+            (select count(*) from app.webhook_events)::text
        from app.payments),
     '1|0|0|0',
     'A2 prepare creates no ledger job or merchant-webhook side effects'
@@ -687,7 +687,7 @@ select is(
     (select count(*)::text || '|' ||
             (select count(*) from app.ledger_transactions)::text || '|' ||
             (select count(*) from app.jobs)::text || '|' ||
-            (select count(*) from app.merchant_webhook_events)::text
+            (select count(*) from app.webhook_events)::text
        from app.payments),
     '3|0|0|0',
     'A2 success unknown and rejection paths still create no ledger job or merchant-webhook effects'
