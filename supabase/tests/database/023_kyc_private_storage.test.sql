@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(28);
+select plan(43);
 
 -- Structural bucket contract. The fixture insert below keeps behavioral RED
 -- diagnostic even before the migration creates the bucket.
@@ -49,16 +49,43 @@ select ok(
     'storage.buckets RLS remains enabled'
 );
 
--- KYC fences must be restrictive so a future permissive catch-all cannot open
--- this bucket accidentally.
+-- KYC fences are intentionally command-specific and RESTRICTIVE. A future
+-- permissive catch-all must never expose or mutate this bucket.
 select ok(
     exists (
         select 1 from pg_policies
         where schemaname = 'storage' and tablename = 'buckets'
-          and policyname = 'swiftpay_kyc_bucket_browser_fence'
+          and policyname = 'swiftpay_kyc_buckets_select_fence'
           and permissive = 'RESTRICTIVE' and cmd = 'SELECT'
     ),
-    'KYC bucket metadata SELECT fence is restrictive'
+    'KYC bucket SELECT fence is restrictive'
+);
+select ok(
+    exists (
+        select 1 from pg_policies
+        where schemaname = 'storage' and tablename = 'buckets'
+          and policyname = 'swiftpay_kyc_buckets_insert_fence'
+          and permissive = 'RESTRICTIVE' and cmd = 'INSERT'
+    ),
+    'KYC bucket INSERT fence is restrictive'
+);
+select ok(
+    exists (
+        select 1 from pg_policies
+        where schemaname = 'storage' and tablename = 'buckets'
+          and policyname = 'swiftpay_kyc_buckets_update_fence'
+          and permissive = 'RESTRICTIVE' and cmd = 'UPDATE'
+    ),
+    'KYC bucket UPDATE fence is restrictive'
+);
+select ok(
+    exists (
+        select 1 from pg_policies
+        where schemaname = 'storage' and tablename = 'buckets'
+          and policyname = 'swiftpay_kyc_buckets_delete_fence'
+          and permissive = 'RESTRICTIVE' and cmd = 'DELETE'
+    ),
+    'KYC bucket DELETE fence is restrictive'
 );
 select ok(
     exists (
@@ -102,7 +129,10 @@ select is(
         from pg_policies
         where schemaname = 'storage'
           and policyname in (
-            'swiftpay_kyc_bucket_browser_fence',
+            'swiftpay_kyc_buckets_select_fence',
+            'swiftpay_kyc_buckets_insert_fence',
+            'swiftpay_kyc_buckets_update_fence',
+            'swiftpay_kyc_buckets_delete_fence',
             'swiftpay_kyc_objects_select_fence',
             'swiftpay_kyc_objects_insert_fence',
             'swiftpay_kyc_objects_update_fence',
@@ -110,25 +140,31 @@ select is(
           )
           and roles @> array['anon'::name, 'authenticated'::name]
     ),
-    5::bigint,
+    8::bigint,
     'every KYC fence applies to both anon and authenticated roles'
 );
 
--- Probe a future careless feature that adds broad permissive Storage policies.
--- The KYC restrictive policies must still win for KYC while leaving non-KYC
--- rows to their own authorization contract.
-insert into storage.buckets (id, name, public)
-values ('__swiftpay_storage_probe', '__swiftpay_storage_probe', false)
-on conflict (id) do nothing;
-
-insert into storage.objects (bucket_id, name, metadata)
-values
-    ('kyc-evidence', '__probe/kyc-object', null),
-    ('__swiftpay_storage_probe', '__probe/non-kyc-object', null)
-on conflict (bucket_id, name) do nothing;
-
+-- Simulate a future careless feature that adds broad permissive Storage
+-- policies. Restrictive KYC fences must still win, while non-KYC rows remain
+-- governed by those permissive policies.
 create policy __swiftpay_probe_buckets_select
 on storage.buckets as permissive for select
+to anon, authenticated
+using (true);
+
+create policy __swiftpay_probe_buckets_insert
+on storage.buckets as permissive for insert
+to anon, authenticated
+with check (true);
+
+create policy __swiftpay_probe_buckets_update
+on storage.buckets as permissive for update
+to anon, authenticated
+using (true)
+with check (true);
+
+create policy __swiftpay_probe_buckets_delete
+on storage.buckets as permissive for delete
 to anon, authenticated
 using (true);
 
@@ -153,16 +189,48 @@ on storage.objects as permissive for delete
 to anon, authenticated
 using (true);
 
+-- Prove INSERT denial on the canonical KYC bucket itself without relying on its
+-- unique key: remove/recreate only inside this rolled-back test transaction.
+delete from storage.buckets where id = 'kyc-evidence';
+
+set local role authenticated;
+select throws_ok(
+    $$insert into storage.buckets (id, name, public, file_size_limit)
+      values ('kyc-evidence', 'kyc-evidence', true, 10485760)$$,
+    '42501',
+    null,
+    'authenticated cannot create KYC bucket metadata even under broad permissive INSERT'
+);
+reset role;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('kyc-evidence', 'kyc-evidence', false, 10485760, null);
+
+set local role authenticated;
+insert into storage.buckets (id, name, public)
+values ('__swiftpay_storage_probe', '__swiftpay_storage_probe', false);
+reset role;
+select ok(
+    exists (select 1 from storage.buckets where id = '__swiftpay_storage_probe'),
+    'authenticated broad permissive INSERT still works for non-KYC bucket metadata'
+);
+
+insert into storage.objects (bucket_id, name, metadata)
+values
+    ('kyc-evidence', '__probe/kyc-object', null),
+    ('__swiftpay_storage_probe', '__probe/non-kyc-object', null)
+on conflict (bucket_id, name) do nothing;
+
 set local role anon;
 select is(
     (select count(*) from storage.buckets where id = 'kyc-evidence'),
     0::bigint,
-    'anon cannot observe KYC bucket even under a broad permissive SELECT policy'
+    'anon cannot observe KYC bucket even under broad permissive SELECT'
 );
 select is(
     (select count(*) from storage.buckets where id = '__swiftpay_storage_probe'),
     1::bigint,
-    'KYC bucket fence does not globally hide non-KYC buckets'
+    'anon can still observe explicitly-permitted non-KYC bucket metadata'
 );
 select is(
     (select count(*) from storage.objects where bucket_id = 'kyc-evidence'),
@@ -172,7 +240,7 @@ select is(
 select is(
     (select count(*) from storage.objects where bucket_id = '__swiftpay_storage_probe'),
     1::bigint,
-    'KYC object fence does not globally hide non-KYC objects'
+    'anon can still observe explicitly-permitted non-KYC object metadata'
 );
 reset role;
 
@@ -185,25 +253,55 @@ select is(
 select is(
     (select count(*) from storage.buckets where id = '__swiftpay_storage_probe'),
     1::bigint,
-    'authenticated can still reach explicitly-permitted non-KYC bucket metadata'
+    'authenticated can still observe explicitly-permitted non-KYC bucket metadata'
 );
 select is(
     (select count(*) from storage.objects where bucket_id = 'kyc-evidence'),
     0::bigint,
-    'authenticated cannot observe KYC objects even under broad permissive SELECT'
+    'authenticated cannot observe KYC object metadata under broad permissive SELECT'
 );
 select is(
     (select count(*) from storage.objects where bucket_id = '__swiftpay_storage_probe'),
     1::bigint,
-    'authenticated can still reach explicitly-permitted non-KYC object metadata'
+    'authenticated can still observe explicitly-permitted non-KYC object metadata'
 );
 
+update storage.buckets
+   set public = true
+ where id = 'kyc-evidence';
+reset role;
+select is(
+    (select public from storage.buckets where id = 'kyc-evidence'),
+    false,
+    'authenticated cannot make KYC bucket public under broad permissive UPDATE'
+);
+
+set local role authenticated;
+update storage.buckets
+   set public = true
+ where id = '__swiftpay_storage_probe';
+reset role;
+select is(
+    (select public from storage.buckets where id = '__swiftpay_storage_probe'),
+    true,
+    'authenticated broad permissive UPDATE still works for non-KYC bucket metadata'
+);
+
+set local role authenticated;
+delete from storage.buckets where id = 'kyc-evidence';
+reset role;
+select ok(
+    exists (select 1 from storage.buckets where id = 'kyc-evidence'),
+    'authenticated cannot delete KYC bucket metadata under broad permissive DELETE'
+);
+
+set local role authenticated;
 select throws_ok(
     $$insert into storage.objects (bucket_id, name)
       values ('kyc-evidence', '__probe/authenticated-insert')$$,
     '42501',
     null,
-    'authenticated cannot insert KYC object metadata even under broad permissive INSERT'
+    'authenticated cannot insert KYC object metadata under broad permissive INSERT'
 );
 
 insert into storage.objects (bucket_id, name)
@@ -215,7 +313,7 @@ select ok(
         where bucket_id = '__swiftpay_storage_probe'
           and name = '__probe/authenticated-insert'
     ),
-    'authenticated broad permissive INSERT still works for non-KYC probe bucket'
+    'authenticated broad permissive INSERT still works for non-KYC object metadata'
 );
 
 set local role authenticated;
@@ -233,6 +331,20 @@ select ok(
 );
 
 set local role authenticated;
+update storage.objects
+   set metadata = '{"allowed":true}'::jsonb
+ where bucket_id = '__swiftpay_storage_probe'
+   and name = '__probe/non-kyc-object';
+reset role;
+select is(
+    (select metadata from storage.objects
+      where bucket_id = '__swiftpay_storage_probe'
+        and name = '__probe/non-kyc-object'),
+    '{"allowed": true}'::jsonb,
+    'authenticated broad permissive UPDATE still works for non-KYC object metadata'
+);
+
+set local role authenticated;
 delete from storage.objects
  where bucket_id = 'kyc-evidence'
    and name = '__probe/kyc-object';
@@ -244,6 +356,81 @@ select ok(
           and name = '__probe/kyc-object'
     ),
     'authenticated cannot delete KYC object metadata under broad permissive DELETE'
+);
+
+set local role authenticated;
+delete from storage.objects
+ where bucket_id = '__swiftpay_storage_probe'
+   and name = '__probe/authenticated-insert';
+reset role;
+select ok(
+    not exists (
+        select 1 from storage.objects
+        where bucket_id = '__swiftpay_storage_probe'
+          and name = '__probe/authenticated-insert'
+    ),
+    'authenticated broad permissive DELETE still works for non-KYC object metadata'
+);
+
+-- The same restrictive role set must protect anonymous callers.
+set local role anon;
+update storage.buckets
+   set public = true
+ where id = 'kyc-evidence';
+delete from storage.buckets
+ where id = 'kyc-evidence';
+reset role;
+select is(
+    (select public from storage.buckets where id = 'kyc-evidence'),
+    false,
+    'anon cannot make KYC bucket public under broad permissive UPDATE'
+);
+select ok(
+    exists (select 1 from storage.buckets where id = 'kyc-evidence'),
+    'anon cannot delete KYC bucket metadata under broad permissive DELETE'
+);
+
+set local role anon;
+select throws_ok(
+    $$insert into storage.objects (bucket_id, name)
+      values ('kyc-evidence', '__probe/anon-insert')$$,
+    '42501',
+    null,
+    'anon cannot insert KYC object metadata under broad permissive INSERT'
+);
+update storage.objects
+   set metadata = '{"anon_tampered":true}'::jsonb
+ where bucket_id = 'kyc-evidence'
+   and name = '__probe/kyc-object';
+delete from storage.objects
+ where bucket_id = 'kyc-evidence'
+   and name = '__probe/kyc-object';
+reset role;
+select ok(
+    (select metadata is null
+       from storage.objects
+      where bucket_id = 'kyc-evidence'
+        and name = '__probe/kyc-object'),
+    'anon cannot mutate KYC object metadata under broad permissive UPDATE'
+);
+select ok(
+    exists (
+        select 1 from storage.objects
+        where bucket_id = 'kyc-evidence'
+          and name = '__probe/kyc-object'
+    ),
+    'anon cannot delete KYC object metadata under broad permissive DELETE'
+);
+
+-- Remove remaining non-KYC object before proving bucket deletion can still pass
+-- outside the KYC fence.
+delete from storage.objects where bucket_id = '__swiftpay_storage_probe';
+set local role authenticated;
+delete from storage.buckets where id = '__swiftpay_storage_probe';
+reset role;
+select ok(
+    not exists (select 1 from storage.buckets where id = '__swiftpay_storage_probe'),
+    'authenticated broad permissive DELETE still works for non-KYC bucket metadata'
 );
 
 -- Existing database/API hardening remains intact.
