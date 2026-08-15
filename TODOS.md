@@ -2,13 +2,13 @@
 
 Updated: 2026-08-14
 
-This is the durable backlog and handoff ledger for the reconstruction. Detailed evidence lives in the linked contracts, ADRs, reverse-engineering notes, specs, migrations and tests. This file records current status and sequencing.
+This is the durable backlog and handoff ledger for the reconstruction. Detailed evidence lives in the linked contracts, ADRs, reverse-engineering notes, specs, migrations and tests. Repository artifacts are the source of truth; managed Supabase verification is an additional deployed-environment proof.
 
 ## States
 
 - `PENDING`: known, not started
 - `IN_PROGRESS`: actively being worked
-- `EVIDENCE_REQUIRED`: implementation direction exists but current provider/live evidence is required before activation
+- `EVIDENCE_REQUIRED`: direction exists but current external/provider evidence is required before activation
 - `BLOCKED`: external dependency prevents progress
 - `DONE`: completed with durable evidence/tests
 - `DEFERRED`: deliberately outside the current release
@@ -39,8 +39,6 @@ This is the durable backlog and handoff ledger for the reconstruction. Detailed 
 - `DONE` Audit all 12 legacy `IAcquirerService` adapters.
 - `DONE` Audit Hyperswitch exact-brand coverage; no first-party exact-brand connector match was found for the audited legacy provider set.
 - `DONE` Accept ADR 0004: native thin provider adapters; Hyperswitch is not an initial dependency.
-- `SUPERSEDED` Engineering provider-retention tiers used during exploration.
-- `SUPERSEDED` MagicPay/Accithus first-proof candidate recommendation.
 - `DONE` Freeze V1 processor scope to exactly **AkkadPag + FlevoPay**.
 - `DEFERRED` Accithus, ActivePayments, Bankizi, Coldfy, HeartPay, HunterPay, IHubBanking, MagicPay, Pluggou and Rapdyn.
 - `DONE` Deep source audit of retained AkkadPag/FlevoPay client, DTO, status and webhook behavior.
@@ -112,34 +110,31 @@ This is the durable backlog and handoff ledger for the reconstruction. Detailed 
 
 Implementation is active under strict RED -> migration -> GREEN database TDD.
 
-## Harness
+## Harness and canonical remote
 
 - `DONE` Versioned Supabase project configuration; PostgreSQL 17.
 - `DONE` Supabase CLI pinned in CI.
 - `DONE` pgTAP database-contract workflow with `supabase db start` + `supabase test db`.
-- `DONE` Server-owned `app` schema kept outside direct browser Data API mutation surface.
-- `IN_PROGRESS` Fail-first schema suites; each slice is introduced RED before its migration.
+- `DONE` Server-owned `app` schema outside direct browser Data API mutation surface.
+- `DONE` Canonical managed Supabase project selected: **`swiftpay v2`**, ref `vsidrgbbyzibqfjkuiqb`.
+- `DONE` Canonical remote reconciled with the repository migration chain through `20260814065000_public_data_api_default_grants.sql`.
+- `DONE` Remote migration history normalized to the repository timestamps; 22 canonical migrations, no connector-generated versions left in the history.
+- `DONE` Remote synchronization verified with zero SwiftPay domain rows and zero internal reconciliation findings.
+- `DONE` Remote security evidence recorded in `docs/evidence/supabase/2026-08-14-canonical-remote-sync.md`.
+- `DONE` Supabase Security Advisor after J2: **0 security lints**.
+- `PENDING` Performance-index review after representative workload/query plans. Current advisor notices are INFO-only; do not add/remove indexes mechanically.
 
 ## Implemented slices
 
 ### A — merchant / KYC / provider configuration
 
-- `DONE` `app.merchants`
-- `DONE` `app.merchant_members`
-- `DONE` `app.kyc_cases`
-- `DONE` `app.kyc_documents`
-- `DONE` `app.api_credentials`
-- `DONE` `app.providers`
-- `DONE` `app.provider_accounts`
+- `DONE` `app.merchants`, `app.merchant_members`, `app.kyc_cases`, `app.kyc_documents`, `app.api_credentials`, `app.providers`, `app.provider_accounts`.
 
 Migration: `20260814005500_identity_compliance_and_providers.sql`
 
 ### B/C/D — request idempotency / Payment / provider evidence
 
-- `DONE` `app.request_idempotency`
-- `DONE` `app.payments`
-- `DONE` `app.provider_attempts`
-- `DONE` `app.provider_events`
+- `DONE` `app.request_idempotency`, `app.payments`, `app.provider_attempts`, `app.provider_events`.
 - `DONE` Payment cents/BRL/fee/net/refund constraints.
 - `DONE` Request-idempotency database uniqueness.
 - `DONE` One unresolved provider-create attempt per Payment.
@@ -149,9 +144,7 @@ Migration: `20260814010000_payment_idempotency_and_provider_events.sql`
 
 ### E — canonical ledger
 
-- `DONE` `app.accounts`
-- `DONE` `app.ledger_transactions`
-- `DONE` `app.ledger_entries`
+- `DONE` `app.accounts`, `app.ledger_transactions`, `app.ledger_entries`.
 - `DONE` Deterministic merchant/provider/platform account identities.
 - `DONE` `app.ensure_account(...)` database-native upsert.
 - `DONE` `app.post_ledger_transaction(...)` double-entry/source-idempotency boundary.
@@ -163,52 +156,34 @@ Migration: `20260814014500_ledger_foundation.sql`
 
 ### F — PostgreSQL durable jobs/outbox
 
-- `DONE` `app.jobs`
-- `DONE` Logical dedupe uniqueness.
-- `DONE` Versioned job payloads.
-- `DONE` `enqueue_job(...)` idempotent enqueue.
-- `DONE` `claim_jobs(...)` with `FOR UPDATE SKIP LOCKED` and lease fencing token.
-- `DONE` `complete_job(...)` fenced completion.
-- `DONE` `reschedule_job(...)` retry/dead transition with structured error persistence.
+- `DONE` `app.jobs` with logical dedupe, versioned payloads, due/lease state and structured errors.
+- `DONE` `enqueue_job(...)`, `claim_jobs(...)`, `complete_job(...)`, `reschedule_job(...)`.
+- `DONE` `FOR UPDATE SKIP LOCKED` claim and lease fencing semantics.
 
 Migration: `20260814020500_jobs_foundation.sql`
 
-Validation after slice F: **4 pgTAP files / 95 tests / PASS**.
-
 ### G — merchant webhook persistence
 
-- `DONE` Fail-first `005_merchant_webhooks.test.sql`.
-- `DONE` `app.webhook_endpoints`.
-- `DONE` `app.webhook_events`.
-- `DONE` `app.webhook_deliveries`.
+- `DONE` `app.webhook_endpoints`, `app.webhook_events`, `app.webhook_deliveries`.
 - `DONE` Atomic logical-event -> endpoint-delivery -> durable-job materialization.
+- `DONE` Endpoint secret/version/rotation persistence independent from public IDs.
 
 Migration: `20260814022000_merchant_webhook_persistence.sql`
 
 ### H — payouts/refunds
 
-- `DONE` First-class payout-account, Payout and payout-attempt resource schema.
-- `DONE` Atomic Available -> payout-blocked reservation with database-enforced non-negative merchant liability.
-- `DONE` Payout request replay/idempotency conflict behavior.
-- `DONE` Payout routing-policy snapshot at reservation.
-- `DONE` Durable payout provider-operation preparation with stable client/request identity.
-- `DONE` One-shot payout execution claim with fencing token; lease expiry never authorizes a blind second monetary POST.
-- `DONE` `app.payout_evidence` normalized durable evidence boundary with provenance and stable source identity.
-- `DONE` Payout `processing` / `execution_unknown` application semantics; unknown external execution leaves blocked funds untouched.
-- `DONE` Payout authoritative completion with exactly-once ledger consumption, provider cost/asset accounting and durable `payout.completed` merchant event.
-- `DONE` Payout authoritative definitive failure with exactly-once blocked -> available release and durable `payout.failed` merchant event.
-- `DONE` Same-terminal payout evidence absorption and contradictory terminal evidence conflict classification without financial rewind.
-- `DONE` First-class Refund and refund-attempt resource schema.
-- `DONE` Payment refund-fee policy snapshot boundary.
-- `DONE` Refund funding reservation with source-Payment serialization and cumulative refundable-limit enforcement.
-- `DONE` Refund request replay/idempotency conflict behavior; canonical Payment collection state remains `paid`.
-- `DONE` `app.refund_evidence` normalized durable evidence boundary with stable provider/simulation/reconciliation source identity and explicit amount semantics.
-- `DONE` Refund `processing` / `execution_unknown` application semantics for approved non-provider evidence; unknown execution keeps merchant funding blocked.
-- `DONE` Refund completion with exactly-once blocked -> provider-settlement posting, first-class cumulative Payment refund projection, and durable `refund.completed` merchant event.
-- `DONE` Refund definitive failure with exactly-once blocked -> available release and durable `refund.failed` merchant event.
-- `DONE` Refund `event_delta` / `cumulative_total` validation, same-terminal absorption and contradictory-terminal conflict without collection-state rewind.
-- `DONE` Current executable refund economics are fail-closed to `merchant_fee_non_refundable`; refundable-fee policies remain pending their own allocation tests.
-- `DEFERRED` Provider-originated refund execution/application until an exact retained-provider refund endpoint, operation identity, duplicate protection, recovery/status and event contract is proven.
+- `DONE` First-class payout-account, Payout, payout-attempt, Refund and refund-attempt resources.
+- `DONE` Atomic Available -> payout/refund-blocked reservation with non-negative merchant liabilities.
+- `DONE` Request replay/idempotency conflict semantics.
+- `DONE` Payout routing-policy snapshot.
+- `DONE` Durable payout attempt preparation and one-shot execution claim/fencing.
+- `DONE` `app.payout_evidence` normalized evidence, processing/unknown/terminal resolution and exactly-once ledger effects.
+- `DONE` Authoritative payout completion/failure merchant events.
+- `DONE` Payment refund-fee policy snapshot and cumulative refundable-limit enforcement.
+- `DONE` `app.refund_evidence` normalized evidence with explicit amount semantics.
+- `DONE` Refund completion/failure ledger effects and Payment refund aggregate update exactly once.
+- `DONE` Current executable refund economics fail-closed to `merchant_fee_non_refundable`.
+- `DEFERRED` Provider-originated refund application until exact retained-provider conformance exists.
 
 Migrations:
 
@@ -222,84 +197,100 @@ Migrations:
 - `20260814056000_refund_resolution_foundation.sql`
 - `20260814057000_refund_resolution_behavior.sql`
 
-Validation after refund-resolution GREEN: **14 pgTAP files / 390 tests / PASS**.
-
 ### I — reconciliation
 
 #### I1 — internal read-only detection
 
-- `DONE` Freeze `docs/specs/internal-reconciliation-v0.yaml` before behavior implementation.
-- `DONE` `app.reconciliation_account_cache`: rebuild every canonical account balance from ledger entries using the account natural side.
-- `DONE` `app.reconciliation_expected_postings`: rebuild required Payout/Refund reservation and terminal posting identities from canonical state.
-- `DONE` `app.reconciliation_refund_projection`: rebuild Payment refund aggregate exclusively from completed first-class Refund resources.
-- `DONE` `app.internal_reconciliation_findings`: deterministic, environment-scoped, non-secret read-only findings.
-- `DONE` Detect cached-balance drift as `cache_mismatch`.
-- `DONE` Detect canonical financial state missing a required posting as `missing_required_posting`.
-- `DONE` Detect payout/refund ledger source without canonical resource as `orphan_posting`.
-- `DONE` Detect posting invalid for the current canonical resource state as `unexpected_posting`.
-- `DONE` Detect Payment cached refunded aggregate drift as `refund_projection_mismatch`.
-- `DONE` Re-reading reconciliation surfaces is side-effect-free and preserves deterministic stable finding identity.
+- `DONE` `docs/specs/internal-reconciliation-v0.yaml`.
+- `DONE` Account-cache parity, expected posting, refund projection and deterministic internal finding views.
+- `DONE` Detect `cache_mismatch`, `missing_required_posting`, `orphan_posting`, `unexpected_posting`, `refund_projection_mismatch`.
+- `DONE` Read-only deterministic behavior; no repair side effects.
 
 Migrations:
 
 - `20260814058000_internal_reconciliation_foundation.sql`
 - `20260814059000_internal_reconciliation_behavior.sql`
 
-Validation after I1 GREEN: **16 pgTAP files / 457 tests / PASS**.
-
 #### I2 — durable reconciliation operations
 
-- `DONE` Freeze `docs/specs/reconciliation-operations-v0.yaml` before behavior implementation.
-- `DONE` Durable reconciliation Run, stable Discrepancy, immutable run-observation and lifecycle-event persistence.
-- `DONE` Zero-finding runs remain durable completed executions with explicit scope/version/environment.
-- `DONE` Rediscovery reuses stable discrepancy identity, preserves first-seen evidence and advances occurrence/latest-observation metadata.
-- `DONE` Explicit `open -> acknowledged -> resolved` operator lifecycle with idempotent replay semantics.
-- `DONE` Disappearance from a later detector run never auto-resolves a discrepancy.
-- `DONE` Observation/event history is append-only and Sandbox/Production remain isolated.
-- `DONE` Reconciliation capture and lifecycle operations perform no ledger posting, job enqueue or automatic financial repair.
+- `DONE` `docs/specs/reconciliation-operations-v0.yaml`.
+- `DONE` Durable run, stable discrepancy, immutable run observation and lifecycle-event persistence.
+- `DONE` Stable discrepancy identity across repeated runs and explicit `open -> acknowledged -> resolved` lifecycle.
+- `DONE` Disappearance from a later run never auto-resolves a discrepancy.
+- `DONE` Reconciliation operations perform no ledger posting, job enqueue or automatic financial repair.
 
 Migrations:
 
 - `20260814060000_reconciliation_operations_foundation.sql`
 - `20260814061000_reconciliation_operations_behavior.sql`
 
-Validation after I2 GREEN: **18 pgTAP files / 608 tests / PASS**.
-
 #### I3a — durable normalized provider evidence envelope
 
-- `DONE` Freeze `docs/specs/provider-reconciliation-evidence-v0.yaml` before behavior implementation.
-- `DONE` `app.provider_reconciliation_evidence` persists already-normalized provider-authoritative facts independently from canonical domain rows.
-- `DONE` Provider/account/environment ownership validation is fail-closed before evidence insertion.
-- `DONE` Logical source identity is idempotent for an identical request fingerprint and conflicts on changed fingerprint.
-- `DONE` Operation, settlement-item and provider-balance shapes are explicitly constrained; V1 currency is BRL.
-- `DONE` Sandbox/Production evidence identity is isolated by provider account/environment scope.
-- `DONE` Disabled provider accounts remain eligible for historical reconciliation evidence.
-- `DONE` Provider reconciliation evidence history is append-only.
-- `DONE` Recording normalized external evidence has zero side effects on Payment/Payout/Refund state, ledger, jobs or existing provider/payout/refund evidence.
-- `DONE` PostgreSQL never performs provider HTTP/report fetching in this slice.
+- `DONE` `docs/specs/provider-reconciliation-evidence-v0.yaml`.
+- `DONE` `app.provider_reconciliation_evidence` for normalized provider-authoritative facts.
+- `DONE` Provider/account/environment validation and logical-source idempotency/conflict behavior.
+- `DONE` Explicit operation/settlement/balance shapes; V1 BRL.
+- `DONE` Evidence is append-only and has zero Payment/Payout/Refund/ledger/job side effects.
+- `DONE` PostgreSQL performs no provider HTTP/report fetching.
 
 Migrations:
 
 - `20260814062000_provider_reconciliation_evidence_foundation.sql`
 - `20260814063000_provider_reconciliation_evidence_behavior.sql`
 
-Validation after I3a GREEN: **20 pgTAP files / 685 tests / PASS**.
-
 #### I3b — provider-vs-SwiftPay comparison
 
 - `EVIDENCE_REQUIRED` Current authoritative AkkadPag/FlevoPay query/report/balance sources, stable operation identifiers and provider-absence semantics before correlation/comparison views are frozen.
 - `PENDING` External provider-evidence reconciliation findings after retained-provider conformance evidence is captured.
-- `PENDING` Provider settlement/balance/report comparisons once their exact evidence contracts exist.
+- `PENDING` Provider settlement/balance/report comparisons once exact evidence contracts exist.
 - `PENDING` Admin step-up/approval boundary for any future append-only correction flow.
+
+### J — Supabase/Data API access hardening
+
+#### J1 — private `app` schema ACL
+
+- `DONE` `docs/specs/app-schema-access-control-v0.yaml`.
+- `DONE` `PUBLIC`, `anon`, `authenticated` and `service_role` denied schema/object access to `app`.
+- `DONE` Future `app` routines/tables/sequences fail closed via default ACL.
+- `DONE` Transactional probes verify future-object ACL behavior.
+
+Migration: `20260814064000_app_schema_access_control.sql`
+
+Validation after J1 GREEN: **21 pgTAP files / 716 tests / PASS**.
+
+#### J2 — public Data API grants are explicit opt-in
+
+- `DONE` `docs/specs/public-data-api-default-grants-v0.yaml`.
+- `DONE` Future `public` tables and sequences no longer inherit Data API role privileges.
+- `DONE` Future routines do not inherit executable access for `PUBLIC`, `anon`, `authenticated` or `service_role`.
+- `DONE` Managed `public.rls_auto_enable()` remains installed but is not directly callable by Data API roles.
+- `DONE` Managed `ensure_rls` event trigger remains enabled.
+- `DONE` No bulk revoke of unrelated existing `public`, `auth`, `storage` or `realtime` surfaces.
+
+Migration: `20260814065000_public_data_api_default_grants.sql`
+
+Validation after J2 GREEN: **22 pgTAP files / 734 tests / PASS**.
+
+Managed Supabase verification after J2:
+
+- 22 canonical migration-history entries through `20260814065000`;
+- J1 `app` ACL remains fail-closed;
+- forbidden `public` default-ACL entries: zero;
+- `rls_auto_enable()` executable by Data API roles: false;
+- `ensure_rls` enabled: true;
+- Supabase Security Advisor: **0 lints**.
 
 ## Remaining platform foundation
 
-- `PENDING` Supabase Auth dashboard-user integration beyond schema identity reference.
-- `PENDING` Fail-closed RLS/role-policy tests where roles can reach app-owned objects.
-- `PENDING` Private KYC Storage buckets/policies.
-- `PENDING` Append-only audit-event infrastructure.
-- `PENDING` Local sandbox/seed fixtures.
-- `PENDING` Trusted API/worker production deployment topology around managed Supabase.
+Execution order for remaining independent foundation work:
+
+- `PENDING` **K1 — private KYC Storage bucket/policy contract and RED -> GREEN tests**.
+- `PENDING` K2 — append-only audit-event infrastructure.
+- `PENDING` K3 — Supabase Auth dashboard-user integration + merchant membership authorization boundary.
+- `PENDING` K4 — explicit trusted API/worker database role / tenant-context boundary.
+- `PENDING` K5 — local sandbox/seed fixtures.
+- `PENDING` K6 — trusted API/worker production deployment topology around managed Supabase.
+- `PENDING` Merchant-facing exposed read/write models only after their own grants + RLS contracts; J2 makes exposure opt-in by default.
 
 # Phase 3 — First executable Pix vertical slice
 
@@ -409,10 +400,12 @@ read-only internal reconciliation detection
         |
 durable reconciliation run/discrepancy lifecycle
         |
-append-only normalized provider evidence envelope   <- current GREEN boundary
+append-only normalized provider evidence envelope
+        |
+private app ACL + explicit-opt-in public Data API grants   <- current GREEN boundary
 ```
 
-Provider runtime scope is frozen:
+Provider runtime scope remains frozen:
 
 ```text
 Pix In : AkkadPag | FlevoPay
@@ -433,19 +426,23 @@ withdrawable
 
 ## Immediate execution order
 
-1. capture retained-provider conformance evidence required to unlock provider-specific I3b comparisons; do not guess unavailable PSP semantics;
-2. RLS/KYC-storage/audit/seed/deployment foundation;
-3. trusted backend/worker vertical slice;
-4. AkkadPag + FlevoPay adapters only, gated by conformance evidence.
+1. K1 private KYC Storage bucket/policy spec -> RED -> GREEN, verified locally and against canonical Supabase;
+2. K2 append-only audit-event infrastructure;
+3. K3/K4 Auth membership + trusted backend/worker authorization boundary;
+4. K5/K6 seed/deployment foundation;
+5. provider-specific I3b and adapters only when current AkkadPag/FlevoPay conformance evidence exists.
 
 ## Verification
 
 - Work remains on `agent/foundation-phase-0` and draft PR #1.
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
-- Phase 2 PostgreSQL/Supabase implementation is active and test-driven.
-- Latest database boundary after I3a: **20 pgTAP files / 685 tests / PASS** on GitHub Actions.
+- Latest database boundary: **22 pgTAP files / 734 tests / PASS** on GitHub Actions run #89.
+- Canonical managed Supabase: **`swiftpay v2` / `vsidrgbbyzibqfjkuiqb`**.
+- Remote history: **22 canonical migrations through `20260814065000`**.
+- Remote Security Advisor after J2: **0 security lints**.
+- Remote Performance Advisor currently exposes INFO-only FK-index/unused-index candidates; changes are deferred until a representative workload/query-plan performance slice.
 - I3b provider-vs-SwiftPay comparison remains `EVIDENCE_REQUIRED`; no provider-specific absence/query/report semantics were invented.
-- Refund provider execution remains intentionally disabled; the database refund-resolution machine is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
+- Refund provider execution remains intentionally disabled; database refund resolution is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
 - No production HTTP API/provider adapter has been introduced yet.
 - Repository artifacts, not chat context, are the canonical engineering source of truth.
