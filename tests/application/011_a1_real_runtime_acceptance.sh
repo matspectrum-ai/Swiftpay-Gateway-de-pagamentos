@@ -94,6 +94,7 @@ NODE
 assert_rate_limited_response() {
   local body_file="$1"
   local headers_file="$2"
+  local retry_after
   node --input-type=module - "${body_file}" <<'NODE'
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -101,7 +102,11 @@ const body = JSON.parse(await readFile(process.argv[2], 'utf8'));
 assert.equal(body.error?.code, 'auth_rate_limit_exceeded');
 assert.equal(body.error?.message, 'Token issuance rate limit exceeded.');
 NODE
-  grep -Eiq '^retry-after: [1-9][0-9]*\r?$' "${headers_file}"
+  retry_after="$(
+    tr -d '\r' < "${headers_file}" \
+      | awk -F': *' 'tolower($1)=="retry-after" {print $2; exit}'
+  )"
+  [[ "${retry_after}" =~ ^[1-9][0-9]*$ ]]
 }
 
 stage='fixture-generation'
