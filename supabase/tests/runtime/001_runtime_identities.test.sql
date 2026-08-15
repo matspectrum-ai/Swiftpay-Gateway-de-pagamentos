@@ -1,7 +1,7 @@
 create extension if not exists pgtap with schema extensions;
 
 begin;
-select plan(26);
+select plan(27);
 
 select ok(
   exists (select 1 from pg_roles where rolname = 'swiftpay_api_runtime'),
