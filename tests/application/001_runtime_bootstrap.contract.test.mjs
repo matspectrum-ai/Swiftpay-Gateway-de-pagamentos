@@ -18,6 +18,7 @@ async function text(path) {
 
 const requiredFiles = [
   'package.json',
+  'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
   'tsconfig.base.json',
   'apps/api/package.json',
@@ -43,7 +44,7 @@ test('root manifest freezes pnpm workspace semantics', async () => {
   assert.equal(await exists('package.json'), true, 'package.json must exist');
   const manifest = JSON.parse(await text('package.json'));
   assert.equal(manifest.private, true);
-  assert.match(manifest.packageManager ?? '', /^pnpm@\d+\.\d+\.\d+$/);
+  assert.equal(manifest.packageManager, 'pnpm@11.17.0');
   assert.equal(manifest.type, 'module');
   assert.equal(manifest.engines?.node, '>=24 <25');
   assert.equal(typeof manifest.scripts?.typecheck, 'string');
