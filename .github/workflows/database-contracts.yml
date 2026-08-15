@@ -24,4 +24,4 @@ jobs:
       - name: Start isolated Postgres
         run: supabase db start
       - name: Run pgTAP database contracts
-        run: supabase test db
+        run: supabase test db supabase/tests/database
