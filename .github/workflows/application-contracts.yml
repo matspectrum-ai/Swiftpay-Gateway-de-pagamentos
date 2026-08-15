@@ -15,46 +15,28 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  lockfile-bootstrap:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+  application-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
       - name: Setup Node.js 24 LTS
         uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Generate and commit pinned lockfile if absent
+      - name: Activate pinned pnpm
         run: |
-          set -euo pipefail
-          if [ -f pnpm-lock.yaml ]; then
-            echo "pnpm-lock.yaml already versioned"
-            exit 0
-          fi
           corepack enable
           corepack prepare pnpm@11.17.0 --activate
           test "$(pnpm --version)" = "11.17.0"
-          pnpm install --lockfile-only
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml
-          git commit -m "build: freeze K7 pnpm lockfile"
-          git push origin "HEAD:${{ github.head_ref }}"
-
-  structural-red-green:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js 24 LTS
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
       - name: Run executable runtime structural contracts
-        run: node --test tests/application/*.test.mjs
+        run: pnpm test
+      - name: Typecheck application workspace
+        run: pnpm typecheck
+      - name: Build application workspace
+        run: pnpm build
