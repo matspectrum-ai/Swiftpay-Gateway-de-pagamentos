@@ -1,0 +1,113 @@
+feature: kyc-private-storage-v0
+status: frozen_for_tdd
+phase: 2
+slice: K1
+
+problem:
+  statement: >-
+    KYC evidence contains sensitive identity documents and must never inherit a
+    generic/public Storage policy. The canonical Supabase project currently has
+    no buckets or custom Storage policies, so the KYC storage class can be
+    introduced fail-closed before merchant-facing upload/download flows exist.
+  current_state:
+    - storage.objects and storage.buckets have RLS enabled by the managed Supabase platform.
+    - the canonical remote has zero buckets and zero custom storage policies.
+    - app.kyc_documents already persists merchant/case/purpose/version/storage_path metadata.
+    - trusted backend authorization remains the KYC access decision boundary.
+  risk: >-
+    A merely-private bucket with no current permissive policy can still be exposed
+    accidentally by a future broad permissive Storage policy, because PostgreSQL
+    permissive RLS policies combine with OR semantics. KYC therefore needs a
+    restrictive policy fence in addition to private-bucket configuration.
+
+objectives:
+  - create a dedicated private KYC evidence bucket
+  - make browser/Data API KYC object access fail closed even if a future broad permissive Storage policy is introduced
+  - keep the Storage metadata schema itself managed/read-only
+  - preserve server-side upload/download as the future trusted path
+  - avoid freezing unproven Brazilian compliance document/MIME requirements in this slice
+
+constants:
+  bucket_id: kyc-evidence
+  bucket_name: kyc-evidence
+  public: false
+  file_size_limit_bytes: 10485760
+  allowed_mime_types: null
+
+requirements:
+  bucket:
+    - storage.buckets MUST contain exactly one bucket with id `kyc-evidence`
+    - the bucket MUST remain private (`public = false`)
+    - the bucket file-size ceiling MUST be 10 MiB, matching the current SwiftPay local Storage ceiling
+    - K1 MUST NOT claim a final MIME allowlist; detected-content validation remains a trusted-backend/compliance responsibility
+    - bucket creation is configuration metadata only; object bytes are never inserted through SQL
+  storage_schema:
+    - storage.objects RLS MUST remain enabled
+    - storage.buckets RLS MUST remain enabled
+    - K1 MUST NOT alter managed Storage table structure, triggers, functions or internal migrations
+    - runtime object upload/copy/move/delete MUST use the Storage API, never direct metadata DML
+  browser_denial:
+    roles:
+      - anon
+      - authenticated
+    rules:
+      - direct SELECT of `kyc-evidence` bucket metadata MUST remain denied
+      - direct SELECT of `kyc-evidence` object metadata MUST remain denied
+      - direct INSERT into `kyc-evidence` object metadata MUST remain denied
+      - direct UPDATE of `kyc-evidence` object metadata MUST remain denied
+      - direct DELETE of `kyc-evidence` object metadata MUST remain denied
+  restrictive_fence:
+    - KYC denial policies MUST be `AS RESTRICTIVE`, not ordinary permissive policies
+    - the restrictive fence MUST survive a future broad permissive policy for anon/authenticated
+    - non-KYC buckets are not denied by K1; their access remains governed by their own future policies
+  service_boundary:
+    - K1 MUST NOT grant merchant/browser access to KYC objects
+    - trusted server operations may later use the Supabase server-side Storage capability after application authorization
+    - browser clients MUST never receive service-role/secret capability
+    - signed upload/download URL minting is OUT OF SCOPE until the trusted backend authorization boundary exists
+  evidence_identity:
+    - canonical database attachment remains app.kyc_documents
+    - object paths MUST be minted by the trusted backend, not freely chosen by the browser
+    - target path convention is `merchant_id/kyc_case_id/purpose/version/opaque_object_name`
+    - attachment validation against merchant/case/purpose/version is implemented in the later trusted-backend slice, not by modifying storage.objects
+  immutability:
+    - submitted KYC evidence remains immutable by contract
+    - K1 denies generic browser UPDATE/DELETE entirely for the KYC bucket
+    - replacement will create a new evidence version/path; overwrite/upsert is not part of K1
+
+acceptance_criteria:
+  - pgTAP proves the `kyc-evidence` bucket exists, is private and has the expected 10 MiB limit
+  - pgTAP proves RLS remains enabled on storage.buckets and storage.objects
+  - pgTAP proves restrictive policies exist for bucket SELECT and object SELECT/INSERT/UPDATE/DELETE
+  - pgTAP temporarily adds broad permissive policies and proves anon/authenticated still cannot observe KYC bucket/object rows
+  - pgTAP proves a non-KYC probe row can pass the restrictive fence when a permissive policy explicitly grants it, demonstrating the fence is KYC-scoped rather than a global Storage shutdown
+  - pgTAP proves J1/J2 app/public access-control boundaries remain intact
+  - all previous 001-022 database-contract suites remain green
+  - managed Supabase Security Advisor remains clean after deployment
+
+edge_cases:
+  - future broad `USING (true)` Storage policy must not expose KYC rows
+  - future broad `WITH CHECK (true)` upload policy must not authorize KYC object metadata creation
+  - private bucket flag alone must not be treated as authorization for metadata operations
+  - service-role RLS bypass must not be exposed to browser clients
+  - `owner_id` alone does not grant access and is not used as the KYC authorization decision in K1
+  - dashboard-created/service-created objects may have null owner_id and must still remain protected by the bucket fence
+  - compliance may later narrow allowed MIME types without changing tenant/privacy invariants
+
+out_of_scope:
+  - actual KYC document field/MIME regulatory minimums
+  - malware/content scanning implementation
+  - signed upload URL minting
+  - signed download URL minting
+  - merchant/admin KYC authorization endpoints
+  - KYC review workflow tables not already present
+  - append-only KYC audit events
+  - object lifecycle/retention deletion jobs
+  - direct browser KYC Storage access
+
+implementation_constraints:
+  - create bucket metadata through a versioned migration; do not mutate managed Storage table definitions
+  - use named restrictive RLS policies scoped only to `kyc-evidence`
+  - do not add permissive KYC policies
+  - do not grant service_role credentials to frontend/browser code
+  - do not introduce provider/compliance assumptions into this Storage-only slice
