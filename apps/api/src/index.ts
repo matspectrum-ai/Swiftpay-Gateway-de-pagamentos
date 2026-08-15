@@ -1,10 +1,14 @@
 import { loadApiConfig } from '@swiftpay/config';
-import { createRuntimePool, verifyRuntimeBoundary } from '@swiftpay/db';
+import { createRuntimePool } from '@swiftpay/db';
 import { buildApp } from './app.js';
+import { createApiRuntimeServices } from './runtime.js';
 
 const config = loadApiConfig();
 const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'api' });
-const app = buildApp({ readinessProbe: () => verifyRuntimeBoundary(pool, 'api') });
+const { readinessProbe, tokenExchange } = createApiRuntimeServices(pool, {
+  signingKey: config.accessTokenSigningKey,
+});
+const app = buildApp({ readinessProbe, tokenExchange });
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
