@@ -64,6 +64,27 @@ export interface TokenAuthStore {
   consumeTokenIssuance(credentialId: string): Promise<TokenIssuanceResult>;
 }
 
+export interface CredentialAuthState {
+  readonly credentialId: string;
+  readonly merchantId: string;
+  readonly environment: AuthEnvironment;
+  readonly credentialStatus: string;
+  readonly secretVersion: number;
+  readonly merchantLifecycleStatus: string;
+}
+
+export interface BearerAuthStore {
+  getCredentialAuthState(credentialId: string): Promise<CredentialAuthState | null>;
+}
+
+export interface MachinePrincipal {
+  readonly merchantId: string;
+  readonly credentialId: string;
+  readonly environment: AuthEnvironment;
+  readonly secretVersion: number;
+  readonly tokenId: string;
+}
+
 export interface TokenExchangeServiceOptions {
   readonly signingKey: string;
   readonly nowSeconds?: () => number;
@@ -277,6 +298,37 @@ export async function verifyAccessToken(
   } catch {
     return null;
   }
+}
+
+export async function authenticateAccessToken(
+  token: string,
+  signingKey: string,
+  store: BearerAuthStore,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<MachinePrincipal | null> {
+  const claims = await verifyAccessToken(token, signingKey, nowSeconds);
+  if (claims === null) return null;
+
+  const state = await store.getCredentialAuthState(claims.credential_id);
+  if (
+    state === null
+    || state.credentialStatus !== 'active'
+    || state.merchantLifecycleStatus !== 'active'
+    || state.credentialId !== claims.credential_id
+    || state.merchantId !== claims.sub
+    || state.environment !== claims.environment
+    || state.secretVersion !== claims.secret_version
+  ) {
+    return null;
+  }
+
+  return {
+    merchantId: claims.sub,
+    credentialId: claims.credential_id,
+    environment: claims.environment,
+    secretVersion: claims.secret_version,
+    tokenId: claims.jti,
+  };
 }
 
 function normalizeTokenExchangeRequest(request: TokenExchangeRequest): TokenExchangeRequest | null {
