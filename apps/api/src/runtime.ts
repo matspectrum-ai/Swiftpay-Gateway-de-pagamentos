@@ -6,6 +6,7 @@ import {
 } from '@swiftpay/auth';
 import {
   createApiCredentialAuthStore,
+  createMerchantBalanceStore,
   createPixPaymentStore,
   verifyRuntimeBoundary,
 } from '@swiftpay/db';
@@ -13,7 +14,11 @@ import {
   createDeterministicPixEmulator,
   createPixPaymentService,
 } from '../../../packages/payments/dist/index.js';
-import type { BearerAuthenticator, PixPaymentsHttpService } from './app.js';
+import type {
+  BearerAuthenticator,
+  MerchantBalanceHttpService,
+  PixPaymentsHttpService,
+} from './app.js';
 
 type ApiRuntimePool = Parameters<typeof verifyRuntimeBoundary>[0];
 
@@ -24,6 +29,7 @@ export interface ApiRuntimeServices {
   readonly tokenExchange: TokenExchangeHandler;
   readonly authenticateBearer: BearerAuthenticator;
   readonly pixPayments: PixPaymentsHttpService;
+  readonly merchantBalance: MerchantBalanceHttpService;
 }
 
 export function createApiRuntimeServices(
@@ -32,6 +38,7 @@ export function createApiRuntimeServices(
 ): ApiRuntimeServices {
   const authStore = createApiCredentialAuthStore(pool);
   const pixStore = createPixPaymentStore(pool);
+  const balanceStore = createMerchantBalanceStore(pool);
   const pixService = createPixPaymentService(
     pixStore,
     createDeterministicPixEmulator(),
@@ -52,6 +59,12 @@ export function createApiRuntimeServices(
         merchantId: principal.merchantId,
         environment: principal.environment,
         paymentId,
+      }),
+    },
+    merchantBalance: {
+      get: ({ principal }) => balanceStore.getBalance({
+        merchantId: principal.merchantId,
+        environment: principal.environment,
       }),
     },
   };
