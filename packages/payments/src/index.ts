@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+export type PaymentEnvironment = 'sandbox' | 'production';
+
 export interface PixCreateRequest {
   readonly method: 'pix';
   readonly amount: number;
@@ -62,6 +64,148 @@ export type PixEmulatorCreateResult =
 
 export interface PixEmulator {
   createPixCharge(input: PixEmulatorCreateInput): Promise<PixEmulatorCreateResult>;
+}
+
+export interface MachinePaymentPrincipal {
+  readonly merchantId: string;
+  readonly credentialId: string;
+  readonly environment: PaymentEnvironment;
+  readonly secretVersion: number;
+  readonly tokenId: string;
+}
+
+export interface PublicPixFields {
+  readonly txId: string;
+  readonly qrCode: string;
+  readonly copyAndPaste: string;
+  readonly expiresAt: string;
+}
+
+export interface PublicPayment {
+  readonly id: string;
+  readonly externalId: string | null;
+  readonly method: 'pix';
+  readonly amount: number;
+  readonly fee: number;
+  readonly netAmount: number;
+  readonly currency: 'BRL';
+  readonly status: 'creating' | 'pending' | 'failed';
+  readonly description: string | null;
+  readonly environment: PaymentEnvironment;
+  readonly expiresAt: string;
+  readonly createdAt: string;
+  readonly pix: PublicPixFields | null;
+}
+
+export interface SandboxPricingSnapshot {
+  readonly pricingVersion: 'sandbox-zero-fee-v0';
+  readonly feeMode: 'fixed';
+  readonly feeFixedCents: 0;
+  readonly feeBasisPoints: 0;
+  readonly feePercentageComponentCents: 0;
+  readonly merchantFeeCents: 0;
+  readonly merchantNetCents: number;
+  readonly roundingPolicyVersion: 'ceil-bp-v1';
+  readonly refundFeePolicy: 'merchant_fee_non_refundable';
+}
+
+export interface PreparePixPaymentInput {
+  readonly merchantId: string;
+  readonly environment: 'sandbox';
+  readonly idempotencyKey: string;
+  readonly requestHash: string;
+  readonly request: PixCreateRequest;
+  readonly pricing: SandboxPricingSnapshot;
+  readonly routingPolicyVersion: 'sandbox-emulator-v0';
+}
+
+export interface PreparedProviderAttempt {
+  readonly id: string;
+  readonly amountCents: number;
+  readonly expiresAt: string;
+}
+
+export type PreparePixPaymentResult =
+  | {
+    readonly kind: 'prepared';
+    readonly payment: PublicPayment;
+    readonly providerAttempt: PreparedProviderAttempt;
+  }
+  | {
+    readonly kind: 'completed';
+    readonly httpStatus: 201;
+    readonly payment: PublicPayment;
+  }
+  | {
+    readonly kind: 'executing' | 'execution_unknown';
+    readonly payment: PublicPayment;
+  }
+  | { readonly kind: 'conflict' };
+
+export interface ClaimPixAttemptInput {
+  readonly merchantId: string;
+  readonly environment: 'sandbox';
+  readonly paymentId: string;
+  readonly providerAttemptId: string;
+}
+
+export type ClaimPixAttemptResult =
+  | { readonly claimed: true; readonly executionToken: string }
+  | { readonly claimed: false };
+
+export interface ResolvePixAttemptInput {
+  readonly merchantId: string;
+  readonly environment: 'sandbox';
+  readonly paymentId: string;
+  readonly providerAttemptId: string;
+  readonly executionToken: string;
+  readonly resolution: PixEmulatorCreateResult;
+}
+
+export interface GetPaymentInput {
+  readonly merchantId: string;
+  readonly environment: PaymentEnvironment;
+  readonly paymentId: string;
+}
+
+export interface PixPaymentStore {
+  preparePixPayment(input: PreparePixPaymentInput): Promise<PreparePixPaymentResult>;
+  claimPixAttempt(input: ClaimPixAttemptInput): Promise<ClaimPixAttemptResult>;
+  resolvePixAttempt(input: ResolvePixAttemptInput): Promise<PublicPayment>;
+  getPayment(input: GetPaymentInput): Promise<PublicPayment | null>;
+}
+
+export interface CreatePixPaymentInput {
+  readonly principal: MachinePaymentPrincipal;
+  readonly idempotencyKey: unknown;
+  readonly request: unknown;
+}
+
+export type PixPaymentServiceErrorCode =
+  | 'validation_error'
+  | 'idempotency_key_reused'
+  | 'operation_forbidden'
+  | 'internal_error';
+
+export type CreatePixPaymentResult =
+  | {
+    readonly ok: true;
+    readonly httpStatus: 201 | 202;
+    readonly payment: PublicPayment;
+    readonly replayed: boolean;
+  }
+  | {
+    readonly ok: false;
+    readonly httpStatus: 400 | 403 | 409 | 500;
+    readonly error: {
+      readonly code: PixPaymentServiceErrorCode;
+      readonly message: string;
+      readonly details?: readonly ValidationViolation[];
+    };
+  };
+
+export interface PixPaymentService {
+  create(input: CreatePixPaymentInput): Promise<CreatePixPaymentResult>;
 }
 
 const PIX_CREATE_FIELDS = new Set([
@@ -244,6 +388,155 @@ export function createDeterministicPixEmulator(
             expiresAt: input.expiresAt,
           };
       }
+    },
+  };
+}
+
+function createSandboxPricing(amountCents: number): SandboxPricingSnapshot {
+  return {
+    pricingVersion: 'sandbox-zero-fee-v0',
+    feeMode: 'fixed',
+    feeFixedCents: 0,
+    feeBasisPoints: 0,
+    feePercentageComponentCents: 0,
+    merchantFeeCents: 0,
+    merchantNetCents: amountCents,
+    roundingPolicyVersion: 'ceil-bp-v1',
+    refundFeePolicy: 'merchant_fee_non_refundable',
+  };
+}
+
+function validationFailure(violations: readonly ValidationViolation[]): CreatePixPaymentResult {
+  return {
+    ok: false,
+    httpStatus: 400,
+    error: {
+      code: 'validation_error',
+      message: 'Pix create request is invalid.',
+      details: violations,
+    },
+  };
+}
+
+export function createPixPaymentService(
+  store: PixPaymentStore,
+  emulator: PixEmulator,
+): PixPaymentService {
+  return {
+    async create(input) {
+      if (input.principal.environment !== 'sandbox') {
+        return {
+          ok: false,
+          httpStatus: 403,
+          error: {
+            code: 'operation_forbidden',
+            message: 'Pix creation is not enabled for this environment.',
+          },
+        };
+      }
+
+      const requestValidation = validatePixCreateRequest(input.request);
+      const idempotencyValidation = normalizePixCreateIdempotencyKey(input.idempotencyKey);
+      if (!requestValidation.ok || !idempotencyValidation.ok) {
+        const violations: ValidationViolation[] = [];
+        if (!requestValidation.ok) violations.push(...requestValidation.violations);
+        if (!idempotencyValidation.ok) violations.push(idempotencyValidation.violation);
+        return validationFailure(violations);
+      }
+
+      const request = requestValidation.value;
+      const prepared = await store.preparePixPayment({
+        merchantId: input.principal.merchantId,
+        environment: 'sandbox',
+        idempotencyKey: idempotencyValidation.value,
+        requestHash: hashPixCreateRequest(request),
+        request,
+        pricing: createSandboxPricing(request.amount),
+        routingPolicyVersion: 'sandbox-emulator-v0',
+      });
+
+      if (prepared.kind === 'conflict') {
+        return {
+          ok: false,
+          httpStatus: 409,
+          error: {
+            code: 'idempotency_key_reused',
+            message: 'Idempotency-Key was already used with a different request.',
+          },
+        };
+      }
+
+      if (prepared.kind === 'completed') {
+        return {
+          ok: true,
+          httpStatus: prepared.httpStatus,
+          payment: prepared.payment,
+          replayed: true,
+        };
+      }
+
+      if (prepared.kind === 'executing' || prepared.kind === 'execution_unknown') {
+        return {
+          ok: true,
+          httpStatus: 202,
+          payment: prepared.payment,
+          replayed: true,
+        };
+      }
+
+      const claim = await store.claimPixAttempt({
+        merchantId: input.principal.merchantId,
+        environment: 'sandbox',
+        paymentId: prepared.payment.id,
+        providerAttemptId: prepared.providerAttempt.id,
+      });
+
+      if (!claim.claimed) {
+        const currentPayment = await store.getPayment({
+          merchantId: input.principal.merchantId,
+          environment: 'sandbox',
+          paymentId: prepared.payment.id,
+        });
+
+        if (currentPayment === null) {
+          return {
+            ok: false,
+            httpStatus: 500,
+            error: {
+              code: 'internal_error',
+              message: 'Payment state is unavailable.',
+            },
+          };
+        }
+
+        return {
+          ok: true,
+          httpStatus: 202,
+          payment: currentPayment,
+          replayed: true,
+        };
+      }
+
+      const resolution = await emulator.createPixCharge({
+        providerAttemptId: prepared.providerAttempt.id,
+        amountCents: prepared.providerAttempt.amountCents,
+        expiresAt: prepared.providerAttempt.expiresAt,
+      });
+      const resolvedPayment = await store.resolvePixAttempt({
+        merchantId: input.principal.merchantId,
+        environment: 'sandbox',
+        paymentId: prepared.payment.id,
+        providerAttemptId: prepared.providerAttempt.id,
+        executionToken: claim.executionToken,
+        resolution,
+      });
+
+      return {
+        ok: true,
+        httpStatus: resolution.certainty === 'execution_unknown' ? 202 : 201,
+        payment: resolvedPayment,
+        replayed: false,
+      };
     },
   };
 }
