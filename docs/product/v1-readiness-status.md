@@ -4,163 +4,185 @@ Updated: 2026-08-15
 
 This is the executive checkpoint for one question: **how close is SwiftPay V2 to being usable and production-ready?**
 
-`TODOS.md` remains the detailed engineering ledger. This file is intentionally macro-level and must distinguish foundation completion from product usability.
+`TODOS.md` is the detailed engineering ledger. This file intentionally separates foundation maturity from actual merchant usability.
 
 ## Executive status
 
-SwiftPay V2 is **not yet a runnable payment gateway application**, but the planned Phase 2 PostgreSQL/Supabase/security foundation is now essentially closed. K5 deterministic sandbox fixtures and K6 trusted runtime deployment topology are GREEN. The next active work is the executable TypeScript API + worker bootstrap defined by `docs/specs/executable-runtime-bootstrap-v0.yaml`.
+SwiftPay V2 now has an **executable TypeScript API and worker runtime**, but it is **not yet a usable Pix gateway**. The database/financial/security foundation is essentially complete, and K7 proved that the real API and worker binaries can run against their separate K6 PostgreSQL identities without bypassing least privilege.
 
-Estimated readiness using weighted engineering/risk rather than raw checklist counts:
+The next missing product boundary is API credential management/authentication. After that, work moves directly into Pix create/get and the provider execution path.
 
-- **Core architecture/domain/database/platform foundation:** ~97% complete.
-- **First end-to-end Pix MVP usable in sandbox:** ~43% complete.
-- **Production-capable Pix V1:** ~32% complete.
-- **Broader SwiftPay product vision** including checkout, payment links, conversion intelligence, payouts, automations and integrations: ~20–25% complete.
-- **Weighted V1 engineering completion:** ~44%.
+Estimated readiness, weighted by engineering effort and risk rather than raw file/TODO counts:
 
-These are planning estimates, not mechanically derived percentages. A production payments system remains gated by provider conformance, executable runtime behavior, failure recovery, observability, deployment and operational acceptance.
+- **Core architecture/domain/database/platform foundation:** ~98% complete.
+- **First end-to-end Pix MVP usable in sandbox:** ~47% complete.
+- **Production-capable Pix V1:** ~34% complete.
+- **Weighted V1 engineering completion:** ~47%.
+- **Broader SwiftPay product vision** including checkout, links, conversion intelligence, payouts, automations and integrations: ~22–27% complete.
 
-## What exists today
+These are planning estimates. Provider conformance, real payment execution, recovery, webhooks, observability, deployment and operational acceptance remain hard production gates.
 
-### Product/architecture contracts
+## What exists now
+
+### Product and architecture
 
 Defined and versioned:
 
-- Pix-first V1 and modular-monolith direction;
+- Pix-first V1;
+- modular-monolith architecture;
 - canonical Payment Core;
-- provider-independent financial accounting;
-- AkkadPag + FlevoPay for V1 Pix In and AkkadPag-only V1 Pix Out;
-- public API, API credentials, KYC, fees, webhooks, sandbox, reconciliation and selling-surface contracts;
-- strict SDD/TDD/contract-driven engineering workflow.
+- provider-independent accounting;
+- AkkadPag + FlevoPay for V1 Pix In;
+- AkkadPag-only V1 Pix Out;
+- public API, credentials, KYC, fees, webhooks, sandbox, reconciliation and selling-surface contracts;
+- strict SDD/TDD/contract-driven workflow.
 
-### Canonical database/domain foundation
+### Database / financial core
 
-The managed Supabase project contains the V2 domain for:
+Implemented and tested:
 
-- merchants, memberships and KYC;
-- API credential persistence;
+- merchants and memberships;
+- KYC cases/documents and private Storage fences;
+- API credential persistence model;
 - providers/provider accounts;
 - request idempotency;
 - Payments, ProviderAttempts and ProviderEvents;
-- double-entry ledger and balances;
+- double-entry ledger and cached balances;
 - durable PostgreSQL jobs/outbox;
 - merchant webhook persistence;
-- payout/refund resources and financial reservations;
-- one-shot payout execution fencing and `execution_unknown` handling;
-- payout/refund authoritative evidence and exactly-once terminal effects;
+- payouts/refunds and atomic reservations;
+- one-shot payout execution fencing;
+- `execution_unknown` safety semantics;
+- authoritative payout/refund evidence and exactly-once terminal financial effects;
 - internal reconciliation and durable discrepancy lifecycle;
 - normalized provider reconciliation evidence;
-- append-only audit history;
-- dashboard membership authorization;
-- private KYC Storage fences;
-- trusted API/worker least-privilege capability roles.
+- append-only operational audit;
+- Supabase Auth dashboard membership authorization;
+- least-privilege API/worker capability roles.
 
-### Test/security boundary
+### Platform/security proof
 
-Current GREEN boundary after K6:
+Current preserved database boundary:
 
-- **29 database pgTAP files / 973 tests / PASS**;
-- **1 deterministic sandbox fixture file / 20 tests / PASS**;
-- **1 runtime-topology file / 27 tests / PASS**;
-- GitHub Actions run #143 (`31865487612`) passed all three lanes;
-- **29 canonical schema migrations** remain deployed to managed Supabase;
-- last managed Security Advisor after K4: **0 security lints**;
-- browser/Data API roles remain outside the private financial schema;
-- API and worker have different capability roles rather than table-wide access;
-- production-like K6 LOGIN identities successfully authenticated through their own PostgreSQL connections in CI.
+- **29 pgTAP files / 973 tests / PASS**;
+- **1 sandbox fixture file / 20 tests / PASS**;
+- **1 K6 runtime-topology file / 27 tests / PASS**;
+- **29 canonical migrations** deployed to the managed Supabase project;
+- last managed Supabase Security Advisor: **0 security lints**;
+- browser/Data API roles remain outside the private `app` schema;
+- `service_role` is not used as a generic financial-schema shortcut.
 
-K6 does **not** commit a managed password or activate a production runtime credential. Production password creation/rotation is deliberately left to the deployment secret channel.
+Database-contract run #161 (`31866431232`) re-proved all three lanes after K7.
 
-### Financial safety already implemented
+### Executable application runtime — K7 DONE
 
-Proven at database-contract level:
+SwiftPay now contains:
 
-- balanced double-entry posting;
-- deterministic source idempotency;
-- non-negative merchant liability buckets;
-- payout/refund reservation;
-- one-shot execution claim/fencing;
-- unsafe monetary retry prevention through explicit unknown-result semantics;
-- exactly-once terminal payout/refund effects;
-- durable webhook-event materialization;
-- append-only audit/provider evidence;
-- reconciliation discrepancy lifecycle.
+```text
+apps/api
+apps/worker
+packages/config
+packages/db
+```
 
-## What does not exist yet
+Runtime baseline:
 
-The following remain the principal reasons SwiftPay cannot yet receive a Pix through the V2 application.
+- Node.js 24 LTS;
+- pnpm `11.17.0` with committed frozen lockfile;
+- Fastify 5 API;
+- `pg` PostgreSQL driver;
+- strict TypeScript workspace;
+- separate API and worker database URLs;
+- bounded database timeouts;
+- secret-safe configuration errors;
+- structured API logging with sensitive-field redaction.
 
-### Executable application layer
+API behavior:
 
-Not yet implemented:
+- `GET /health/live` is process-only and never queries PostgreSQL;
+- `GET /health/ready` proves the K6 API database boundary;
+- wrong identity/database failure returns sanitized `503`.
 
-- TypeScript workspace runtime;
-- Fastify API process;
-- production worker process;
-- typed runtime configuration;
-- PostgreSQL pools wired to K6 identities;
-- HTTP liveness/readiness runtime;
-- API auth/merchant/KYC middleware;
-- public error/OpenAPI runtime.
+Worker behavior:
 
-The first bootstrap contract is now frozen as `docs/specs/executable-runtime-bootstrap-v0.yaml`.
+- `--check` proves the K6 worker identity and exits deterministically;
+- wrong identity fails closed;
+- no durable job-processing loop exists yet.
 
-### Public payment API
+Application run #14 (`31866431229`) passed both jobs, including a real isolated PostgreSQL acceptance test using `swiftpay_api_runtime` and `swiftpay_worker_runtime`. The test also proved zero Payment/job/ledger/webhook-event side effects.
 
-Not yet executable over HTTP:
+K7 evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.md`.
 
-- API key issuance/rotation/revocation;
-- Pix create/get/list;
-- balance endpoint/read model;
-- webhook endpoint management;
-- payout endpoints.
+## What is still missing
 
-Persistence/contracts exist, network-facing handlers do not.
+### API authentication and credential lifecycle
+
+Next active boundary:
+
+- dashboard/API credential issuance;
+- raw secret returned exactly once;
+- verification/authentication of merchant API requests;
+- rotation/revocation;
+- audit integration;
+- HTTP endpoints and error contracts.
+
+The persistence contract exists, but this behavior is not yet exposed through the executable API.
+
+### Pix HTTP/payment execution
+
+Still missing:
+
+- `POST` Pix creation;
+- Pix get/list;
+- request authentication/idempotency middleware;
+- provider-independent application orchestration;
+- QR Code/copy-paste response;
+- canonical paid transition orchestration;
+- balance HTTP/read model.
 
 ### Real PSP execution
 
-Not yet implemented:
+Still missing:
 
 - `AkkadPagAdapter`;
 - `FlevoPayAdapter`;
-- capability-aware two-provider router;
-- provider HTTP timeout/recovery semantics;
+- capability-aware provider router;
+- timeout/recovery layer;
 - authenticated provider webhook receiver;
 - provider status normalization;
 - provider reconciliation fetchers.
 
-Current AkkadPag/FlevoPay provider-specific identity, recovery/idempotency, webhook authentication, status and rate-limit details remain evidence-gated until exact current documentation/sandbox behavior is captured. Legacy contracts are not silently promoted to current contracts.
+The current exact AkkadPag/FlevoPay contracts remain evidence-gated where documentation/sandbox behavior has not been proven. Legacy provider behavior is not silently promoted to current behavior.
 
-### Worker/outbound HTTP
+### Worker and outbound merchant webhooks
 
-Database persistence and lease primitives exist, but runtime execution remains pending:
+Persistence and leasing exist, but runtime behavior still needs:
 
-- durable job loop;
+- durable worker claim loop;
 - provider recovery jobs;
 - HMAC merchant webhook signing;
-- SSRF-safe delivery;
-- retry/backoff/observability.
+- SSRF-safe HTTP delivery;
+- retry/backoff and observability.
 
-### Merchant/admin product
+### Merchant/admin UI
 
 Still pending:
 
-- signup/onboarding UI;
-- merchant dashboard;
-- KYC UI;
-- API-key management UI;
-- sales/transaction view;
+- onboarding/login experience;
+- KYC screens;
+- API key management UI;
+- sales/payment dashboard;
 - wallet/balance/statement view;
-- admin provider/operations surfaces.
+- minimal admin operations.
 
-### Differentiated selling/revenue layer
+### Differentiated SwiftPay layer
 
 Still pending:
 
 - hosted checkout;
 - payment links;
 - Quick Pix;
-- conversion events/funnel;
+- conversion funnel/events;
 - UTM attribution;
 - revenue insights;
 - automation engine;
@@ -173,17 +195,17 @@ Still pending:
 | Product contracts / architecture / reverse engineering | 10% | 96% | 9.6% |
 | Database + financial core | 20% | 97% | 19.4% |
 | Supabase security/platform foundation | 10% | 98% | 9.8% |
-| Trusted backend + public API runtime | 15% | 8% | 1.2% |
+| Trusted backend + public API runtime | 15% | 20% | 3.0% |
 | Pix provider integrations + recovery | 15% | 10% | 1.5% |
-| Worker + merchant webhook HTTP runtime | 10% | 15% | 1.5% |
+| Worker + merchant webhook HTTP runtime | 10% | 20% | 2.0% |
 | Merchant/admin UI | 10% | 5% | 0.5% |
 | Hosted checkout / payment links / conversion | 5% | 0% | 0% |
 | Wallet/payout operational application layer | 3% | 20% | 0.6% |
-| Deployment/observability/cutover | 2% | 10% | 0.2% |
+| Deployment/observability/cutover | 2% | 12% | 0.2% |
 
-Weighted result: approximately **44%**.
+Weighted result: approximately **47%**.
 
-The practical production-readiness estimate is intentionally lower, approximately **32%**, because real provider conformance and production application operations are hard gates.
+Practical production readiness remains lower, approximately **34%**, because provider conformance and live operational controls are hard gates.
 
 ## Milestones
 
@@ -191,81 +213,78 @@ The practical production-readiness estimate is intentionally lower, approximatel
 
 **Status: essentially complete.**
 
-Completed:
+K1–K6 are closed. Performance/index tuning stays workload-driven and will follow representative executable queries rather than speculative optimization.
 
-- K5 deterministic local fixtures;
-- K6 API/worker runtime identity topology;
-- secret-free production role bootstrap;
-- connection-level least-privilege acceptance tests.
+### Milestone B — executable application runtime
 
-Representative performance/index review remains workload-driven and should be performed when executable queries exist; it is not a reason to keep expanding the foundation before the vertical slice.
-
-### Milestone B — first executable application runtime
-
-Current active milestone:
+**Status: DONE (K7).**
 
 ```text
-pnpm TypeScript workspace
+frozen pnpm workspace
 -> Fastify API
 -> separate worker
 -> typed secret-safe configuration
--> K6 API database pool
--> K6 worker database pool
--> liveness/readiness acceptance tests
+-> K6 API/worker database identities
+-> real liveness/readiness acceptance
 ```
 
-This milestone does not yet process money. Its purpose is to prove that the application can run without bypassing the database security model.
+This runs, compiles and connects correctly, but does not yet process money.
 
-### Milestone C — first executable Pix slice
+### Milestone C — authenticated payment spine
 
-Then build:
+Current path:
 
 ```text
-API credential
--> POST Pix payment
--> provider router/emulator
--> QR Code / copy-paste response
+API credential HTTP lifecycle
+-> merchant API authentication
+-> Pix create/get
+-> deterministic provider emulator
 -> provider evidence/status
 -> canonical paid transition
--> ledger posting
+-> ledger
 -> balance
 -> merchant webhook delivery
 ```
 
-At the emulator stage SwiftPay can prove the entire internal payment spine deterministically. Replacing the emulator with retained-provider adapters requires exact provider conformance evidence.
+Once this is GREEN with the emulator, SwiftPay has a deterministic end-to-end Pix sandbox spine independent of an external PSP.
 
-### Milestone D — merchant MVP
+### Milestone D — retained PSP integration
 
-Add signup/login, merchant creation, KYC flow, API-key management, sales dashboard, balance/wallet view and minimal admin operations.
+Replace the emulator only after exact conformance evidence:
 
-### Milestone E — production Pix V1
+```text
+AkkadPag/FlevoPay contract proof
+-> adapter tests
+-> controlled Pix In acceptance
+-> query/recovery
+-> provider webhook normalization
+-> external reconciliation
+```
 
-Hard gates include:
+### Milestone E — merchant MVP
 
-- exact AkkadPag/FlevoPay conformance;
-- provider sandbox acceptance;
-- real deployment secrets and runtime credentials;
-- provider/merchant webhook recovery and security;
-- observability/alerting;
-- load/performance evidence;
-- runbooks, rollback and production acceptance.
+Signup/login, merchant/KYC operation, API-key management, transaction dashboard, balance/wallet view and minimal admin.
 
-### Milestone F — differentiated SwiftPay
+### Milestone F — production Pix V1
 
-After the payment spine is stable: hosted checkout, links, Quick Pix, conversion intelligence, UTM attribution, recovery automations and integrations.
+Hard gates include provider acceptance, production secrets/runtime credentials, webhook recovery/security, observability/alerting, representative load evidence, runbooks and rollback/production acceptance.
+
+### Milestone G — differentiated SwiftPay
+
+Hosted checkout, payment links, Quick Pix, conversion intelligence, UTM attribution, recovery automations and integrations.
 
 ## Current critical path
 
 ```text
-K7 executable runtime bootstrap  <- current
--> API credential HTTP slice
--> Pix create/get with deterministic provider emulator
+K7 executable runtime                 DONE
+-> API credential HTTP/auth           CURRENT
+-> Pix create/get + emulator
 -> paid transition + ledger + balance
--> merchant webhook HTTP delivery
--> retained provider conformance
+-> merchant webhook delivery
+-> retained-provider conformance
 -> AkkadPag/FlevoPay adapters
 -> minimal merchant dashboard
 -> production hardening
 ```
 
-Rule from this checkpoint forward: do not extend the database foundation merely because more abstractions are possible. Add new database capabilities only when an executable vertical-slice contract demonstrates a concrete missing invariant.
+Rule from this checkpoint forward: new database capabilities are added only when an executable vertical-slice contract proves they are necessary.
