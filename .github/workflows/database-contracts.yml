@@ -13,9 +13,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  migration-bootstrap:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Generate and commit A1 foundation migration if absent
+        run: |
+          set -euo pipefail
+          existing="$(find supabase/migrations -maxdepth 1 -type f -name '*_api_credential_token_auth_foundation.sql' -print -quit)"
+          if [ -n "${existing}" ]; then
+            echo "A1 foundation migration already exists: ${existing}"
+            exit 0
+          fi
+          supabase migration new api_credential_token_auth_foundation
+          generated="$(find supabase/migrations -maxdepth 1 -type f -name '*_api_credential_token_auth_foundation.sql' -print -quit)"
+          test -n "${generated}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${generated}"
+          git commit -m "db: create A1 token auth foundation migration"
+          git push origin "HEAD:${{ github.head_ref }}"
+
   pgtap:
     runs-on: ubuntu-latest
     timeout-minutes: 20
