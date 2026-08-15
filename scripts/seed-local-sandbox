@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly LOCAL_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly FIXTURE_SQL="${REPO_ROOT}/supabase/seeds/local-sandbox.sql"
+
+if ! command -v psql >/dev/null 2>&1; then
+  echo 'psql is required to load the local SwiftPay sandbox fixture.' >&2
+  exit 127
+fi
+
+if [[ ! -f "${FIXTURE_SQL}" ]]; then
+  echo "Missing fixture SQL: ${FIXTURE_SQL}" >&2
+  exit 66
+fi
+
+# Deliberately no environment override, project ref, linked-project fallback or
+# remote URL. K5 may target only the fixed loopback Supabase Postgres instance.
+psql "${LOCAL_DB_URL}" \
+  --set=ON_ERROR_STOP=1 \
+  --file="${FIXTURE_SQL}"
