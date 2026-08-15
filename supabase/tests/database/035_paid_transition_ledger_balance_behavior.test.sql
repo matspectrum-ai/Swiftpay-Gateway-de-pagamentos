@@ -2,7 +2,7 @@ create extension if not exists pgtap with schema extensions;
 
 begin;
 set local search_path = public, extensions;
-select plan(40);
+select plan(43);
 
 grant swiftpay_api to postgres with inherit false;
 grant swiftpay_worker to postgres with inherit false;
