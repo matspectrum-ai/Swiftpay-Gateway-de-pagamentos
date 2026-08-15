@@ -74,5 +74,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build runtime
         run: pnpm build
-      - name: Run real runtime database acceptance
+      - name: Run K7 real runtime database acceptance
         run: bash tests/application/003_runtime_database_integration.sh
+      - name: Run A1 real token authentication acceptance
+        run: bash tests/application/011_a1_real_runtime_acceptance.sh
