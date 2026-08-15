@@ -4,6 +4,8 @@ Updated: 2026-08-15
 
 This is the durable backlog and handoff ledger for the reconstruction. Detailed evidence lives in the linked contracts, ADRs, reverse-engineering notes, specs, migrations and tests. Repository artifacts are the source of truth; managed Supabase verification is additional deployed-environment proof.
 
+Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
+
 ## States
 
 - `PENDING`: known, not started
@@ -119,12 +121,13 @@ Implementation is active under strict RED -> migration -> GREEN database TDD.
 - `DONE` pgTAP database-contract workflow using `supabase db start` + `supabase test db`.
 - `DONE` Server-owned private `app` schema outside browser Data API mutation surface.
 - `DONE` Canonical managed Supabase project: **`swiftpay v2`**, ref `vsidrgbbyzibqfjkuiqb`.
-- `DONE` Remote migration history normalized to repository timestamps through `20260815024519_dashboard_membership_authorization_behavior.sql`.
+- `DONE` Remote migration history normalized to repository timestamps through `20260815032700_trusted_runtime_database_boundary_behavior.sql`.
 - `DONE` Remote baseline security evidence in `docs/evidence/supabase/2026-08-14-canonical-remote-sync.md`.
 - `DONE` K1 Storage evidence in `docs/evidence/supabase/2026-08-14-kyc-private-storage.md`.
 - `DONE` K2 audit evidence in `docs/evidence/supabase/2026-08-15-k2-audit-events.md`.
 - `DONE` K3 Auth/membership evidence in `docs/evidence/supabase/2026-08-15-k3-dashboard-membership-authorization.md`.
-- `DONE` Supabase Security Advisor after K3: **0 security lints**.
+- `DONE` K4 trusted runtime boundary evidence in `docs/evidence/supabase/2026-08-15-k4-trusted-runtime-database-boundary.md`.
+- `DONE` Supabase Security Advisor after K4: **0 security lints**.
 - `PENDING` Performance-index review after representative workload/query plans. Current advisor notices are INFO-only; do not add/remove indexes mechanically.
 
 ## A — merchant / KYC / provider configuration
@@ -319,7 +322,7 @@ Evidence: `docs/evidence/supabase/2026-08-15-k2-audit-events.md`.
 - `DONE` `raw_user_meta_data` and `raw_app_meta_data` cannot grant or replace canonical merchant authorization.
 - `DONE` Membership disablement/role changes are visible on the next check without waiting for JWT refresh.
 - `DONE` Merchant lifecycle/KYC remains separate from dashboard membership authorization.
-- `DONE` Helper is `STABLE SECURITY DEFINER` with fixed search path and remains revoked from `PUBLIC`, `anon`, `authenticated`, `service_role` until K4.
+- `DONE` Helper is `STABLE SECURITY DEFINER` with fixed search path and remains revoked from `PUBLIC`, `anon`, `authenticated`, `service_role` and direct K4 runtime execution.
 - `DONE` Authorization checks have zero audit/domain/ledger/job/webhook side effects.
 
 Migrations:
@@ -339,11 +342,42 @@ Managed Supabase verification after K3:
 
 Evidence: `docs/evidence/supabase/2026-08-15-k3-dashboard-membership-authorization.md`.
 
+### K4 — explicit trusted runtime database boundary
+
+- `DONE` `docs/specs/trusted-runtime-database-boundary-v0.yaml`.
+- `DONE` `swiftpay_api` and `swiftpay_worker` are explicit `NOLOGIN`, non-superuser capability roles.
+- `DONE` Neither runtime role receives direct `app` table or sequence access.
+- `DONE` `swiftpay_api` receives only the composed dashboard merchant/environment context helper.
+- `DONE` `swiftpay_worker` receives only `claim_jobs`, `complete_job`, `reschedule_job` baseline capabilities.
+- `DONE` Financial/provider/reconciliation/audit primitives remain outside the K4 allowlists.
+- `DONE` `app.require_dashboard_merchant_context(...)` accepts only `sandbox|production`, delegates canonical membership authority to K3 and ignores spoofable custom GUCs.
+- `DONE` Cross-merchant/disabled/insufficient role remains fail-closed; context resolution has zero financial/domain/async side effects.
+- `DONE` Managed transactional proof exercised the real capability roles and was fully rolled back.
+
+Migrations:
+
+- `20260815031330_trusted_runtime_database_boundary_foundation.sql`
+- `20260815032700_trusted_runtime_database_boundary_behavior.sql`
+
+Validation after K4 GREEN: **29 pgTAP files / 973 tests / PASS** on GitHub Actions run #121 (`31861783216`).
+
+Managed Supabase verification after K4:
+
+- 29 canonical migration-history entries through `20260815032700`;
+- API routine allowlist count `1`, worker routine allowlist count `3`;
+- valid context, GUC spoof resistance, cross-merchant denial and invalid-environment behavior proven transactionally;
+- API direct table/ledger access denied; worker direct table/dashboard-context access denied;
+- worker durable claim + fenced completion proven under actual `swiftpay_worker` role;
+- verification fixtures rolled back;
+- creator memberships retain `SET=false`, `INHERIT=false` after proof rollback;
+- Supabase Security Advisor: **0 security lints**.
+
+Evidence: `docs/evidence/supabase/2026-08-15-k4-trusted-runtime-database-boundary.md`.
+
 ### Remaining K slices
 
-- `PENDING` **K4 — explicit trusted API/worker database role + tenant/environment context boundary.**
-- `PENDING` K5 — local sandbox/seed fixtures.
-- `PENDING` K6 — trusted API/worker production deployment topology around managed Supabase.
+- `PENDING` **K5 — deterministic local sandbox/seed fixtures.**
+- `PENDING` **K6 — trusted API/worker production deployment topology around managed Supabase.**
 - `PENDING` Merchant-facing exposed read/write models only after their own grants + RLS contracts; J2 keeps exposure opt-in by default.
 
 # Phase 3 — First executable Pix vertical slice
@@ -462,7 +496,9 @@ private KYC Storage + restrictive browser fences
         |
 append-only replay-safe operational audit
         |
-Supabase Auth identity -> canonical merchant membership authorization  <- current GREEN boundary
+Supabase Auth identity -> canonical merchant membership authorization
+        |
+trusted API / worker least-privilege capability roles + tenant/environment context  <- current GREEN boundary
 ```
 
 Provider runtime scope remains frozen:
@@ -486,22 +522,24 @@ withdrawable
 
 ## Immediate execution order
 
-1. K4 trusted API/worker database role + tenant/environment context boundary -> RED -> GREEN;
-2. K5/K6 seed/deployment foundation;
-3. provider-specific I3b and adapters only when current AkkadPag/FlevoPay conformance evidence exists;
-4. first executable Pix vertical slice over the proven foundation.
+1. K5 deterministic local sandbox/seed fixtures -> spec -> RED -> GREEN;
+2. K6 trusted API/worker production deployment topology;
+3. scaffold the trusted TypeScript API + worker and establish the first executable Pix acceptance harness;
+4. provider-specific I3b and real adapters only when current AkkadPag/FlevoPay conformance evidence exists;
+5. complete the first executable Pix vertical slice over the proven foundation.
 
 ## Verification
 
 - Work remains on `agent/foundation-phase-0` and draft PR #1.
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
-- Latest database boundary: **27 pgTAP files / 902 tests / PASS** on GitHub Actions run #112.
+- Latest database boundary: **29 pgTAP files / 973 tests / PASS** on GitHub Actions run #121 (`31861783216`).
 - Canonical managed Supabase: **`swiftpay v2` / `vsidrgbbyzibqfjkuiqb`**.
-- Remote history: **27 canonical migrations through `20260815024519`**.
-- Remote Security Advisor after K3: **0 security lints**.
+- Remote history: **29 canonical migrations through `20260815032700`**.
+- Remote Security Advisor after K4: **0 security lints**.
+- Executive readiness checkpoint estimates **~42% weighted V1 engineering completion** and **~30% practical production readiness**; see `docs/product/v1-readiness-status.md`.
 - Remote Performance Advisor remains deferred until representative workload/query-plan evidence exists.
 - I3b provider-vs-SwiftPay comparison remains `EVIDENCE_REQUIRED`; provider-specific absence/query/report semantics have not been invented.
 - Refund provider execution remains intentionally disabled; database refund resolution is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
-- No production HTTP API/provider adapter has been introduced yet.
+- No production HTTP API/provider adapter or merchant UI has been introduced yet.
 - Repository artifacts, not chat context, are the canonical engineering source of truth.
