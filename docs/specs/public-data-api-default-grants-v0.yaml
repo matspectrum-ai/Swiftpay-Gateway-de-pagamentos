@@ -1,0 +1,85 @@
+feature: public-data-api-default-grants-v0
+status: frozen_for_tdd
+phase: 2
+slice: J2
+
+problem:
+  statement: >-
+    The canonical Supabase project contains the documented public.rls_auto_enable()
+    SECURITY DEFINER event-trigger helper. Its event trigger is useful because it
+    automatically enables RLS on newly-created public tables, but the helper itself
+    currently inherits Data API EXECUTE grants for anon/authenticated/service_role.
+    The project also retains permissive default privileges in public, so newly-created
+    tables, sequences and routines may become reachable without an explicit reviewed grant.
+  evidence:
+    - Supabase Security Advisor reports anon/authenticated execution on public.rls_auto_enable().
+    - remote pg_default_acl shows implicit public-schema grants to anon, authenticated and service_role.
+    - Supabase documentation recommends revoking default public-schema privileges and granting access explicitly per object.
+
+objectives:
+  - make Data API exposure in public explicitly opt-in
+  - preserve the ensure_rls event trigger and its automatic RLS-enablement behavior
+  - prevent direct Data API execution of public.rls_auto_enable()
+  - ensure future public tables, sequences and routines receive no implicit anon/authenticated/service_role privileges
+  - require future public RPC/data surfaces to declare positive grants in their own reviewed migration
+
+requirements:
+  existing_rls_helper:
+    - if public.rls_auto_enable() exists, PUBLIC MUST NOT have EXECUTE
+    - if public.rls_auto_enable() exists, anon MUST NOT have EXECUTE
+    - if public.rls_auto_enable() exists, authenticated MUST NOT have EXECUTE
+    - if public.rls_auto_enable() exists, service_role MUST NOT have EXECUTE
+    - the ensure_rls event trigger MUST NOT be dropped or disabled by this slice
+    - the helper MUST remain SECURITY DEFINER with pinned search_path if it exists
+  public_default_acl:
+    owner: postgres
+    schema: public
+    tables:
+      - future tables MUST receive no implicit privileges for anon
+      - future tables MUST receive no implicit privileges for authenticated
+      - future tables MUST receive no implicit privileges for service_role
+    sequences:
+      - future sequences MUST receive no implicit privileges for anon
+      - future sequences MUST receive no implicit privileges for authenticated
+      - future sequences MUST receive no implicit privileges for service_role
+    routines:
+      - future routines MUST receive no implicit EXECUTE for PUBLIC
+      - future routines MUST receive no implicit EXECUTE for anon
+      - future routines MUST receive no implicit EXECUTE for authenticated
+      - future routines MUST receive no implicit EXECUTE for service_role
+  explicit_exposure:
+    - any future public table/function/sequence needed by a client MUST be granted explicitly in the same reviewed migration that defines its RLS/auth contract
+    - service_role MUST NOT be treated as an automatic positive grant target
+  scope_boundary:
+    - existing unrelated public objects MUST NOT lose privileges in bulk in this slice
+    - storage/auth/realtime schemas MUST NOT be modified
+    - app schema ACLs from J1 MUST remain unchanged
+
+acceptance_criteria:
+  - pgTAP creates a transactional public table probe and proves anon/authenticated/service_role inherit no privileges
+  - pgTAP creates a transactional public sequence probe and proves anon/authenticated/service_role inherit no privileges
+  - pgTAP creates a transactional public function probe and proves PUBLIC/anon/authenticated/service_role inherit no EXECUTE
+  - pgTAP proves public.rls_auto_enable() is non-callable by denied roles when the helper exists
+  - pgTAP proves ensure_rls remains enabled when the helper/event trigger exists
+  - all prior database-contract suites remain green
+  - Supabase Security Advisor no longer reports rls_auto_enable as anonymously/authenticated executable after remote deployment
+
+edge_cases:
+  - environments without the optional rls_auto_enable helper still pass the default-ACL contract
+  - replacing a public function in a future migration must not accidentally re-expose it through default privileges
+  - an explicit future GRANT remains possible and must be deliberate/reviewed
+  - automatic RLS enablement is not equivalent to Data API authorization; both remain separate controls
+
+out_of_scope:
+  - defining merchant-facing public read/write tables
+  - RLS policies for merchant resources
+  - removing Supabase-managed or extension functions from public
+  - changing Storage/Auth/Realtime permissions
+  - disabling the Data API globally
+  - positive backend database-role grants
+
+implementation_constraints:
+  - use PostgreSQL ACL/default-ACL primitives only
+  - do not drop or recreate ensure_rls
+  - do not bulk-revoke existing unrelated public functions/tables
+  - migration must be idempotent with respect to absence of public.rls_auto_enable()
