@@ -68,7 +68,7 @@ select is(
   (select count(*)::integer
    from pg_class c
    join pg_namespace n on n.oid = c.relnamespace
-   cross join lateral aclexplode(coalesce(c.relacl, acldefault(case when c.relkind = 'S' then 'S'::"char" else 'r'::"char" end, c.relowner))) a
+   cross join lateral aclexplode(coalesce(c.relacl, acldefault(case when c.relkind = 'S' then 's'::"char" else 'r'::"char" end, c.relowner))) a
    join pg_roles r on r.oid = a.grantee
    where n.nspname = 'app' and r.rolname = 'swiftpay_api_runtime'),
   0,
@@ -79,7 +79,7 @@ select is(
   (select count(*)::integer
    from pg_class c
    join pg_namespace n on n.oid = c.relnamespace
-   cross join lateral aclexplode(coalesce(c.relacl, acldefault(case when c.relkind = 'S' then 'S'::"char" else 'r'::"char" end, c.relowner))) a
+   cross join lateral aclexplode(coalesce(c.relacl, acldefault(case when c.relkind = 'S' then 's'::"char" else 'r'::"char" end, c.relowner))) a
    join pg_roles r on r.oid = a.grantee
    where n.nspname = 'app' and r.rolname = 'swiftpay_worker_runtime'),
   0,
