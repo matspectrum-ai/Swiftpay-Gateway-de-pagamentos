@@ -424,16 +424,3 @@ export function createTokenExchangeHandler(
     }
   };
 }
-
-export class AuthNotImplementedError extends Error {
-  constructor() {
-    super('A1 authentication behavior not implemented');
-    this.name = 'AuthNotImplementedError';
-  }
-}
-
-export function createUnimplementedTokenExchangeHandler(): TokenExchangeHandler {
-  return async () => {
-    throw new AuthNotImplementedError();
-  };
-}
