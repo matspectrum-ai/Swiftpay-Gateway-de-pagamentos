@@ -1,4 +1,4 @@
-import { scrypt, timingSafeEqual } from 'node:crypto';
+import { randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 
@@ -42,6 +42,34 @@ export type TokenExchangeHandler = (
   context: TokenExchangeContext,
 ) => Promise<TokenExchangeResult>;
 
+export interface TokenCredentialRecord {
+  readonly credentialId: string;
+  readonly merchantId: string;
+  readonly environment: AuthEnvironment;
+  readonly credentialStatus: string;
+  readonly secretVerifier: string;
+  readonly secretVersion: number;
+  readonly ipAllowlist: unknown;
+  readonly merchantLifecycleStatus: string;
+}
+
+export interface TokenIssuanceResult {
+  readonly allowed: boolean;
+  readonly remaining: number;
+  readonly retryAfterSeconds: number;
+}
+
+export interface TokenAuthStore {
+  lookupCredentialForToken(publicKey: string): Promise<TokenCredentialRecord | null>;
+  consumeTokenIssuance(credentialId: string): Promise<TokenIssuanceResult>;
+}
+
+export interface TokenExchangeServiceOptions {
+  readonly signingKey: string;
+  readonly nowSeconds?: () => number;
+  readonly jti?: () => string;
+}
+
 export interface AccessTokenClaims extends JWTPayload {
   readonly sub: string;
   readonly credential_id: string;
@@ -77,6 +105,23 @@ const MIN_SIGNING_KEY_BYTES = 32;
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BASE64URL_SHAPE = /^[A-Za-z0-9_-]+$/;
+
+const VALIDATION_FAILURE: TokenExchangeResult = {
+  ok: false,
+  error: { code: 'validation_error', message: 'Invalid token request.' },
+};
+const INVALID_CREDENTIALS_FAILURE: TokenExchangeResult = {
+  ok: false,
+  error: { code: 'invalid_credentials', message: 'Invalid credentials.' },
+};
+const IP_NOT_ALLOWED_FAILURE: TokenExchangeResult = {
+  ok: false,
+  error: { code: 'ip_not_allowed', message: 'IP address is not allowed.' },
+};
+const INTERNAL_FAILURE: TokenExchangeResult = {
+  ok: false,
+  error: { code: 'internal_error', message: 'Authentication is unavailable.' },
+};
 
 export class SigningKeyError extends Error {
   constructor() {
@@ -232,6 +277,100 @@ export async function verifyAccessToken(
   } catch {
     return null;
   }
+}
+
+function normalizeTokenExchangeRequest(request: TokenExchangeRequest): TokenExchangeRequest | null {
+  if (
+    request === null
+    || typeof request !== 'object'
+    || request.grantType !== 'client_credentials'
+    || typeof request.publicKey !== 'string'
+    || typeof request.secretKey !== 'string'
+    || request.publicKey.length > 160
+    || request.secretKey.length === 0
+    || request.secretKey.length > 512
+  ) {
+    return null;
+  }
+
+  const publicKey = request.publicKey.trim();
+  if (publicKey.length === 0) return null;
+
+  return {
+    grantType: 'client_credentials',
+    publicKey,
+    secretKey: request.secretKey,
+  };
+}
+
+function credentialCanAuthenticate(record: TokenCredentialRecord): boolean {
+  return record.credentialStatus === 'active' && record.merchantLifecycleStatus === 'active';
+}
+
+export function createTokenExchangeHandler(
+  store: TokenAuthStore,
+  options: TokenExchangeServiceOptions,
+): TokenExchangeHandler {
+  const nowSeconds = options.nowSeconds ?? (() => Math.floor(Date.now() / 1000));
+  const createJti = options.jti ?? randomUUID;
+
+  return async (request, context) => {
+    const normalizedRequest = normalizeTokenExchangeRequest(request);
+    if (normalizedRequest === null) return VALIDATION_FAILURE;
+
+    try {
+      const credential = await store.lookupCredentialForToken(normalizedRequest.publicKey);
+      if (credential === null || !credentialCanAuthenticate(credential)) {
+        return INVALID_CREDENTIALS_FAILURE;
+      }
+
+      const secretMatches = await verifyCredentialSecret(
+        normalizedRequest.secretKey,
+        credential.secretVerifier,
+      );
+      if (!secretMatches) return INVALID_CREDENTIALS_FAILURE;
+
+      if (!evaluateExactIpAllowlist(context.clientIp, credential.ipAllowlist)) {
+        return IP_NOT_ALLOWED_FAILURE;
+      }
+
+      const quota = await store.consumeTokenIssuance(credential.credentialId);
+      if (!quota.allowed) {
+        if (!Number.isSafeInteger(quota.retryAfterSeconds) || quota.retryAfterSeconds < 1) {
+          return INTERNAL_FAILURE;
+        }
+        return {
+          ok: false,
+          error: {
+            code: 'auth_rate_limit_exceeded',
+            message: 'Token issuance rate limit exceeded.',
+            retryAfterSeconds: quota.retryAfterSeconds,
+          },
+        };
+      }
+
+      const accessToken = await issueAccessToken({
+        merchantId: credential.merchantId,
+        credentialId: credential.credentialId,
+        environment: credential.environment,
+        secretVersion: credential.secretVersion,
+        jti: createJti(),
+        nowSeconds: nowSeconds(),
+      }, options.signingKey);
+
+      return {
+        ok: true,
+        value: {
+          accessToken,
+          tokenType: 'Bearer',
+          expiresIn: JWT_TTL_SECONDS,
+          environment: credential.environment,
+        },
+      };
+    } catch {
+      return INTERNAL_FAILURE;
+    }
+  };
 }
 
 export class AuthNotImplementedError extends Error {
