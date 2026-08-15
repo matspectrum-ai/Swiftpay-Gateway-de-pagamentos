@@ -41,11 +41,18 @@ export interface PixPaymentsHttpService {
   }): Promise<unknown | null>;
 }
 
+export interface MerchantBalanceHttpService {
+  get(input: {
+    readonly principal: MachinePrincipal;
+  }): Promise<unknown>;
+}
+
 export interface BuildAppOptions {
   readonly readinessProbe: ReadinessProbe;
   readonly tokenExchange?: TokenExchangeHandler;
   readonly authenticateBearer?: BearerAuthenticator;
   readonly pixPayments?: PixPaymentsHttpService;
+  readonly merchantBalance?: MerchantBalanceHttpService;
 }
 
 function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
@@ -99,13 +106,13 @@ function parseBearerToken(authorization: unknown): string | null {
   return match?.[1] ?? null;
 }
 
-async function authenticatePaymentRequest(
+async function authenticateBearerRequest(
   request: FastifyRequest,
   reply: FastifyReply,
   options: BuildAppOptions,
 ): Promise<MachinePrincipal | null> {
-  if (!options.authenticateBearer || !options.pixPayments) {
-    request.log.warn({ event: 'payment_services_unavailable' }, 'SwiftPay payment services are unavailable');
+  if (!options.authenticateBearer) {
+    request.log.warn({ event: 'bearer_authentication_unavailable' }, 'SwiftPay Bearer authentication is unavailable');
     await reply.code(500).send(paymentInternalError(request.id));
     return null;
   }
@@ -128,6 +135,20 @@ async function authenticatePaymentRequest(
     await reply.code(500).send(paymentInternalError(request.id));
     return null;
   }
+}
+
+async function authenticatePaymentRequest(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: BuildAppOptions,
+): Promise<MachinePrincipal | null> {
+  if (!options.pixPayments) {
+    request.log.warn({ event: 'payment_services_unavailable' }, 'SwiftPay payment services are unavailable');
+    await reply.code(500).send(paymentInternalError(request.id));
+    return null;
+  }
+
+  return authenticateBearerRequest(request, reply, options);
 }
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
@@ -259,6 +280,24 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return reply.code(200).send(payment);
     } catch {
       request.log.error({ event: 'payment_get_failed' }, 'SwiftPay Payment lookup failed unexpectedly');
+      return reply.code(500).send(paymentInternalError(request.id));
+    }
+  });
+
+  app.get('/v1/balance', async (request, reply) => {
+    const principal = await authenticateBearerRequest(request, reply, options);
+    if (principal === null) return reply;
+
+    if (!options.merchantBalance) {
+      request.log.warn({ event: 'balance_service_unavailable' }, 'SwiftPay merchant balance service is unavailable');
+      return reply.code(500).send(paymentInternalError(request.id));
+    }
+
+    try {
+      const balance = await options.merchantBalance.get({ principal });
+      return reply.code(200).send(balance);
+    } catch {
+      request.log.error({ event: 'balance_get_failed' }, 'SwiftPay merchant balance lookup failed unexpectedly');
       return reply.code(500).send(paymentInternalError(request.id));
     }
   });
