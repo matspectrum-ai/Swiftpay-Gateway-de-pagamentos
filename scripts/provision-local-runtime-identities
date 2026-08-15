@@ -18,6 +18,12 @@ begin
       login inherit
       nosuperuser nocreatedb nocreaterole noreplication nobypassrls
       password 'local_api_runtime_only';
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'swiftpay_api_runtime'
+      and (not rolcanlogin or not rolinherit or rolsuper or rolcreatedb or rolcreaterole or rolreplication or rolbypassrls)
+  ) then
+    raise exception 'existing swiftpay_api_runtime has unsafe role attributes';
   end if;
 
   if not exists (select 1 from pg_roles where rolname = 'swiftpay_worker_runtime') then
@@ -25,16 +31,15 @@ begin
       login inherit
       nosuperuser nocreatedb nocreaterole noreplication nobypassrls
       password 'local_worker_runtime_only';
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'swiftpay_worker_runtime'
+      and (not rolcanlogin or not rolinherit or rolsuper or rolcreatedb or rolcreaterole or rolreplication or rolbypassrls)
+  ) then
+    raise exception 'existing swiftpay_worker_runtime has unsafe role attributes';
   end if;
 end
 $$;
-
-alter role swiftpay_api_runtime
-  login inherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls
-  password 'local_api_runtime_only';
-alter role swiftpay_worker_runtime
-  login inherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls
-  password 'local_worker_runtime_only';
 
 revoke swiftpay_worker from swiftpay_api_runtime;
 revoke swiftpay_api from swiftpay_worker_runtime;
