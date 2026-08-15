@@ -1,7 +1,7 @@
 create extension if not exists pgtap with schema extensions;
 
 begin;
-select plan(34);
+select plan(35);
 
 select has_table('app', 'api_credential_token_windows', 'A1 token issuance window table exists');
 
