@@ -223,9 +223,19 @@ select ok(
 );
 
 -- Exact positive EXECUTE allowlists.
-select is(
-    (
-        select count(*)::bigint
+select ok(
+    coalesce((
+        select count(*) = 8
+           and bool_and(p.oid = any(array[
+               to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')::oid,
+               to_regprocedure('app.lookup_api_credential_for_token(text)')::oid,
+               to_regprocedure('app.consume_api_token_issuance(uuid)')::oid,
+               to_regprocedure('app.get_api_credential_auth_state(uuid)')::oid,
+               to_regprocedure('app.prepare_api_pix_payment(uuid,text,text,text,jsonb,jsonb,text)')::oid,
+               to_regprocedure('app.claim_api_pix_attempt(uuid,text,uuid,uuid)')::oid,
+               to_regprocedure('app.resolve_api_pix_attempt(uuid,text,uuid,uuid,uuid,jsonb)')::oid,
+               to_regprocedure('app.get_api_payment(uuid,text,uuid)')::oid
+           ]::oid[]))
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
         cross join lateral pg_catalog.aclexplode(
@@ -234,9 +244,8 @@ select is(
         where n.nspname = 'app'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
-    ),
-    4::bigint,
-    'swiftpay_api has exactly four current app EXECUTE grants'
+    ), false),
+    'swiftpay_api EXECUTE grants equal the exact current K4 A1 A2 allowlist'
 );
 select ok(
     exists (
