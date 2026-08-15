@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 : "${SWIFTPAY_API_DATABASE_URL:?SWIFTPAY_API_DATABASE_URL is required}"
 : "${SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY:?SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY is required}"
@@ -10,6 +10,7 @@ readonly API_TWO_PORT='32112'
 readonly FIXTURE_PATH='tests/application/fixtures/a1_token_exchange.sql'
 readonly TOKEN_RESPONSE_PATH='/tmp/swiftpay-a1-token.json'
 
+stage='bootstrap'
 api_pids=()
 cleanup() {
   local pid
@@ -20,7 +21,14 @@ cleanup() {
     fi
   done
 }
+on_error() {
+  local rc="$?"
+  trap - ERR
+  echo "SwiftPay A1 acceptance failed at stage: ${stage}" >&2
+  exit "${rc}"
+}
 trap cleanup EXIT
+trap on_error ERR
 
 wait_for_live() {
   local port="$1"
@@ -96,8 +104,7 @@ NODE
   grep -Eiq '^retry-after: [1-9][0-9]*\r?$' "${headers_file}"
 }
 
-# Generate a synthetic Secret Key only in memory for this CI process. The SQL
-# fixture receives only its scrypt verifier, so plaintext never enters Git or DB.
+stage='fixture-generation'
 A1_SECRET="$(node --input-type=module -e "import { randomBytes } from 'node:crypto'; process.stdout.write(randomBytes(32).toString('base64url')); ")"
 A1_VERIFIER="$(A1_SECRET="${A1_SECRET}" node --input-type=module <<'NODE'
 import { scryptSync } from 'node:crypto';
@@ -107,39 +114,45 @@ process.stdout.write(`scrypt-v1$16384$8$1$${salt.toString('base64url')}$${key.to
 NODE
 )"
 
+stage='fixture-load'
 psql "${ADMIN_DB_URL}" \
   --set ON_ERROR_STOP=1 \
   --set "a1_secret_verifier=${A1_VERIFIER}" \
   --file "${FIXTURE_PATH}" >/tmp/swiftpay-a1-fixture.log
 
-# The fixture is verifier-only and creates no financial/async state.
+stage='fixture-contract'
 [[ "$(psql "${ADMIN_DB_URL}" --tuples-only --no-align --command "select count(*) from app.api_credentials where id between '61000000-0000-0000-0000-000000000001'::uuid and '61000000-0000-0000-0000-000000000004'::uuid;")" == '4' ]]
 ! grep -Fq "${A1_SECRET}" "${FIXTURE_PATH}"
 ! grep -Fq "${A1_SECRET}" /tmp/swiftpay-a1-fixture.log
 
+stage='dual-api-startup'
 start_api "${API_ONE_PORT}" /tmp/swiftpay-a1-api-one.log
 start_api "${API_TWO_PORT}" /tmp/swiftpay-a1-api-two.log
 readonly API_ONE="http://127.0.0.1:${API_ONE_PORT}"
 readonly API_TWO="http://127.0.0.1:${API_TWO_PORT}"
 
-# Wrong secret and unknown public key are publicly indistinguishable.
+stage='indistinguishable-invalid-credentials'
 wrong_status="$(token_request "${API_ONE}" 'pk_a1_runtime_active' "${A1_SECRET}x" 'req-a1-invalid-same' /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-wrong.headers)"
 unknown_status="$(token_request "${API_ONE}" 'pk_a1_runtime_missing' "${A1_SECRET}" 'req-a1-invalid-same' /tmp/swiftpay-a1-unknown.json /tmp/swiftpay-a1-unknown.headers)"
+echo "A1 invalid credential statuses: ${wrong_status}/${unknown_status}"
 [[ "${wrong_status}" == '401' ]]
 [[ "${unknown_status}" == '401' ]]
 cmp --silent /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-unknown.json
-
 grep -q '"code":"invalid_credentials"' /tmp/swiftpay-a1-wrong.json
 grep -q '"message":"Invalid credentials\."' /tmp/swiftpay-a1-wrong.json
 
-# Revoked credential, inactive merchant and exact-IP mismatch all fail before quota consumption.
-[[ "$(token_request "${API_ONE}" 'pk_a1_runtime_revoked' "${A1_SECRET}" 'req-a1-revoked' /tmp/swiftpay-a1-revoked.json /tmp/swiftpay-a1-revoked.headers)" == '401' ]]
-[[ "$(token_request "${API_ONE}" 'pk_a1_runtime_inactive_merchant' "${A1_SECRET}" 'req-a1-inactive' /tmp/swiftpay-a1-inactive.json /tmp/swiftpay-a1-inactive.headers)" == '401' ]]
-[[ "$(token_request "${API_ONE}" 'pk_a1_runtime_ip_denied' "${A1_SECRET}" 'req-a1-ip-denied' /tmp/swiftpay-a1-ip.json /tmp/swiftpay-a1-ip.headers)" == '403' ]]
+stage='credential-ip-policy'
+revoked_status="$(token_request "${API_ONE}" 'pk_a1_runtime_revoked' "${A1_SECRET}" 'req-a1-revoked' /tmp/swiftpay-a1-revoked.json /tmp/swiftpay-a1-revoked.headers)"
+inactive_status="$(token_request "${API_ONE}" 'pk_a1_runtime_inactive_merchant' "${A1_SECRET}" 'req-a1-inactive' /tmp/swiftpay-a1-inactive.json /tmp/swiftpay-a1-inactive.headers)"
+ip_status="$(token_request "${API_ONE}" 'pk_a1_runtime_ip_denied' "${A1_SECRET}" 'req-a1-ip-denied' /tmp/swiftpay-a1-ip.json /tmp/swiftpay-a1-ip.headers)"
+echo "A1 policy statuses: revoked=${revoked_status} inactive=${inactive_status} ip=${ip_status}"
+[[ "${revoked_status}" == '401' ]]
+[[ "${inactive_status}" == '401' ]]
+[[ "${ip_status}" == '403' ]]
 grep -q '"code":"ip_not_allowed"' /tmp/swiftpay-a1-ip.json
 [[ "$(psql "${ADMIN_DB_URL}" --tuples-only --no-align --command "select count(*) from app.api_credential_token_windows;")" == '0' ]]
 
-# Nine successful issuances alternate across two independent API processes/pools.
+stage='shared-quota-first-nine'
 for i in $(seq 1 9); do
   if (( i % 2 == 1 )); then
     base_url="${API_ONE}"
@@ -149,17 +162,16 @@ for i in $(seq 1 9); do
   body_file="/tmp/swiftpay-a1-success-${i}.json"
   headers_file="/tmp/swiftpay-a1-success-${i}.headers"
   status="$(token_request "${base_url}" 'pk_a1_runtime_active' "${A1_SECRET}" "req-a1-success-${i}" "${body_file}" "${headers_file}")"
+  echo "A1 issuance ${i} status: ${status}"
   [[ "${status}" == '200' ]]
   assert_success_response "${body_file}"
   if [[ "${i}" == '1' ]]; then
     cp "${body_file}" "${TOKEN_RESPONSE_PATH}"
   fi
 done
-
 [[ "$(psql "${ADMIN_DB_URL}" --tuples-only --no-align --command "select issued_count from app.api_credential_token_windows where credential_id = '61000000-0000-0000-0000-000000000001'::uuid;")" == '9' ]]
 
-# Race the tenth and eleventh attempts through different processes. Exactly one
-# must consume slot ten and the other must observe the shared PostgreSQL limit.
+stage='shared-quota-race-ten-eleven'
 token_request "${API_ONE}" 'pk_a1_runtime_active' "${A1_SECRET}" 'req-a1-race-one' /tmp/swiftpay-a1-race-one.json /tmp/swiftpay-a1-race-one.headers >/tmp/swiftpay-a1-race-one.status &
 race_one_pid="$!"
 token_request "${API_TWO}" 'pk_a1_runtime_active' "${A1_SECRET}" 'req-a1-race-two' /tmp/swiftpay-a1-race-two.json /tmp/swiftpay-a1-race-two.headers >/tmp/swiftpay-a1-race-two.status &
@@ -168,6 +180,7 @@ wait "${race_one_pid}"
 wait "${race_two_pid}"
 race_one_status="$(cat /tmp/swiftpay-a1-race-one.status)"
 race_two_status="$(cat /tmp/swiftpay-a1-race-two.status)"
+echo "A1 quota race statuses: ${race_one_status}/${race_two_status}"
 
 if [[ "${race_one_status}" == '200' && "${race_two_status}" == '429' ]]; then
   assert_success_response /tmp/swiftpay-a1-race-one.json
@@ -179,29 +192,28 @@ else
   echo "Expected A1 race statuses 200/429, got ${race_one_status}/${race_two_status}" >&2
   exit 1
 fi
-
 [[ "$(psql "${ADMIN_DB_URL}" --tuples-only --no-align --command "select issued_count from app.api_credential_token_windows where credential_id = '61000000-0000-0000-0000-000000000001'::uuid;")" == '10' ]]
 
-# Issued token claims match DB identity and bearer revalidation is live.
+stage='bearer-revalidation-live'
 node tests/application/a1_bearer_runtime_check.mjs valid "${TOKEN_RESPONSE_PATH}"
 
-# Revocation invalidates the already-issued JWT on the next bearer check.
+stage='bearer-revalidation-revoked'
 psql "${ADMIN_DB_URL}" --set ON_ERROR_STOP=1 --command \
   "update app.api_credentials set status = 'revoked', revoked_at = clock_timestamp() where id = '61000000-0000-0000-0000-000000000001'::uuid;" >/dev/null
 node tests/application/a1_bearer_runtime_check.mjs invalid "${TOKEN_RESPONSE_PATH}"
 
-# Reactivate but rotate the secret version: the old JWT remains invalid.
+stage='bearer-revalidation-version-rotation'
 psql "${ADMIN_DB_URL}" --set ON_ERROR_STOP=1 --command \
   "update app.api_credentials set status = 'active', revoked_at = null, secret_version = 4, rotated_at = clock_timestamp() where id = '61000000-0000-0000-0000-000000000001'::uuid;" >/dev/null
 node tests/application/a1_bearer_runtime_check.mjs invalid "${TOKEN_RESPONSE_PATH}"
 
-# Neither plaintext Secret Key nor verifier is logged by either API process.
+stage='secret-log-redaction'
 ! grep -Fq "${A1_SECRET}" /tmp/swiftpay-a1-api-one.log
 ! grep -Fq "${A1_SECRET}" /tmp/swiftpay-a1-api-two.log
 ! grep -Fq "${A1_VERIFIER}" /tmp/swiftpay-a1-api-one.log
 ! grep -Fq "${A1_VERIFIER}" /tmp/swiftpay-a1-api-two.log
 
-# Authentication attempts create no financial or merchant-webhook state.
+stage='financial-invariance'
 read -r payments ledger_transactions jobs webhook_events < <(
   psql "${ADMIN_DB_URL}" --tuples-only --no-align --field-separator=' ' --command \
     "select (select count(*) from app.payments),
@@ -215,5 +227,5 @@ read -r payments ledger_transactions jobs webhook_events < <(
 [[ "${webhook_events}" == '0' ]]
 
 unset A1_SECRET A1_VERIFIER
-
+stage='complete'
 echo 'SwiftPay A1 real runtime acceptance: OK'
