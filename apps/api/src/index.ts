@@ -5,10 +5,10 @@ import { createApiRuntimeServices } from './runtime.js';
 
 const config = loadApiConfig();
 const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'api' });
-const { readinessProbe, tokenExchange } = createApiRuntimeServices(pool, {
+const services = createApiRuntimeServices(pool, {
   signingKey: config.accessTokenSigningKey,
 });
-const app = buildApp({ readinessProbe, tokenExchange });
+const app = buildApp(services);
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
