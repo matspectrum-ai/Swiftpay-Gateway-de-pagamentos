@@ -23,12 +23,15 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - Draft PR: #1 — `foundation: establish SwiftPay V2 reconstruction baseline`
 - `main`: intentionally untouched by this workstream
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
-- Current code checkpoint after A1 refactor: `3924b93452351c6368b3521d42a5a69d351b63f4`
-- Final A1 Application contracts run: `31872424000` — GREEN
-- Final A1 Database contracts run: `31872423956` — GREEN
-- Canonical database test lane: 31 files / 1050 pgTAP tests / PASS
-- Weighted V1 engineering estimate: ~50%
-- Current product slice: `pix-create-get-emulator-v0`
+- A2 accepted runtime checkpoint: `48abee66ecd28f820fba52be3154be931d15089b`
+- A2 Supabase migration-version alignment: `4bc3f1d7b653a86be2bb250e4ce077283676c8a7`
+- Final A2 Application contracts run: `31877334094` — GREEN
+- Final A2 Database contracts run: `31877334073` — GREEN
+- Canonical database test lane: 33 files / 1140 pgTAP tests / PASS
+- Application contract lane: 91 tests / PASS
+- Weighted V1 engineering estimate: ~56%
+- First end-to-end Pix sandbox MVP estimate: ~68%
+- Current critical slice: `paid-transition-ledger-balance-v0` (A3)
 
 ## Non-negotiable delivery method
 
@@ -132,7 +135,7 @@ The canonical local seed creates deterministic non-financial identity/KYC/provid
 - jobs;
 - merchant webhook events.
 
-A1 therefore uses a separate test-only credential fixture rather than weakening K5.
+A1/A2 therefore use separate test-only runtime fixtures rather than weakening K5. The A2 `swiftpay_emulator` account is not canonical seed/hosted business data.
 
 Evidence: `docs/evidence/supabase/2026-08-15-k5-local-sandbox-seed-fixtures.md`.
 
@@ -153,7 +156,7 @@ Implemented and accepted:
 - shared typed configuration/database packages;
 - API liveness and database readiness;
 - worker readiness check;
-- real acceptance using the K6 API/worker PostgreSQL identities;
+- real K6 identity acceptance against isolated PostgreSQL;
 - no financial side effects from readiness checks.
 
 Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.md`.
@@ -208,48 +211,81 @@ The following API credential management operations remain `PENDING` because they
 - MFA/step-up management flows;
 - signing-key ring/rotation architecture beyond the current single signing key.
 
-They do not block the deterministic Pix emulator slice because A1 runtime acceptance can provision a test credential through the trusted fixture.
+## A2 — `pix-create-get-emulator-v0` — `DONE`
 
-## A2 — `pix-create-get-emulator-v0` — `IN_PROGRESS`
+Specs:
 
-This is the next and current slice. No implementation should start before its YAML spec is frozen and RED tests exist.
+- `docs/specs/pix-create-get-emulator-v0.yaml`;
+- `docs/specs/pix-create-get-emulator-fixture-v0.yaml`.
+
+Implemented and accepted:
+
+- authenticated `POST /v1/transactions`;
+- authenticated `GET /v1/transactions/:id`;
+- A1 Bearer revalidation before payment operations;
+- sandbox-only create and fail-closed production principal;
+- strict request validation with no synthetic customer data;
+- frozen canonical request hash and required `Idempotency-Key`;
+- merchant/environment-scoped idempotency;
+- durable Payment `creating` + ProviderAttempt `prepared` state before execution;
+- atomic execution claim in PostgreSQL;
+- deterministic `swiftpay_emulator` with visibly non-payable Pix output;
+- deterministic `success_pending`, `execution_unknown` and `definitive_rejection` outcomes;
+- replay without duplicate emulator execution;
+- 409 for same idempotency key with different canonical request;
+- merchant/environment-scoped GET with foreign/missing resources collapsed to 404;
+- strict public Payment projection without provider account/execution-token/internal leakage;
+- no ledger/jobs/merchant-webhook/provider-event side effects;
+- real dual-API acceptance against one PostgreSQL database.
+
+Canonical hosted migrations:
+
+- `20260815101512_pix_create_get_emulator_foundation.sql`;
+- `20260815101609_pix_create_get_emulator_behavior.sql`;
+- `20260815101641_pix_create_get_emulator_prepare_key_count_fix.sql`;
+- `20260815101729_pix_create_get_emulator_resolve_coalesce_fix.sql`.
+
+Final accepted CI:
+
+- Application workflow `31877334094`: GREEN, including 91/91 application contracts, K7, A1 and A2 real runtime acceptance;
+- Database workflow `31877334073`: GREEN, including 33 files / 1140 pgTAP tests, K5 and K6;
+- real A2 create race across two API processes: `201/202` with one logical Payment/ProviderAttempt execution.
+
+Evidence: `docs/evidence/application/2026-08-15-a2-pix-create-get-emulator.md`.
+
+### Explicitly not completed by A2
+
+A2 does not mark a Pix as paid, create ledger effects, expose balance, emit merchant webhook deliveries or call a live PSP. Those effects require their own frozen transition/replay contracts.
+
+## A3 — `paid-transition-ledger-balance-v0` — `IN_PROGRESS`
+
+This is now the critical slice. No implementation starts before Problem Analysis, YAML spec and RED contracts.
 
 Required problem boundary:
 
-- accept the A1 authenticated machine principal;
-- implement authenticated Pix create;
-- implement authenticated Pix get/status;
-- enforce merchant/environment ownership;
-- implement database-backed create idempotency;
-- persist the minimum canonical payment/provider-attempt state;
-- route execution to a deterministic provider emulator;
-- define deterministic emulator outcomes for success/pending/failure/retry scenarios needed by tests;
-- prove duplicate/retry behavior across real runtime processes;
-- expose no provider secret and call no live PSP;
-- preserve ledger/jobs/webhook invariants until a later transition slice explicitly introduces them.
+- consume canonical provider/emulator paid evidence idempotently;
+- transition an eligible pending Pix Payment to `paid` exactly once;
+- preserve immutable evidence identifying the transition source;
+- post a balanced ledger transaction exactly once for the merchant net amount and fee policy snapshot;
+- ensure duplicate/replayed provider evidence cannot double-credit;
+- define conflict/invalid-transition behavior explicitly;
+- expose merchant balance/read model only through trusted API/database capabilities;
+- prove payment transition and ledger posting are atomic at the canonical database boundary;
+- preserve recovery semantics for ambiguous/non-paid provider outcomes;
+- establish the durable handoff required for A4 merchant webhook delivery.
 
-### A2 gate sequence
+### A3 gate sequence
 
-- [ ] `Problem Analysis` grounded in existing public API/payment/provider/idempotency contracts
-- [ ] `docs/specs/pix-create-get-emulator-v0.yaml`
-- [ ] strict application/provider/store interfaces
-- [ ] RED application contracts
-- [ ] RED database contracts/migration only if the frozen contract exposes a real schema gap
+- [ ] Problem Analysis grounded in Payment/Ledger/provider-event contracts
+- [ ] freeze `docs/specs/paid-transition-ledger-balance-v0.yaml`
+- [ ] freeze trusted transition/balance contracts
+- [ ] RED database tests for exactly-once paid transition + balanced ledger
+- [ ] RED application/store/API tests
 - [ ] minimal GREEN implementation
-- [ ] real two-process/runtime acceptance
+- [ ] duplicate/concurrent evidence acceptance
+- [ ] real runtime acceptance
 - [ ] refactor
 - [ ] evidence report
-
-## A3 — paid transition + ledger + merchant balance — `PENDING`
-
-After A2 GREEN:
-
-- freeze provider/payment transition semantics;
-- consume emulator/provider evidence idempotently;
-- transition payment to paid exactly once;
-- post balanced ledger effects exactly once;
-- expose merchant balance/read model through trusted API;
-- prove duplicate provider events cannot double-credit.
 
 ## A4 — merchant webhook delivery runtime — `PENDING`
 
@@ -306,7 +342,7 @@ Create/rotate/revoke and secure one-time secret disclosure.
 
 ## Merchant Pix transaction UI — `PENDING`
 
-List/detail/search/status/retry-operational visibility after A2/A3 APIs exist.
+List/detail/search/status/retry-operational visibility after the core payment transition APIs exist.
 
 ## KYC/compliance operations UI — `PENDING`
 
@@ -376,8 +412,8 @@ Foundation contracts / architecture                       DONE
   -> K6 trusted runtime topology                         DONE
   -> K7 executable API/worker runtime                    DONE
   -> A1 API credential token authentication              DONE
-  -> A2 authenticated Pix create/get + emulator          IN_PROGRESS
-  -> A3 paid transition + ledger + balance              PENDING
+  -> A2 authenticated Pix create/get + emulator          DONE
+  -> A3 paid transition + ledger + balance              IN_PROGRESS
   -> A4 merchant webhook delivery runtime               PENDING
   -> provider conformance fixtures                       PENDING
   -> AkkadPag/FlevoPay adapters                          PENDING
@@ -387,13 +423,13 @@ Foundation contracts / architecture                       DONE
 
 ## Immediate next action
 
-Execute the mandatory pipeline for `pix-create-get-emulator-v0`:
+Execute the mandatory pipeline for `paid-transition-ledger-balance-v0`:
 
-1. inspect canonical public API/payment/idempotency/provider contracts;
+1. inspect canonical Payment, ProviderEvent, Ledger and balance/read-model contracts;
 2. produce the Problem Analysis;
 3. write/freeze the YAML spec;
-4. define contracts/interfaces;
-5. add RED tests;
+4. define trusted database/application/API contracts;
+5. add RED tests for exactly-once paid transition and balanced ledger posting;
 6. only then implement the minimal GREEN path.
 
 Do **not** call AkkadPag or FlevoPay yet.
