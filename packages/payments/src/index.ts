@@ -89,7 +89,7 @@ export interface PublicPayment {
   readonly fee: number;
   readonly netAmount: number;
   readonly currency: 'BRL';
-  readonly status: 'creating' | 'pending' | 'failed';
+  readonly status: 'creating' | 'pending' | 'paid' | 'failed' | 'expired' | 'cancelled';
   readonly description: string | null;
   readonly environment: PaymentEnvironment;
   readonly expiresAt: string;
