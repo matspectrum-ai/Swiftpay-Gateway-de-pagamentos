@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@swiftpay/auth": "workspace:*",
     "@swiftpay/config": "workspace:*",
     "@swiftpay/db": "workspace:*",
     "fastify": "5.11.0"
