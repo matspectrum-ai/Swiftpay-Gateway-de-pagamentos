@@ -80,3 +80,5 @@ jobs:
         run: bash tests/application/011_a1_real_runtime_acceptance.sh
       - name: Run A2 real Pix runtime acceptance
         run: bash tests/application/017_a2_real_runtime_acceptance.sh
+      - name: Run A3 real paid ledger balance acceptance
+        run: bash tests/application/021_a3_real_runtime_acceptance.sh
