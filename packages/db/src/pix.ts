@@ -43,7 +43,7 @@ export interface PublicPaymentRecord {
   readonly fee: number;
   readonly netAmount: number;
   readonly currency: 'BRL';
-  readonly status: 'creating' | 'pending' | 'failed';
+  readonly status: 'creating' | 'pending' | 'paid' | 'failed' | 'expired' | 'cancelled';
   readonly description: string | null;
   readonly environment: PaymentEnvironment;
   readonly expiresAt: string;
@@ -204,7 +204,7 @@ function mapPublicPayment(value: unknown): PublicPaymentRecord {
     || !isSafeNonnegativeInteger(value.fee)
     || !isSafeNonnegativeInteger(value.netAmount)
     || value.currency !== 'BRL'
-    || !['creating', 'pending', 'failed'].includes(String(value.status))
+    || !['creating', 'pending', 'paid', 'failed', 'expired', 'cancelled'].includes(String(value.status))
     || !isNullableString(value.description)
     || !isPaymentEnvironment(value.environment)
     || !isNonemptyString(value.expiresAt)
@@ -213,7 +213,8 @@ function mapPublicPayment(value: unknown): PublicPaymentRecord {
   }
 
   const pix = mapPublicPix(value.pix);
-  if ((value.status === 'pending' && pix === null) || (value.status !== 'pending' && pix !== null)) {
+  const pixExpected = value.status === 'pending' || value.status === 'paid';
+  if ((pixExpected && pix === null) || (!pixExpected && pix !== null)) {
     throw new RuntimePixStoreError();
   }
 
