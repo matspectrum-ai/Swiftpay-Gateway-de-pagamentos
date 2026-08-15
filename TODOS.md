@@ -119,11 +119,12 @@ Implementation is active under strict RED -> migration -> GREEN database TDD.
 - `DONE` pgTAP database-contract workflow using `supabase db start` + `supabase test db`.
 - `DONE` Server-owned private `app` schema outside browser Data API mutation surface.
 - `DONE` Canonical managed Supabase project: **`swiftpay v2`**, ref `vsidrgbbyzibqfjkuiqb`.
-- `DONE` Remote migration history normalized to repository timestamps through `20260815022800_audit_events_behavior.sql`.
+- `DONE` Remote migration history normalized to repository timestamps through `20260815024519_dashboard_membership_authorization_behavior.sql`.
 - `DONE` Remote baseline security evidence in `docs/evidence/supabase/2026-08-14-canonical-remote-sync.md`.
 - `DONE` K1 Storage evidence in `docs/evidence/supabase/2026-08-14-kyc-private-storage.md`.
 - `DONE` K2 audit evidence in `docs/evidence/supabase/2026-08-15-k2-audit-events.md`.
-- `DONE` Supabase Security Advisor after K2: **0 security lints**.
+- `DONE` K3 Auth/membership evidence in `docs/evidence/supabase/2026-08-15-k3-dashboard-membership-authorization.md`.
+- `DONE` Supabase Security Advisor after K3: **0 security lints**.
 - `PENDING` Performance-index review after representative workload/query plans. Current advisor notices are INFO-only; do not add/remove indexes mechanically.
 
 ## A — merchant / KYC / provider configuration
@@ -307,10 +308,40 @@ Managed Supabase verification after K2:
 
 Evidence: `docs/evidence/supabase/2026-08-15-k2-audit-events.md`.
 
+### K3 — Supabase Auth dashboard membership authorization
+
+- `DONE` `docs/specs/dashboard-merchant-membership-authorization-v0.yaml`.
+- `DONE` Supabase `auth.users.id` retained as canonical dashboard identity anchor.
+- `DONE` `app.merchant_members` is the sole merchant-membership/merchant-role source of truth.
+- `DONE` `app.require_merchant_membership(uuid,uuid,text)` implements `owner > admin > member` and returns the actual active role.
+- `DONE` Missing/anonymous/soft-deleted identity, missing/disabled/cross-merchant membership and insufficient role fail closed with `42501`.
+- `DONE` Invalid arguments/required role fail with `23514`.
+- `DONE` `raw_user_meta_data` and `raw_app_meta_data` cannot grant or replace canonical merchant authorization.
+- `DONE` Membership disablement/role changes are visible on the next check without waiting for JWT refresh.
+- `DONE` Merchant lifecycle/KYC remains separate from dashboard membership authorization.
+- `DONE` Helper is `STABLE SECURITY DEFINER` with fixed search path and remains revoked from `PUBLIC`, `anon`, `authenticated`, `service_role` until K4.
+- `DONE` Authorization checks have zero audit/domain/ledger/job/webhook side effects.
+
+Migrations:
+
+- `20260815024000_dashboard_membership_authorization_foundation.sql`
+- `20260815024519_dashboard_membership_authorization_behavior.sql`
+
+Validation after K3 GREEN: **27 pgTAP files / 902 tests / PASS** on GitHub Actions run #112 (`31860024259`).
+
+Managed Supabase verification after K3:
+
+- 27 canonical migration-history entries through `20260815024519`;
+- role hierarchy, suspended-merchant dashboard access, anonymous/deleted/spoof/disabled denial and invalid-role handling proven transactionally;
+- helper EXECUTE remains denied to `anon`, `authenticated`, `service_role`;
+- corrected remote proof was rolled back and left zero verification merchants/Auth users/memberships;
+- Supabase Security Advisor: **0 security lints**.
+
+Evidence: `docs/evidence/supabase/2026-08-15-k3-dashboard-membership-authorization.md`.
+
 ### Remaining K slices
 
-- `PENDING` **K3 — Supabase Auth dashboard-user integration + merchant membership authorization boundary.**
-- `PENDING` K4 — explicit trusted API/worker database role + tenant/environment context boundary.
+- `PENDING` **K4 — explicit trusted API/worker database role + tenant/environment context boundary.**
 - `PENDING` K5 — local sandbox/seed fixtures.
 - `PENDING` K6 — trusted API/worker production deployment topology around managed Supabase.
 - `PENDING` Merchant-facing exposed read/write models only after their own grants + RLS contracts; J2 keeps exposure opt-in by default.
@@ -429,7 +460,9 @@ private app ACL + explicit-opt-in public Data API grants
         |
 private KYC Storage + restrictive browser fences
         |
-append-only replay-safe operational audit                         <- current GREEN boundary
+append-only replay-safe operational audit
+        |
+Supabase Auth identity -> canonical merchant membership authorization  <- current GREEN boundary
 ```
 
 Provider runtime scope remains frozen:
@@ -453,21 +486,20 @@ withdrawable
 
 ## Immediate execution order
 
-1. K3 Supabase Auth + merchant membership authorization contract -> RED -> GREEN;
-2. K4 trusted API/worker role + tenant/environment context boundary;
-3. K5/K6 seed/deployment foundation;
-4. provider-specific I3b and adapters only when current AkkadPag/FlevoPay conformance evidence exists;
-5. first executable Pix vertical slice over the proven foundation.
+1. K4 trusted API/worker database role + tenant/environment context boundary -> RED -> GREEN;
+2. K5/K6 seed/deployment foundation;
+3. provider-specific I3b and adapters only when current AkkadPag/FlevoPay conformance evidence exists;
+4. first executable Pix vertical slice over the proven foundation.
 
 ## Verification
 
 - Work remains on `agent/foundation-phase-0` and draft PR #1.
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
-- Latest database boundary: **25 pgTAP files / 856 tests / PASS** on GitHub Actions run #105.
+- Latest database boundary: **27 pgTAP files / 902 tests / PASS** on GitHub Actions run #112.
 - Canonical managed Supabase: **`swiftpay v2` / `vsidrgbbyzibqfjkuiqb`**.
-- Remote history: **25 canonical migrations through `20260815022800`**.
-- Remote Security Advisor after K2: **0 security lints**.
+- Remote history: **27 canonical migrations through `20260815024519`**.
+- Remote Security Advisor after K3: **0 security lints**.
 - Remote Performance Advisor remains deferred until representative workload/query-plan evidence exists.
 - I3b provider-vs-SwiftPay comparison remains `EVIDENCE_REQUIRED`; provider-specific absence/query/report semantics have not been invented.
 - Refund provider execution remains intentionally disabled; database refund resolution is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
