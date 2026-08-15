@@ -11,18 +11,20 @@ problem:
     introduced fail-closed before merchant-facing upload/download flows exist.
   current_state:
     - storage.objects and storage.buckets have RLS enabled by the managed Supabase platform.
-    - the canonical remote has zero buckets and zero custom storage policies.
+    - the canonical remote has zero buckets and zero custom storage policies before K1.
     - app.kyc_documents already persists merchant/case/purpose/version/storage_path metadata.
     - trusted backend authorization remains the KYC access decision boundary.
   risk: >-
     A merely-private bucket with no current permissive policy can still be exposed
     accidentally by a future broad permissive Storage policy, because PostgreSQL
     permissive RLS policies combine with OR semantics. KYC therefore needs a
-    restrictive policy fence in addition to private-bucket configuration.
+    restrictive policy fence in addition to private-bucket configuration. The
+    fence must protect both object rows and the bucket row itself so a browser
+    cannot flip the bucket public, replace it or delete its configuration.
 
 objectives:
   - create a dedicated private KYC evidence bucket
-  - make browser/Data API KYC object access fail closed even if a future broad permissive Storage policy is introduced
+  - make browser/Data API KYC bucket and object access fail closed even if a future broad permissive Storage policy is introduced
   - keep the Storage metadata schema itself managed/read-only
   - preserve server-side upload/download as the future trusted path
   - avoid freezing unproven Brazilian compliance document/MIME requirements in this slice
@@ -52,12 +54,17 @@ requirements:
       - authenticated
     rules:
       - direct SELECT of `kyc-evidence` bucket metadata MUST remain denied
+      - direct INSERT/recreation of the `kyc-evidence` bucket row MUST remain denied
+      - direct UPDATE of `kyc-evidence` bucket metadata MUST remain denied
+      - direct DELETE of `kyc-evidence` bucket metadata MUST remain denied
       - direct SELECT of `kyc-evidence` object metadata MUST remain denied
       - direct INSERT into `kyc-evidence` object metadata MUST remain denied
       - direct UPDATE of `kyc-evidence` object metadata MUST remain denied
       - direct DELETE of `kyc-evidence` object metadata MUST remain denied
   restrictive_fence:
     - KYC denial policies MUST be `AS RESTRICTIVE`, not ordinary permissive policies
+    - restrictive policies MUST cover SELECT/INSERT/UPDATE/DELETE for the KYC bucket row
+    - restrictive policies MUST cover SELECT/INSERT/UPDATE/DELETE for KYC object rows
     - the restrictive fence MUST survive a future broad permissive policy for anon/authenticated
     - non-KYC buckets are not denied by K1; their access remains governed by their own future policies
   service_boundary:
@@ -78,16 +85,17 @@ requirements:
 acceptance_criteria:
   - pgTAP proves the `kyc-evidence` bucket exists, is private and has the expected 10 MiB limit
   - pgTAP proves RLS remains enabled on storage.buckets and storage.objects
-  - pgTAP proves restrictive policies exist for bucket SELECT and object SELECT/INSERT/UPDATE/DELETE
-  - pgTAP temporarily adds broad permissive policies and proves anon/authenticated still cannot observe KYC bucket/object rows
+  - pgTAP proves restrictive policies exist for bucket SELECT/INSERT/UPDATE/DELETE and object SELECT/INSERT/UPDATE/DELETE
+  - pgTAP temporarily adds broad permissive policies and proves anon/authenticated still cannot observe or mutate KYC bucket/object rows
   - pgTAP proves a non-KYC probe row can pass the restrictive fence when a permissive policy explicitly grants it, demonstrating the fence is KYC-scoped rather than a global Storage shutdown
   - pgTAP proves J1/J2 app/public access-control boundaries remain intact
   - all previous 001-022 database-contract suites remain green
   - managed Supabase Security Advisor remains clean after deployment
 
 edge_cases:
-  - future broad `USING (true)` Storage policy must not expose KYC rows
-  - future broad `WITH CHECK (true)` upload policy must not authorize KYC object metadata creation
+  - future broad `USING (true)` Storage policy must not expose or mutate KYC rows
+  - future broad `WITH CHECK (true)` policy must not authorize KYC bucket/object creation or relocation into KYC
+  - a future broad UPDATE policy must not allow flipping `storage.buckets.public` for KYC
   - private bucket flag alone must not be treated as authorization for metadata operations
   - service-role RLS bypass must not be exposed to browser clients
   - `owner_id` alone does not grant access and is not used as the KYC authorization decision in K1
