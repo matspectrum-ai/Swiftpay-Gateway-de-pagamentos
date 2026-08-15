@@ -78,3 +78,5 @@ jobs:
         run: bash tests/application/003_runtime_database_integration.sh
       - name: Run A1 real token authentication acceptance
         run: bash tests/application/011_a1_real_runtime_acceptance.sh
+      - name: Run A2 real Pix runtime acceptance
+        run: bash tests/application/017_a2_real_runtime_acceptance.sh
