@@ -59,7 +59,7 @@ async function buildWith(overrides = {}) {
 
 async function balanceRequest(app, authorization = `Bearer ${TOKEN}`) {
   const headers = { 'x-request-id': REQUEST_ID };
-  if (authorization !== undefined) headers.authorization = authorization;
+  if (authorization !== null) headers.authorization = authorization;
   return app.inject({ method: 'GET', url: '/v1/balance', headers });
 }
 
@@ -88,7 +88,7 @@ test('A3 balance rejects missing malformed and invalid Bearer credentials before
 
   try {
     const responses = [
-      await balanceRequest(app, undefined),
+      await balanceRequest(app, null),
       await balanceRequest(app, 'Basic abc'),
       await balanceRequest(app, 'Bearer wrong-token'),
     ];
