@@ -14,13 +14,15 @@ problem:
     - the canonical remote has zero buckets and zero custom storage policies before K1.
     - app.kyc_documents already persists merchant/case/purpose/version/storage_path metadata.
     - trusted backend authorization remains the KYC access decision boundary.
+    - current managed Storage installs statement-level `storage.protect_delete()` triggers on storage.buckets and storage.objects; direct SQL DELETE is therefore not a valid runtime-path test.
   risk: >-
-    A merely-private bucket with no current permissive policy can still be exposed
+    A merely-private bucket with no current restrictive policy can still be exposed
     accidentally by a future broad permissive Storage policy, because PostgreSQL
     permissive RLS policies combine with OR semantics. KYC therefore needs a
     restrictive policy fence in addition to private-bucket configuration. The
     fence must protect both object rows and the bucket row itself so a browser
-    cannot flip the bucket public, replace it or delete its configuration.
+    cannot observe, alter, replace or delete KYC configuration through supported
+    Storage operations.
 
 objectives:
   - create a dedicated private KYC evidence bucket
@@ -48,23 +50,25 @@ requirements:
     - storage.buckets RLS MUST remain enabled
     - K1 MUST NOT alter managed Storage table structure, triggers, functions or internal migrations
     - runtime object upload/copy/move/delete MUST use the Storage API, never direct metadata DML
+    - tests MUST NOT disable or bypass managed Storage protection triggers merely to exercise a synthetic SQL path
   browser_denial:
     roles:
       - anon
       - authenticated
     rules:
-      - direct SELECT of `kyc-evidence` bucket metadata MUST remain denied
-      - direct INSERT/recreation of the `kyc-evidence` bucket row MUST remain denied
-      - direct UPDATE of `kyc-evidence` bucket metadata MUST remain denied
-      - direct DELETE of `kyc-evidence` bucket metadata MUST remain denied
-      - direct SELECT of `kyc-evidence` object metadata MUST remain denied
-      - direct INSERT into `kyc-evidence` object metadata MUST remain denied
-      - direct UPDATE of `kyc-evidence` object metadata MUST remain denied
-      - direct DELETE of `kyc-evidence` object metadata MUST remain denied
+      - SELECT of `kyc-evidence` bucket metadata MUST remain denied
+      - INSERT/recreation of the `kyc-evidence` bucket row MUST remain denied by restrictive policy scope
+      - UPDATE of `kyc-evidence` bucket metadata MUST remain denied
+      - DELETE of `kyc-evidence` bucket metadata MUST remain denied by restrictive policy scope and the supported Storage API authorization path
+      - SELECT of `kyc-evidence` object metadata MUST remain denied
+      - INSERT into `kyc-evidence` object metadata MUST remain denied
+      - UPDATE of `kyc-evidence` object metadata MUST remain denied
+      - DELETE of `kyc-evidence` object metadata MUST remain denied by restrictive policy scope and the supported Storage API authorization path
   restrictive_fence:
     - KYC denial policies MUST be `AS RESTRICTIVE`, not ordinary permissive policies
     - restrictive policies MUST cover SELECT/INSERT/UPDATE/DELETE for the KYC bucket row
     - restrictive policies MUST cover SELECT/INSERT/UPDATE/DELETE for KYC object rows
+    - every restrictive predicate MUST explicitly exclude `kyc-evidence` from anon/authenticated access
     - the restrictive fence MUST survive a future broad permissive policy for anon/authenticated
     - non-KYC buckets are not denied by K1; their access remains governed by their own future policies
   service_boundary:
@@ -79,23 +83,26 @@ requirements:
     - attachment validation against merchant/case/purpose/version is implemented in the later trusted-backend slice, not by modifying storage.objects
   immutability:
     - submitted KYC evidence remains immutable by contract
-    - K1 denies generic browser UPDATE/DELETE entirely for the KYC bucket
+    - K1 denies generic browser UPDATE/DELETE for the KYC bucket/object rows
     - replacement will create a new evidence version/path; overwrite/upsert is not part of K1
 
 acceptance_criteria:
   - pgTAP proves the `kyc-evidence` bucket exists, is private and has the expected 10 MiB limit
   - pgTAP proves RLS remains enabled on storage.buckets and storage.objects
   - pgTAP proves restrictive policies exist for bucket SELECT/INSERT/UPDATE/DELETE and object SELECT/INSERT/UPDATE/DELETE
-  - pgTAP temporarily adds broad permissive policies and proves anon/authenticated still cannot observe or mutate KYC bucket/object rows
-  - pgTAP proves a non-KYC probe row can pass the restrictive fence when a permissive policy explicitly grants it, demonstrating the fence is KYC-scoped rather than a global Storage shutdown
+  - pgTAP proves each restrictive policy predicate is explicitly scoped to exclude `kyc-evidence`
+  - pgTAP temporarily adds broad permissive SELECT/INSERT/UPDATE policies and proves anon/authenticated still cannot observe or mutate KYC bucket/object rows
+  - pgTAP proves a non-KYC probe row can pass explicitly permissive SELECT/INSERT/UPDATE policies, demonstrating the fence is KYC-scoped rather than a global Storage shutdown
+  - DELETE fences are verified structurally because current managed Storage intentionally rejects direct SQL DELETE through `storage.protect_delete()`; K1 does not bypass this platform protection
   - pgTAP proves J1/J2 app/public access-control boundaries remain intact
   - all previous 001-022 database-contract suites remain green
   - managed Supabase Security Advisor remains clean after deployment
 
 edge_cases:
   - future broad `USING (true)` Storage policy must not expose or mutate KYC rows
-  - future broad `WITH CHECK (true)` policy must not authorize KYC bucket/object creation or relocation into KYC
+  - future broad `WITH CHECK (true)` policy must not authorize KYC object creation or relocation into KYC
   - a future broad UPDATE policy must not allow flipping `storage.buckets.public` for KYC
+  - direct SQL DELETE behavior must not be mistaken for Storage API behavior because managed `storage.protect_delete()` rejects direct deletion independently of RLS
   - private bucket flag alone must not be treated as authorization for metadata operations
   - service-role RLS bypass must not be exposed to browser clients
   - `owner_id` alone does not grant access and is not used as the KYC authorization decision in K1
@@ -112,10 +119,12 @@ out_of_scope:
   - append-only KYC audit events
   - object lifecycle/retention deletion jobs
   - direct browser KYC Storage access
+  - disabling or replacing managed Storage protection triggers
 
 implementation_constraints:
   - create bucket metadata through a versioned migration; do not mutate managed Storage table definitions
   - use named restrictive RLS policies scoped only to `kyc-evidence`
   - do not add permissive KYC policies
+  - do not disable managed Storage triggers or functions
   - do not grant service_role credentials to frontend/browser code
   - do not introduce provider/compliance assumptions into this Storage-only slice
