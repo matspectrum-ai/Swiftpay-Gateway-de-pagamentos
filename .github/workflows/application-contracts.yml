@@ -34,11 +34,12 @@ jobs:
           pnpm --version
       - name: Generate lockfile candidate
         run: pnpm install --lockfile-only
-      - name: Emit lockfile candidate
-        run: |
-          echo '---SWIFTPAY-PNPM-LOCK-BEGIN---'
-          cat pnpm-lock.yaml
-          echo '---SWIFTPAY-PNPM-LOCK-END---'
+      - name: Upload lockfile candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: k7-pnpm-lock
+          path: pnpm-lock.yaml
+          if-no-files-found: error
 
   structural-red-green:
     runs-on: ubuntu-latest
