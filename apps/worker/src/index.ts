@@ -1,9 +1,11 @@
 import { loadWorkerConfig } from '@swiftpay/config';
-import { createRuntimePool, verifyRuntimeBoundary } from '@swiftpay/db';
+import { createRuntimePool } from '@swiftpay/db';
+import { createWorkerRuntimeServices } from './runtime.js';
 
 const CHECK_FLAG = '--check';
 const config = loadWorkerConfig();
 const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'worker' });
+const services = createWorkerRuntimeServices(pool);
 
 function log(level: 'info' | 'error', event: string): void {
   const line = JSON.stringify({ level, event, workload: 'worker' });
@@ -19,7 +21,7 @@ function waitForShutdown(): Promise<string> {
 }
 
 try {
-  await verifyRuntimeBoundary(pool, 'worker');
+  await services.readinessProbe();
 
   if (process.argv.includes(CHECK_FLAG)) {
     log('info', 'worker_readiness_ok');
