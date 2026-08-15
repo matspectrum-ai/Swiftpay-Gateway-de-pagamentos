@@ -1,0 +1,63 @@
+export type SwiftpayEnvironment = 'sandbox' | 'production';
+
+export interface ApiConfig {
+  readonly environment: SwiftpayEnvironment;
+  readonly databaseUrl: string;
+  readonly host: string;
+  readonly port: number;
+}
+
+export interface WorkerConfig {
+  readonly environment: SwiftpayEnvironment;
+  readonly databaseUrl: string;
+}
+
+type EnvironmentSource = Readonly<Record<string, string | undefined>>;
+
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigurationError';
+  }
+}
+
+function required(source: EnvironmentSource, name: string): string {
+  const value = source[name]?.trim();
+  if (!value) {
+    throw new ConfigurationError(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+function environment(source: EnvironmentSource): SwiftpayEnvironment {
+  const value = required(source, 'SWIFTPAY_ENVIRONMENT');
+  if (value !== 'sandbox' && value !== 'production') {
+    throw new ConfigurationError('SWIFTPAY_ENVIRONMENT must be sandbox or production');
+  }
+  return value;
+}
+
+function port(source: EnvironmentSource): number {
+  const raw = source.SWIFTPAY_API_PORT?.trim() || '3000';
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65535 || String(parsed) !== raw) {
+    throw new ConfigurationError('SWIFTPAY_API_PORT must be an integer between 1 and 65535');
+  }
+  return parsed;
+}
+
+export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
+  return {
+    environment: environment(source),
+    databaseUrl: required(source, 'SWIFTPAY_API_DATABASE_URL'),
+    host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
+    port: port(source),
+  };
+}
+
+export function loadWorkerConfig(source: EnvironmentSource = process.env): WorkerConfig {
+  return {
+    environment: environment(source),
+    databaseUrl: required(source, 'SWIFTPAY_WORKER_DATABASE_URL'),
+  };
+}

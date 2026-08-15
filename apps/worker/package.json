@@ -1,0 +1,16 @@
+{
+  "name": "@swiftpay/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "start": "node dist/index.js",
+    "check": "node dist/index.js --check"
+  },
+  "dependencies": {
+    "@swiftpay/config": "workspace:*",
+    "@swiftpay/db": "workspace:*"
+  }
+}
