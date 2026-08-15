@@ -29,6 +29,21 @@ function required(source: EnvironmentSource, name: string): string {
   return value;
 }
 
+function postgresUrl(source: EnvironmentSource, name: string): string {
+  const value = required(source, name);
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+      throw new Error('unsupported protocol');
+    }
+  } catch {
+    throw new ConfigurationError(`${name} must be a valid PostgreSQL URL`);
+  }
+
+  return value;
+}
+
 function environment(source: EnvironmentSource): SwiftpayEnvironment {
   const value = required(source, 'SWIFTPAY_ENVIRONMENT');
   if (value !== 'sandbox' && value !== 'production') {
@@ -49,7 +64,7 @@ function port(source: EnvironmentSource): number {
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
   return {
     environment: environment(source),
-    databaseUrl: required(source, 'SWIFTPAY_API_DATABASE_URL'),
+    databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
     host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
     port: port(source),
   };
@@ -58,6 +73,6 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
 export function loadWorkerConfig(source: EnvironmentSource = process.env): WorkerConfig {
   return {
     environment: environment(source),
-    databaseUrl: required(source, 'SWIFTPAY_WORKER_DATABASE_URL'),
+    databaseUrl: postgresUrl(source, 'SWIFTPAY_WORKER_DATABASE_URL'),
   };
 }
