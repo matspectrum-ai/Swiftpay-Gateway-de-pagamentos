@@ -279,3 +279,4 @@ export function createApiCredentialAuthStore(pool: QueryOnlyPool): ApiCredential
 }
 
 export * from './pix.js';
+export * from './financial.js';
