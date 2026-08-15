@@ -3,6 +3,7 @@ set -euo pipefail
 
 : "${SWIFTPAY_API_DATABASE_URL:?SWIFTPAY_API_DATABASE_URL is required}"
 : "${SWIFTPAY_WORKER_DATABASE_URL:?SWIFTPAY_WORKER_DATABASE_URL is required}"
+: "${SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY:?SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY is required}"
 
 readonly ADMIN_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 readonly API_PORT_OK='32101'
@@ -59,6 +60,7 @@ stop_api
 start_api "${SWIFTPAY_WORKER_DATABASE_URL}" "${API_PORT_WRONG}" /tmp/swiftpay-api-wrong.log
 [[ "$(curl --silent --output /tmp/swiftpay-ready-wrong.json --write-out '%{http_code}' "http://127.0.0.1:${API_PORT_WRONG}/health/ready")" == '503' ]]
 grep -q '"status":"unavailable"' /tmp/swiftpay-ready-wrong.json
+grep -q '"workload":"api"' /tmp/swiftpay-ready-wrong.json
 ! grep -Eq 'postgres(ql)?://|local_worker_runtime_only|local_api_runtime_only' /tmp/swiftpay-ready-wrong.json
 ! grep -Eq 'postgres(ql)?://|local_worker_runtime_only|local_api_runtime_only' /tmp/swiftpay-api-wrong.log
 stop_api
