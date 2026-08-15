@@ -5,9 +5,9 @@
 -- a managed DATABASE_URL. Password creation/rotation is a deployment secret
 -- operation performed out-of-band after these identities exist.
 --
--- Re-running this file is safe: it restores the frozen role attributes,
--- cross-membership boundary and direct-object-deny baseline without changing K4
--- capability grants.
+-- Re-running this file is fail-closed: existing identities must already have the
+-- frozen safe role attributes. The script restores cross-membership and
+-- direct-object-deny boundaries without changing K4 capability grants.
 
 do $$
 begin
@@ -15,20 +15,27 @@ begin
     create role swiftpay_api_runtime
       login inherit
       nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'swiftpay_api_runtime'
+      and (not rolcanlogin or not rolinherit or rolsuper or rolcreatedb or rolcreaterole or rolreplication or rolbypassrls)
+  ) then
+    raise exception 'existing swiftpay_api_runtime has unsafe role attributes';
   end if;
 
   if not exists (select 1 from pg_roles where rolname = 'swiftpay_worker_runtime') then
     create role swiftpay_worker_runtime
       login inherit
       nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'swiftpay_worker_runtime'
+      and (not rolcanlogin or not rolinherit or rolsuper or rolcreatedb or rolcreaterole or rolreplication or rolbypassrls)
+  ) then
+    raise exception 'existing swiftpay_worker_runtime has unsafe role attributes';
   end if;
 end
 $$;
-
-alter role swiftpay_api_runtime
-  login inherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
-alter role swiftpay_worker_runtime
-  login inherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
 
 revoke swiftpay_worker from swiftpay_api_runtime;
 revoke swiftpay_api from swiftpay_worker_runtime;
