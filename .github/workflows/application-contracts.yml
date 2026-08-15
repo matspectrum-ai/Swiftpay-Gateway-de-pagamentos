@@ -18,6 +18,28 @@ permissions:
   contents: read
 
 jobs:
+  lockfile-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          pnpm --version
+      - name: Generate lockfile candidate
+        run: pnpm install --lockfile-only
+      - name: Emit lockfile candidate
+        run: |
+          echo '---SWIFTPAY-PNPM-LOCK-BEGIN---'
+          cat pnpm-lock.yaml
+          echo '---SWIFTPAY-PNPM-LOCK-END---'
+
   structural-red-green:
     runs-on: ubuntu-latest
     timeout-minutes: 10
