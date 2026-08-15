@@ -484,6 +484,17 @@ export function createPixPaymentService(
         };
       }
 
+      if (prepared.kind !== 'prepared') {
+        return {
+          ok: false,
+          httpStatus: 500,
+          error: {
+            code: 'internal_error',
+            message: 'Payment preparation returned an invalid state.',
+          },
+        };
+      }
+
       const claim = await store.claimPixAttempt({
         merchantId: input.principal.merchantId,
         environment: 'sandbox',
