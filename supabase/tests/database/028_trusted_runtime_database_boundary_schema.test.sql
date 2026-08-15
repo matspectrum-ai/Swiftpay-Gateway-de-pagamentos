@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(36);
+select plan(37);
 
 -- Frozen trusted capability roles.
 select ok(
@@ -14,7 +14,6 @@ select ok(
     exists (select 1 from pg_catalog.pg_roles where rolname = 'swiftpay_worker'),
     'swiftpay_worker capability role exists'
 );
-
 select ok(
     coalesce((
         select not rolcanlogin
@@ -77,14 +76,12 @@ select ok(
     'trusted SwiftPay roles do not inherit privileged platform roles'
 );
 
--- The only direct schema capability is USAGE; CREATE remains denied.
+-- Trusted runtimes get schema USAGE only, never CREATE or direct relation/sequence capabilities.
 select ok(
     exists (
         select 1
         from pg_catalog.pg_namespace n
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(n.nspacl, pg_catalog.acldefault('n', n.nspowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) acl
         where n.nspname = 'app'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'USAGE'
@@ -95,9 +92,7 @@ select ok(
     exists (
         select 1
         from pg_catalog.pg_namespace n
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(n.nspacl, pg_catalog.acldefault('n', n.nspowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) acl
         where n.nspname = 'app'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
           and acl.privilege_type = 'USAGE'
@@ -108,9 +103,7 @@ select ok(
     not exists (
         select 1
         from pg_catalog.pg_namespace n
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(n.nspacl, pg_catalog.acldefault('n', n.nspowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) acl
         where n.nspname = 'app'
           and acl.grantee in (
               (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api'),
@@ -120,16 +113,12 @@ select ok(
     ),
     'trusted SwiftPay roles cannot CREATE in app schema'
 );
-
--- No direct relation or sequence capability.
 select ok(
     not exists (
         select 1
         from pg_catalog.pg_class c
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))) acl
         where n.nspname = 'app'
           and c.relkind in ('r', 'p', 'v', 'm', 'f')
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
@@ -142,9 +131,7 @@ select ok(
         select 1
         from pg_catalog.pg_class c
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))) acl
         where n.nspname = 'app'
           and c.relkind in ('r', 'p', 'v', 'm', 'f')
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
@@ -157,9 +144,7 @@ select ok(
         select 1
         from pg_catalog.pg_class c
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(c.relacl, pg_catalog.acldefault('S', c.relowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('S', c.relowner))) acl
         where n.nspname = 'app'
           and c.relkind = 'S'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
@@ -172,9 +157,7 @@ select ok(
         select 1
         from pg_catalog.pg_class c
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(c.relacl, pg_catalog.acldefault('S', c.relowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('S', c.relowner))) acl
         where n.nspname = 'app'
           and c.relkind = 'S'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
@@ -183,7 +166,7 @@ select ok(
     'swiftpay_worker has no direct privilege on current app sequences'
 );
 
--- Frozen K4 context helper shape.
+-- Dashboard context remains the only dashboard authorization primitive exposed to API.
 select ok(
     to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)') is not null,
     'dashboard merchant context helper frozen signature exists'
@@ -222,10 +205,10 @@ select ok(
     'dashboard context helper is STABLE'
 );
 
--- Exact positive EXECUTE allowlists.
+-- Exact API allowlist after A3: K4 + A1 + A2 + one balance read.
 select ok(
     coalesce((
-        select count(*) = 8
+        select count(*) = 9
            and bool_and(p.oid = any(array[
                to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')::oid,
                to_regprocedure('app.lookup_api_credential_for_token(text)')::oid,
@@ -234,26 +217,23 @@ select ok(
                to_regprocedure('app.prepare_api_pix_payment(uuid,text,text,text,jsonb,jsonb,text)')::oid,
                to_regprocedure('app.claim_api_pix_attempt(uuid,text,uuid,uuid)')::oid,
                to_regprocedure('app.resolve_api_pix_attempt(uuid,text,uuid,uuid,uuid,jsonb)')::oid,
-               to_regprocedure('app.get_api_payment(uuid,text,uuid)')::oid
+               to_regprocedure('app.get_api_payment(uuid,text,uuid)')::oid,
+               to_regprocedure('app.get_api_balance(uuid,text)')::oid
            ]::oid[]))
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
         where n.nspname = 'app'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ), false),
-    'swiftpay_api EXECUTE grants equal the exact current K4 A1 A2 allowlist'
+    'swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read allowlist'
 );
 select ok(
     exists (
         select 1
         from pg_catalog.pg_proc p
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
         where p.oid = to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
@@ -264,9 +244,7 @@ select ok(
     not exists (
         select 1
         from pg_catalog.pg_proc p
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
         where p.oid = to_regprocedure('app.require_merchant_membership(uuid,uuid,text)')
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
@@ -277,9 +255,7 @@ select ok(
     not exists (
         select 1
         from pg_catalog.pg_proc p
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
         where p.oid = to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')
           and acl.grantee in (
               0,
@@ -293,53 +269,47 @@ select ok(
     'dashboard context helper is not executable by public Data API service or worker roles'
 );
 
-select is(
-    (
-        select count(*)::bigint
+-- Exact worker allowlist after A3: existing lease lifecycle plus one sandbox paid command.
+select ok(
+    coalesce((
+        select count(*) = 4
+           and bool_and(p.oid = any(array[
+               to_regprocedure('app.claim_jobs(text,integer,integer)')::oid,
+               to_regprocedure('app.complete_job(uuid,uuid)')::oid,
+               to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)')::oid,
+               to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')::oid
+           ]::oid[]))
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
-        cross join lateral pg_catalog.aclexplode(
-            coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-        ) acl
+        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
         where n.nspname = 'app'
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
           and acl.privilege_type = 'EXECUTE'
-    ),
-    3::bigint,
-    'swiftpay_worker has exactly three current app EXECUTE grants'
+    ), false),
+    'swiftpay_worker EXECUTE grants equal job lease lifecycle plus A3 sandbox paid command'
 );
 select ok(
-    exists (
-        select 1
-        from pg_catalog.pg_proc p
-        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
-        where p.oid = to_regprocedure('app.claim_jobs(text,integer,integer)')
-          and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
-          and acl.privilege_type = 'EXECUTE'
-    ),
+    has_function_privilege('swiftpay_worker', 'app.claim_jobs(text,integer,integer)', 'EXECUTE'),
     'swiftpay_worker can execute claim_jobs'
 );
 select ok(
-    exists (
-        select 1
-        from pg_catalog.pg_proc p
-        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
-        where p.oid = to_regprocedure('app.complete_job(uuid,uuid)')
-          and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
-          and acl.privilege_type = 'EXECUTE'
-    ),
+    has_function_privilege('swiftpay_worker', 'app.complete_job(uuid,uuid)', 'EXECUTE'),
     'swiftpay_worker can execute complete_job'
 );
 select ok(
-    exists (
-        select 1
-        from pg_catalog.pg_proc p
-        cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
-        where p.oid = to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)')
-          and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
-          and acl.privilege_type = 'EXECUTE'
-    ),
+    has_function_privilege('swiftpay_worker', 'app.reschedule_job(uuid,uuid,text,text,integer)', 'EXECUTE'),
     'swiftpay_worker can execute reschedule_job'
+);
+select ok(
+    case
+      when to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)') is null then false
+      else has_function_privilege(
+        'swiftpay_worker',
+        to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)'),
+        'EXECUTE'
+      )
+    end,
+    'swiftpay_worker can execute A3 sandbox paid command'
 );
 select ok(
     not exists (
@@ -349,12 +319,13 @@ select ok(
         where p.oid in (
             to_regprocedure('app.claim_jobs(text,integer,integer)'),
             to_regprocedure('app.complete_job(uuid,uuid)'),
-            to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)')
+            to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)'),
+            to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')
         )
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ),
-    'swiftpay_api cannot execute worker job lease lifecycle functions'
+    'swiftpay_api cannot execute worker-only lease or simulator mutation functions'
 );
 select ok(
     not exists (
@@ -368,14 +339,17 @@ select ok(
     'swiftpay_worker cannot execute raw K3 membership helper'
 );
 
--- Explicitly sensitive current routines remain outside both K4 allowlists.
+-- Sensitive financial/evidence primitives remain internal implementation details.
 select ok(
     not exists (
         select 1
         from pg_catalog.pg_proc p
         cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
         where p.oid in (
+            to_regprocedure('app.ensure_account(uuid,uuid,text,text,text)'),
             to_regprocedure('app.post_ledger_transaction(text,text,uuid,text,jsonb)'),
+            to_regprocedure('app.record_webhook_event(uuid,text,text,text,uuid,text,uuid,text,jsonb,timestamptz)'),
+            to_regprocedure('app.enqueue_job(text,text,uuid,text,jsonb,integer,integer,timestamptz)'),
             to_regprocedure('app.reserve_payout(uuid,text,text,bigint,bigint,jsonb,text,text,text,timestamptz)'),
             to_regprocedure('app.reserve_refund(uuid,uuid,text,bigint,text,text,timestamptz)'),
             to_regprocedure('app.prepare_payout_attempt(uuid,uuid,uuid,text,text,timestamptz)'),
@@ -391,7 +365,7 @@ select ok(
           )
           and acl.privilege_type = 'EXECUTE'
     ),
-    'K4 grants no financial provider reconciliation or audit mutation routines'
+    'trusted runtimes receive no raw financial webhook provider reconciliation or audit mutation primitive'
 );
 
 -- Future app objects must remain explicit opt-in even for trusted roles.
