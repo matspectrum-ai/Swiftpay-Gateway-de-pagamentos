@@ -17,41 +17,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  lockfile-bootstrap:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-      - name: Setup Node.js 24 LTS
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Activate pinned pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.17.0 --activate
-          test "$(pnpm --version)" = "11.17.0"
-      - name: Generate and commit A1 lockfile
-        run: |
-          set -euo pipefail
-          pnpm install --lockfile-only
-          if git diff --quiet -- pnpm-lock.yaml; then
-            echo "pnpm-lock.yaml already current"
-            exit 0
-          fi
-          git diff --check -- pnpm-lock.yaml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml
-          git commit -m "build: refresh lockfile for A1 auth package"
-          git push origin "HEAD:${{ github.head_ref }}"
-
   application-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
