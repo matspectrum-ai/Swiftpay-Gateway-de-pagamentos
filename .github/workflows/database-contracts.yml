@@ -13,38 +13,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix-a1-behavior-plan:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-      - name: Correct A1 behavioral pgTAP plan
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('supabase/tests/database/031_api_credential_token_auth_behavior.test.sql')
-          text = path.read_text()
-          text = text.replace('select plan(41);', 'select plan(42);', 1)
-          path.write_text(text)
-          PY
-          if git diff --quiet -- supabase/tests/database/031_api_credential_token_auth_behavior.test.sql; then
-            echo "A1 behavioral plan already correct"
-            exit 0
-          fi
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add supabase/tests/database/031_api_credential_token_auth_behavior.test.sql
-          git commit -m "test: correct A1 behavioral pgTAP plan"
-          git push origin "HEAD:${{ github.head_ref }}"
-
   pgtap:
     runs-on: ubuntu-latest
     timeout-minutes: 20
