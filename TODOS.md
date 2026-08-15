@@ -117,11 +117,12 @@ Implementation is active under strict RED -> migration -> GREEN database TDD.
 - `DONE` pgTAP database-contract workflow with `supabase db start` + `supabase test db`.
 - `DONE` Server-owned `app` schema outside direct browser Data API mutation surface.
 - `DONE` Canonical managed Supabase project selected: **`swiftpay v2`**, ref `vsidrgbbyzibqfjkuiqb`.
-- `DONE` Canonical remote reconciled with the repository migration chain through `20260814065000_public_data_api_default_grants.sql`.
-- `DONE` Remote migration history normalized to the repository timestamps; 22 canonical migrations, no connector-generated versions left in the history.
-- `DONE` Remote synchronization verified with zero SwiftPay domain rows and zero internal reconciliation findings.
-- `DONE` Remote security evidence recorded in `docs/evidence/supabase/2026-08-14-canonical-remote-sync.md`.
-- `DONE` Supabase Security Advisor after J2: **0 security lints**.
+- `DONE` Canonical remote reconciled with the repository migration chain through `20260815021111_kyc_private_storage.sql`.
+- `DONE` Remote migration history normalized to the repository timestamps; 23 canonical migrations, no connector-generated version remains for the K1 deployment.
+- `DONE` Remote synchronization verified with zero SwiftPay domain rows and zero internal reconciliation findings before K1.
+- `DONE` Remote baseline security evidence recorded in `docs/evidence/supabase/2026-08-14-canonical-remote-sync.md`.
+- `DONE` K1 Storage evidence recorded in `docs/evidence/supabase/2026-08-14-kyc-private-storage.md`.
+- `DONE` Supabase Security Advisor after K1: **0 security lints**.
 - `PENDING` Performance-index review after representative workload/query plans. Current advisor notices are INFO-only; do not add/remove indexes mechanically.
 
 ## Implemented slices
@@ -271,20 +272,35 @@ Migration: `20260814065000_public_data_api_default_grants.sql`
 
 Validation after J2 GREEN: **22 pgTAP files / 734 tests / PASS**.
 
-Managed Supabase verification after J2:
+### K — remaining platform/security foundation
 
-- 22 canonical migration-history entries through `20260814065000`;
-- J1 `app` ACL remains fail-closed;
-- forbidden `public` default-ACL entries: zero;
-- `rls_auto_enable()` executable by Data API roles: false;
-- `ensure_rls` enabled: true;
-- Supabase Security Advisor: **0 lints**.
+#### K1 — private KYC Storage
+
+- `DONE` `docs/specs/kyc-private-storage-v0.yaml`.
+- `DONE` Dedicated private `kyc-evidence` bucket with 10 MiB ceiling and no invented compliance MIME allowlist.
+- `DONE` RLS remains enabled on `storage.buckets` and `storage.objects`.
+- `DONE` Eight command-specific `AS RESTRICTIVE` fences cover bucket/object SELECT/INSERT/UPDATE/DELETE for `anon` + `authenticated`.
+- `DONE` Broad permissive SELECT/INSERT/UPDATE probe policies cannot expose or mutate KYC rows, while non-KYC rows remain independently authorizable.
+- `DONE` Managed `storage.protect_delete()` guards are preserved; tests do not disable/bypass managed Storage internals.
+- `DONE` Browser clients receive no direct KYC Storage policy; future upload/download remains a trusted-backend Storage API capability.
+
+Migration: `20260815021111_kyc_private_storage.sql`
+
+Validation after K1 GREEN: **23 pgTAP files / 778 tests / PASS** on GitHub Actions run #98.
+
+Managed Supabase verification after K1:
+
+- 23 canonical migration-history entries through `20260815021111`;
+- `kyc-evidence`: private, 10 MiB, no MIME allowlist yet;
+- 8/8 SwiftPay KYC policies: `RESTRICTIVE`, scoped to `anon` + `authenticated` and explicitly excluding the KYC bucket;
+- `storage.buckets` and `storage.objects` RLS remain enabled;
+- Supabase Security Advisor: **0 security lints**.
 
 ## Remaining platform foundation
 
 Execution order for remaining independent foundation work:
 
-- `PENDING` **K1 — private KYC Storage bucket/policy contract and RED -> GREEN tests**.
+- `DONE` K1 — private KYC Storage bucket/policy contract and RED -> GREEN tests.
 - `PENDING` K2 — append-only audit-event infrastructure.
 - `PENDING` K3 — Supabase Auth dashboard-user integration + merchant membership authorization boundary.
 - `PENDING` K4 — explicit trusted API/worker database role / tenant-context boundary.
@@ -402,7 +418,9 @@ durable reconciliation run/discrepancy lifecycle
         |
 append-only normalized provider evidence envelope
         |
-private app ACL + explicit-opt-in public Data API grants   <- current GREEN boundary
+private app ACL + explicit-opt-in public Data API grants
+        |
+private KYC Storage + restrictive browser fences            <- current GREEN boundary
 ```
 
 Provider runtime scope remains frozen:
@@ -426,21 +444,21 @@ withdrawable
 
 ## Immediate execution order
 
-1. K1 private KYC Storage bucket/policy spec -> RED -> GREEN, verified locally and against canonical Supabase;
-2. K2 append-only audit-event infrastructure;
-3. K3/K4 Auth membership + trusted backend/worker authorization boundary;
-4. K5/K6 seed/deployment foundation;
-5. provider-specific I3b and adapters only when current AkkadPag/FlevoPay conformance evidence exists.
+1. K2 append-only audit-event infrastructure;
+2. K3/K4 Auth membership + trusted backend/worker authorization boundary;
+3. K5/K6 seed/deployment foundation;
+4. provider-specific I3b and adapters only when current AkkadPag/FlevoPay conformance evidence exists;
+5. first executable Pix vertical slice over the proven foundation.
 
 ## Verification
 
 - Work remains on `agent/foundation-phase-0` and draft PR #1.
 - `main` remains untouched.
 - Legacy `SwiftPay-Prod/swiftpay---Prod` has not been mutated.
-- Latest database boundary: **22 pgTAP files / 734 tests / PASS** on GitHub Actions run #89.
+- Latest database boundary: **23 pgTAP files / 778 tests / PASS** on GitHub Actions run #98.
 - Canonical managed Supabase: **`swiftpay v2` / `vsidrgbbyzibqfjkuiqb`**.
-- Remote history: **22 canonical migrations through `20260814065000`**.
-- Remote Security Advisor after J2: **0 security lints**.
+- Remote history: **23 canonical migrations through `20260815021111`**.
+- Remote Security Advisor after K1: **0 security lints**.
 - Remote Performance Advisor currently exposes INFO-only FK-index/unused-index candidates; changes are deferred until a representative workload/query-plan performance slice.
 - I3b provider-vs-SwiftPay comparison remains `EVIDENCE_REQUIRED`; no provider-specific absence/query/report semantics were invented.
 - Refund provider execution remains intentionally disabled; database refund resolution is proven only for approved sandbox/reconciliation evidence until provider conformance exists.
