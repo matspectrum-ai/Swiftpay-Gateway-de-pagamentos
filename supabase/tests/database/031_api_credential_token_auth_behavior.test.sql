@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(41);
+select plan(42);
 
 -- PostgreSQL 17 does not automatically make a CREATEROLE creator SET-capable
 -- for newly created roles. This test-only membership is rolled back with the
