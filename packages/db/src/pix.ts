@@ -58,20 +58,9 @@ export interface PreparedProviderAttemptRecord {
 }
 
 export type PreparePixPaymentRecord =
-  | {
-    readonly kind: 'prepared';
-    readonly payment: PublicPaymentRecord;
-    readonly providerAttempt: PreparedProviderAttemptRecord;
-  }
-  | {
-    readonly kind: 'completed';
-    readonly httpStatus: 201;
-    readonly payment: PublicPaymentRecord;
-  }
-  | {
-    readonly kind: 'executing' | 'execution_unknown';
-    readonly payment: PublicPaymentRecord;
-  }
+  | { readonly kind: 'prepared'; readonly payment: PublicPaymentRecord; readonly providerAttempt: PreparedProviderAttemptRecord }
+  | { readonly kind: 'completed'; readonly httpStatus: 201; readonly payment: PublicPaymentRecord }
+  | { readonly kind: 'executing' | 'execution_unknown'; readonly payment: PublicPaymentRecord }
   | { readonly kind: 'conflict' };
 
 export type ClaimPixAttemptRecord =
@@ -124,51 +113,32 @@ export class RuntimePixStoreError extends Error {
   }
 }
 
-interface PixRoutineRow {
-  result: unknown;
-}
+interface PixRoutineRow { result: unknown }
 
 const PREPARE_PIX_SQL = `
 select app.prepare_api_pix_payment(
-  $1::uuid,
-  $2::text,
-  $3::text,
-  $4::text,
-  $5::jsonb,
-  $6::jsonb,
-  $7::text
+  $1::uuid, $2::text, $3::text, $4::text, $5::jsonb, $6::jsonb, $7::text
 ) as result
 `;
 
 const CLAIM_PIX_SQL = `
-select app.claim_api_pix_attempt(
-  $1::uuid,
-  $2::text,
-  $3::uuid,
-  $4::uuid
-) as result
+select app.claim_api_pix_attempt($1::uuid, $2::text, $3::uuid, $4::uuid) as result
 `;
 
 const RESOLVE_PIX_SQL = `
 select app.resolve_api_pix_attempt(
-  $1::uuid,
-  $2::text,
-  $3::uuid,
-  $4::uuid,
-  $5::uuid,
-  $6::jsonb
+  $1::uuid, $2::text, $3::uuid, $4::uuid, $5::uuid, $6::jsonb
 ) as result
 `;
 
 const GET_PAYMENT_SQL = `
-select app.get_api_payment(
-  $1::uuid,
-  $2::text,
-  $3::uuid
-) as result
+select app.get_api_payment($1::uuid, $2::text, $3::uuid) as result
 `;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Match PostgreSQL's canonical textual UUID shape. The uuid type does not
+// require RFC version/variant bits, so deterministic test and domain UUIDs such
+// as 70000000-0000-0000-0000-000000000001 are valid PostgreSQL UUID values.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -205,12 +175,10 @@ function mapPublicPix(value: unknown): PublicPixRecord | null {
   if (!isRecord(value) || !hasExactlyKeys(value, ['txId', 'qrCode', 'copyAndPaste', 'expiresAt'])) {
     throw new RuntimePixStoreError();
   }
-  if (
-    !isNonemptyString(value.txId)
+  if (!isNonemptyString(value.txId)
     || !isNonemptyString(value.qrCode)
     || !isNonemptyString(value.copyAndPaste)
-    || !isNonemptyString(value.expiresAt)
-  ) {
+    || !isNonemptyString(value.expiresAt)) {
     throw new RuntimePixStoreError();
   }
   return {
@@ -223,29 +191,16 @@ function mapPublicPix(value: unknown): PublicPixRecord | null {
 
 function mapPublicPayment(value: unknown): PublicPaymentRecord {
   if (!isRecord(value) || !hasExactlyKeys(value, [
-    'id',
-    'externalId',
-    'method',
-    'amount',
-    'fee',
-    'netAmount',
-    'currency',
-    'status',
-    'description',
-    'environment',
-    'expiresAt',
-    'createdAt',
-    'pix',
+    'id', 'externalId', 'method', 'amount', 'fee', 'netAmount', 'currency',
+    'status', 'description', 'environment', 'expiresAt', 'createdAt', 'pix',
   ])) {
     throw new RuntimePixStoreError();
   }
 
-  if (
-    !isUuid(value.id)
+  if (!isUuid(value.id)
     || !isNullableString(value.externalId)
     || value.method !== 'pix'
-    || !isSafeNonnegativeInteger(value.amount)
-    || value.amount < 1
+    || !isSafeNonnegativeInteger(value.amount) || value.amount < 1
     || !isSafeNonnegativeInteger(value.fee)
     || !isSafeNonnegativeInteger(value.netAmount)
     || value.currency !== 'BRL'
@@ -253,16 +208,12 @@ function mapPublicPayment(value: unknown): PublicPaymentRecord {
     || !isNullableString(value.description)
     || !isPaymentEnvironment(value.environment)
     || !isNonemptyString(value.expiresAt)
-    || !isNonemptyString(value.createdAt)
-  ) {
+    || !isNonemptyString(value.createdAt)) {
     throw new RuntimePixStoreError();
   }
 
   const pix = mapPublicPix(value.pix);
-  if (value.status === 'pending' && pix === null) {
-    throw new RuntimePixStoreError();
-  }
-  if (value.status !== 'pending' && pix !== null) {
+  if ((value.status === 'pending' && pix === null) || (value.status !== 'pending' && pix !== null)) {
     throw new RuntimePixStoreError();
   }
 
@@ -284,71 +235,45 @@ function mapPublicPayment(value: unknown): PublicPaymentRecord {
 }
 
 function mapPreparedProviderAttempt(value: unknown): PreparedProviderAttemptRecord {
-  if (!isRecord(value) || !hasExactlyKeys(value, ['id', 'amountCents', 'expiresAt'])) {
+  if (!isRecord(value) || !hasExactlyKeys(value, ['id', 'amountCents', 'expiresAt'])
+    || !isUuid(value.id)
+    || !isSafeNonnegativeInteger(value.amountCents) || value.amountCents < 1
+    || !isNonemptyString(value.expiresAt)) {
     throw new RuntimePixStoreError();
   }
-  if (
-    !isUuid(value.id)
-    || !isSafeNonnegativeInteger(value.amountCents)
-    || value.amountCents < 1
-    || !isNonemptyString(value.expiresAt)
-  ) {
-    throw new RuntimePixStoreError();
-  }
-  return {
-    id: value.id,
-    amountCents: value.amountCents,
-    expiresAt: value.expiresAt,
-  };
+  return { id: value.id, amountCents: value.amountCents, expiresAt: value.expiresAt };
 }
 
 function mapPrepareResult(value: unknown): PreparePixPaymentRecord {
-  if (!isRecord(value) || typeof value.kind !== 'string') {
-    throw new RuntimePixStoreError();
-  }
+  if (!isRecord(value) || typeof value.kind !== 'string') throw new RuntimePixStoreError();
 
   if (value.kind === 'conflict') {
     if (!hasExactlyKeys(value, ['kind'])) throw new RuntimePixStoreError();
     return { kind: 'conflict' };
   }
-
   if (value.kind === 'prepared') {
-    if (!hasExactlyKeys(value, ['kind', 'payment', 'providerAttempt'])) {
-      throw new RuntimePixStoreError();
-    }
+    if (!hasExactlyKeys(value, ['kind', 'payment', 'providerAttempt'])) throw new RuntimePixStoreError();
     return {
       kind: 'prepared',
       payment: mapPublicPayment(value.payment),
       providerAttempt: mapPreparedProviderAttempt(value.providerAttempt),
     };
   }
-
   if (value.kind === 'completed') {
     if (!hasExactlyKeys(value, ['kind', 'httpStatus', 'payment']) || value.httpStatus !== 201) {
       throw new RuntimePixStoreError();
     }
-    return {
-      kind: 'completed',
-      httpStatus: 201,
-      payment: mapPublicPayment(value.payment),
-    };
+    return { kind: 'completed', httpStatus: 201, payment: mapPublicPayment(value.payment) };
   }
-
   if (value.kind === 'executing' || value.kind === 'execution_unknown') {
     if (!hasExactlyKeys(value, ['kind', 'payment'])) throw new RuntimePixStoreError();
-    return {
-      kind: value.kind,
-      payment: mapPublicPayment(value.payment),
-    };
+    return { kind: value.kind, payment: mapPublicPayment(value.payment) };
   }
-
   throw new RuntimePixStoreError();
 }
 
 function mapClaimResult(value: unknown): ClaimPixAttemptRecord {
-  if (!isRecord(value) || typeof value.claimed !== 'boolean') {
-    throw new RuntimePixStoreError();
-  }
+  if (!isRecord(value) || typeof value.claimed !== 'boolean') throw new RuntimePixStoreError();
   if (value.claimed) {
     if (!hasExactlyKeys(value, ['claimed', 'executionToken']) || !isUuid(value.executionToken)) {
       throw new RuntimePixStoreError();
@@ -371,56 +296,39 @@ export function createPixPaymentStore(pool: QueryOnlyPool): PixPaymentDatabaseSt
     async preparePixPayment(input) {
       try {
         const result = await pool.query<PixRoutineRow>(PREPARE_PIX_SQL, [
-          input.merchantId,
-          input.environment,
-          input.idempotencyKey,
-          input.requestHash,
-          input.request,
-          input.pricing,
-          input.routingPolicyVersion,
+          input.merchantId, input.environment, input.idempotencyKey, input.requestHash,
+          input.request, input.pricing, input.routingPolicyVersion,
         ]);
         return mapPrepareResult(oneRoutineValue(result));
       } catch {
         throw new RuntimePixStoreError();
       }
     },
-
     async claimPixAttempt(input) {
       try {
         const result = await pool.query<PixRoutineRow>(CLAIM_PIX_SQL, [
-          input.merchantId,
-          input.environment,
-          input.paymentId,
-          input.providerAttemptId,
+          input.merchantId, input.environment, input.paymentId, input.providerAttemptId,
         ]);
         return mapClaimResult(oneRoutineValue(result));
       } catch {
         throw new RuntimePixStoreError();
       }
     },
-
     async resolvePixAttempt(input) {
       try {
         const result = await pool.query<PixRoutineRow>(RESOLVE_PIX_SQL, [
-          input.merchantId,
-          input.environment,
-          input.paymentId,
-          input.providerAttemptId,
-          input.executionToken,
-          input.resolution,
+          input.merchantId, input.environment, input.paymentId, input.providerAttemptId,
+          input.executionToken, input.resolution,
         ]);
         return mapPublicPayment(oneRoutineValue(result));
       } catch {
         throw new RuntimePixStoreError();
       }
     },
-
     async getPayment(input) {
       try {
         const result = await pool.query<PixRoutineRow>(GET_PAYMENT_SQL, [
-          input.merchantId,
-          input.environment,
-          input.paymentId,
+          input.merchantId, input.environment, input.paymentId,
         ]);
         const value = oneRoutineValue(result);
         return value === null ? null : mapPublicPayment(value);
