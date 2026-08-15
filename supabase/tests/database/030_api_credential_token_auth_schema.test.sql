@@ -96,18 +96,18 @@ select ok(
 );
 
 select is(
-  coalesce((select proconfig::text from pg_proc where oid = to_regprocedure('app.lookup_api_credential_for_token(text)')), ''),
-  '{search_path=""}'::text,
+  coalesce((select array_to_string(proconfig, ',') from pg_proc where oid = to_regprocedure('app.lookup_api_credential_for_token(text)')), ''),
+  'search_path=""'::text,
   'A1 credential lookup fixes an empty search_path'
 );
 select is(
-  coalesce((select proconfig::text from pg_proc where oid = to_regprocedure('app.consume_api_token_issuance(uuid)')), ''),
-  '{search_path=""}'::text,
+  coalesce((select array_to_string(proconfig, ',') from pg_proc where oid = to_regprocedure('app.consume_api_token_issuance(uuid)')), ''),
+  'search_path=""'::text,
   'A1 issuance quota fixes an empty search_path'
 );
 select is(
-  coalesce((select proconfig::text from pg_proc where oid = to_regprocedure('app.get_api_credential_auth_state(uuid)')), ''),
-  '{search_path=""}'::text,
+  coalesce((select array_to_string(proconfig, ',') from pg_proc where oid = to_regprocedure('app.get_api_credential_auth_state(uuid)')), ''),
+  'search_path=""'::text,
   'A1 bearer state lookup fixes an empty search_path'
 );
 

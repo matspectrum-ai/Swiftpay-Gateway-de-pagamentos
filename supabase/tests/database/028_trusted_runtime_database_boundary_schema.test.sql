@@ -235,8 +235,8 @@ select is(
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ),
-    1::bigint,
-    'swiftpay_api has exactly one current app EXECUTE grant'
+    4::bigint,
+    'swiftpay_api has exactly four current app EXECUTE grants'
 );
 select ok(
     exists (
@@ -249,7 +249,7 @@ select ok(
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ),
-    'swiftpay_api can execute only the K4 dashboard context helper'
+    'swiftpay_api retains K4 dashboard context helper execution'
 );
 select ok(
     not exists (
