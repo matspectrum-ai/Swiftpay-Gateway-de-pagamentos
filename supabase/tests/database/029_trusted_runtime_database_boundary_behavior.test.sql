@@ -5,6 +5,11 @@ set local search_path = public, extensions;
 
 select plan(35);
 
+-- Test harness only: PostgreSQL 17 gives a non-superuser CREATEROLE creator
+-- ADMIN but SET FALSE on newly created roles. Granting membership here enables
+-- real SET ROLE probes; the enclosing transaction rolls this membership back.
+grant swiftpay_api, swiftpay_worker to postgres with inherit false;
+
 -- Canonical fixtures for the trusted API context boundary.
 insert into app.merchants (id, name, lifecycle_status) values
     ('30000000-0000-0000-0000-000000000001'::uuid, 'K4 Active Merchant', 'active'),
