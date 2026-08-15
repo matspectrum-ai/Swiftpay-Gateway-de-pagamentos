@@ -309,7 +309,7 @@ select ok(
 );
 select is((select count(*) from app.webhook_deliveries), 1::bigint,
   'A3 payment.paid event fans out one pending delivery to subscribed endpoint');
-select is((select count(*) from app.jobs where type='merchant_webhook_delivery'), 1::bigint,
+select is((select count(*) from app.jobs where kind='merchant_webhook_delivery'), 1::bigint,
   'A3 payment.paid fanout durably enqueues one merchant webhook delivery job');
 
 call pg_temp.a3_capture_balance(
