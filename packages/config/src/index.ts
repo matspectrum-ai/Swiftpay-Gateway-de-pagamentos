@@ -1,5 +1,8 @@
 export type SwiftpayEnvironment = 'sandbox' | 'production';
 
+export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
+export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
+
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
