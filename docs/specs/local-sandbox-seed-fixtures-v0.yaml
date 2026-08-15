@@ -1,0 +1,201 @@
+feature: local_sandbox_seed_fixtures_v0
+status: frozen_for_tdd
+phase: 2
+slice: K5
+
+problem:
+  statement: >-
+    The canonical database foundation is deterministic, but developers and the upcoming API/worker
+    vertical slice have no reusable local merchant/KYC identity fixture. Global automatic seeding
+    would contaminate the existing database-contract suite, while ad-hoc manual inserts would make
+    application tests non-reproducible. K5 must provide an explicit, local-only, repeatable sandbox
+    fixture without inventing API-secret/provider-credential contracts or touching managed Supabase.
+  risks:
+    - local fixtures accidentally applied to the canonical managed project
+    - automatic global seed data invalidating empty-baseline pgTAP assumptions
+    - synthetic production financial rows being mistaken for real state
+    - fake provider/API credentials becoming de facto undocumented runtime contracts
+    - random UUIDs making acceptance tests order-dependent or unreproducible
+    - fixture loading creating Payment/ledger/job/webhook side effects
+    - seed SQL containing DDL and diverging schema from migrations
+
+objectives:
+  - provide one minimal deterministic sandbox merchant fixture for local development and acceptance tests
+  - keep the default database-contract environment pristine and seed-free
+  - make fixture application explicit and local-only
+  - use fixed stable UUIDs and idempotent DML so repeated application converges
+  - provide one canonical Auth identity anchor, active owner membership and approved KYC state
+  - optionally seed only provider catalog identities whose codes are already frozen, without provider accounts or credentials
+  - verify fixture shape and absence of financial/async side effects in a dedicated CI lane
+
+non_goals:
+  - production or managed-Supabase seeding
+  - a sign-in password or end-user Auth session fixture
+  - API credential secret/verifier generation
+  - provider account credentials/ciphertext
+  - provider simulator transition behavior
+  - Payment, payout, refund, ledger, webhook or job examples
+  - KYC document bytes or Storage objects
+  - application/runtime implementation
+  - production deployment topology
+
+sources_of_truth:
+  schema: repository migrations under supabase/migrations
+  sandbox_semantics: docs/contracts/sandbox.md
+  merchant_identity: auth.users.id plus app.merchant_members
+  kyc_state: app.kyc_cases
+  provider_scope:
+    pix_in: [akkadpag, flevopay]
+    pix_out: [akkadpag]
+  local_database: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+fixture_ids:
+  auth_user_id: 51000000-0000-0000-0000-000000000001
+  merchant_id: 50000000-0000-0000-0000-000000000001
+  kyc_case_id: 52000000-0000-0000-0000-000000000001
+  akkadpag_provider_id: 53000000-0000-0000-0000-000000000001
+  flevopay_provider_id: 53000000-0000-0000-0000-000000000002
+
+requirements:
+  - id: K5-R1
+    statement: >-
+      Default supabase/config.toml database seeding remains disabled so the canonical pgTAP database
+      contract job continues to start from migrations plus no fixture data.
+  - id: K5-R2
+    statement: >-
+      The canonical K5 fixture is pure DML. It creates no schema, functions, roles, policies,
+      extensions or other DDL; migrations remain the sole schema source of truth.
+  - id: K5-R3
+    statement: >-
+      Fixture application is explicit through a repository script that targets only the fixed local
+      Supabase database URL on 127.0.0.1:54322 and has no linked/remote project mode or project ref.
+  - id: K5-R4
+    statement: >-
+      The fixture creates exactly one synthetic Auth identity anchor with the frozen UUID and a
+      clearly non-production example.test email. It need not be password-login capable.
+  - id: K5-R5
+    statement: >-
+      The fixture creates the frozen merchant UUID as lifecycle_status active and binds the synthetic
+      Auth user as active owner through app.merchant_members.
+  - id: K5-R6
+    statement: >-
+      The fixture creates exactly one approved KYC case for the merchant with a synthetic versioned
+      requirement profile. No KYC document rows or Storage objects are inserted.
+  - id: K5-R7
+    statement: >-
+      The fixture may create/update only the frozen provider catalog rows `akkadpag` and `flevopay`.
+      It creates no app.provider_accounts rows and stores no provider credential/configuration secret.
+  - id: K5-R8
+    statement: >-
+      The fixture creates no API credential rows because the Phase 3 issuance/verifier contract is not
+      yet implemented. Future API tests must obtain credentials through the real issuance boundary.
+  - id: K5-R9
+    statement: >-
+      The fixture creates no Payment, request idempotency, provider attempt/event, account/ledger,
+      payout/refund, job, merchant webhook, reconciliation evidence/run/discrepancy or audit rows.
+  - id: K5-R10
+    statement: >-
+      Applying the fixture repeatedly is idempotent: the frozen identities remain singletons and the
+      expected canonical fixture state is restored without duplicate rows.
+  - id: K5-R11
+    statement: >-
+      Fixture data contains no production environment financial resource and no value that resembles
+      a real public/secret API key, provider token, withdrawal key, webhook secret or personal document.
+  - id: K5-R12
+    statement: >-
+      CI verifies K5 in a dedicated fixture lane after the standard empty-baseline pgTAP suite. The
+      fixture lane loads the explicit local fixture and runs only fixture-specific pgTAP contracts.
+
+contracts:
+  fixture:
+    environment: sandbox_only
+    user:
+      id: 51000000-0000-0000-0000-000000000001
+      email: local-sandbox-owner@example.test
+      anonymous: false
+      deleted: false
+    merchant:
+      id: 50000000-0000-0000-0000-000000000001
+      name: SwiftPay Local Sandbox Merchant
+      lifecycle_status: active
+    membership:
+      role: owner
+      status: active
+    kyc_case:
+      id: 52000000-0000-0000-0000-000000000001
+      status: approved
+      requirement_profile_version: local-sandbox-v1
+    providers:
+      - id: 53000000-0000-0000-0000-000000000001
+        code: akkadpag
+        name: AkkadPag
+        status: active
+      - id: 53000000-0000-0000-0000-000000000002
+        code: flevopay
+        name: FlevoPay
+        status: active
+  forbidden_seed_tables:
+    - app.api_credentials
+    - app.provider_accounts
+    - app.request_idempotency
+    - app.payments
+    - app.provider_attempts
+    - app.provider_events
+    - app.accounts
+    - app.ledger_transactions
+    - app.ledger_entries
+    - app.jobs
+    - app.webhook_endpoints
+    - app.webhook_events
+    - app.webhook_deliveries
+    - app.payout_accounts
+    - app.payouts
+    - app.payout_attempts
+    - app.refunds
+    - app.refund_attempts
+    - app.provider_reconciliation_evidence
+    - app.reconciliation_runs
+    - app.reconciliation_discrepancies
+    - app.audit_events
+
+acceptance_criteria:
+  - default config keeps db.seed.enabled false
+  - local seed script contains an explicit loopback-only target and no managed project ref
+  - fixture loads successfully after all current migrations
+  - frozen Auth user exists exactly once and is non-anonymous/non-deleted
+  - frozen merchant exists exactly once and is active
+  - frozen merchant membership exists exactly once as active owner
+  - frozen KYC case exists exactly once and is approved
+  - AkkadPag and FlevoPay provider catalog identities exist exactly once with frozen codes
+  - no API credential or provider account is seeded
+  - no KYC document or Storage object is seeded
+  - no financial/Payment/ledger/job/webhook/reconciliation/audit rows are introduced
+  - a second fixture application preserves singleton counts and canonical values
+  - standard database-contract pgTAP lane remains GREEN without fixture data
+  - dedicated fixture pgTAP lane is GREEN after explicit fixture load
+
+edge_cases:
+  - fixture is applied twice without a database reset
+  - an existing frozen fixture row has a non-canonical mutable display/status value and is restored
+  - provider catalog row already exists by frozen UUID/code
+  - database is not running locally; loader fails rather than falling back to a linked project
+  - developer has a linked Supabase project configured; loader still targets loopback only
+  - future API credential verifier format changes; K5 remains unaffected because it seeds no credential
+  - future provider-account credential format changes; K5 remains unaffected because it seeds no provider account
+
+security_notes:
+  - K5 is local development data only and must never be deployed as a managed migration
+  - example.test identity and fixed UUIDs make synthetic data visually recognizable
+  - no real secrets, PII or document material are versioned
+  - approved KYC is deliberate test state, not evidence of real compliance
+  - provider catalog rows describe retained provider identity only; they are not executable provider configuration
+
+test_strategy:
+  red:
+    - dedicated fixture CI lane initially fails because the local loader/fixture contract is absent
+  green:
+    - explicit loader applies pure-DML fixture to loopback local Postgres
+    - fixture pgTAP verifies exact stable identities and canonical values
+    - fixture pgTAP verifies forbidden tables remain empty
+    - fixture is applied a second time and singleton/idempotency assertions still pass
+    - existing 29-file empty-baseline pgTAP suite remains unchanged and GREEN
