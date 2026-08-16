@@ -2,6 +2,7 @@ export type SwiftpayEnvironment = 'sandbox' | 'production';
 
 export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
 export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
+export const WEBHOOK_SECRET_ENCRYPTION_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY';
 
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
@@ -14,6 +15,7 @@ export interface ApiConfig {
 export interface WorkerConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
+  readonly webhookSecretEncryptionKey: string;
 }
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
@@ -78,6 +80,24 @@ function accessTokenSigningKey(source: EnvironmentSource): string {
   return value;
 }
 
+function webhookSecretEncryptionKey(source: EnvironmentSource): string {
+  const value = required(source, WEBHOOK_SECRET_ENCRYPTION_KEY_ENV);
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.includes('=')) {
+    throw new ConfigurationError(`${WEBHOOK_SECRET_ENCRYPTION_KEY_ENV} must be a valid 32-byte base64url-no-padding key`);
+  }
+
+  try {
+    const decoded = Buffer.from(value, 'base64url');
+    if (decoded.length !== 32 || decoded.toString('base64url') !== value) {
+      throw new Error('invalid webhook encryption key');
+    }
+  } catch {
+    throw new ConfigurationError(`${WEBHOOK_SECRET_ENCRYPTION_KEY_ENV} must be a valid 32-byte base64url-no-padding key`);
+  }
+
+  return value;
+}
+
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
   return {
     environment: environment(source),
@@ -89,8 +109,13 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
 }
 
 export function loadWorkerConfig(source: EnvironmentSource = process.env): WorkerConfig {
+  const resolvedEnvironment = environment(source);
+  const databaseUrl = postgresUrl(source, 'SWIFTPAY_WORKER_DATABASE_URL');
+  const encryptionKey = webhookSecretEncryptionKey(source);
+
   return {
-    environment: environment(source),
-    databaseUrl: postgresUrl(source, 'SWIFTPAY_WORKER_DATABASE_URL'),
+    environment: resolvedEnvironment,
+    databaseUrl,
+    webhookSecretEncryptionKey: encryptionKey,
   };
 }
