@@ -7,6 +7,18 @@ const db = await import('../../packages/db/dist/index.js');
 const USER_ID = '10000000-0000-0000-0000-0000000000a7';
 const MERCHANT_ID = '20000000-0000-0000-0000-0000000000a7';
 const ENDPOINT_ID = '30000000-0000-0000-0000-0000000000a7';
+const ENDPOINT = {
+  id: ENDPOINT_ID,
+  merchantId: MERCHANT_ID,
+  environment: 'sandbox',
+  url: 'https://merchant.example/webhooks',
+  status: 'active',
+  subscribedEvents: ['payment.paid'],
+  secretVersion: 1,
+  revision: 1,
+  createdAt: '2026-08-16T06:00:00.000Z',
+  updatedAt: '2026-08-16T06:00:00.000Z',
+};
 
 function buildStore(pool) {
   if (typeof db.createDashboardWebhookEndpointStore !== 'function') {
@@ -46,7 +58,7 @@ test('A7 endpoint store read methods use only exact merchant-scoped trusted rout
 });
 
 test('A7 endpoint store write methods call only the five frozen mutation routines', async () => {
-  const pool = recordingPool([{ result: { kind: 'ok' } }]);
+  const pool = recordingPool([{ result: { kind: 'ok', replayed: false, endpoint: ENDPOINT } }]);
   const store = buildStore(pool);
   const common = {
     userId: USER_ID,
