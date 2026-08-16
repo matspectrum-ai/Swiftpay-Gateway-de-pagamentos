@@ -551,7 +551,6 @@ export function createDashboardWebhookEndpointManagementService(input: {
       try { current = await input.store.get({ userId:auth.userId, merchantId:auth.merchantId, environment:auth.environment, endpointId }); }
       catch { return { kind:'internal_error' }; }
       if (current === null) return { kind:'resource_not_found' };
-      if (current.revision !== expectedRevision) return { kind:'resource_conflict' };
       if (!Number.isSafeInteger(current.secretVersion) || current.secretVersion < 1 || current.secretVersion >= 2_147_483_647) return { kind:'resource_conflict' };
       const newSecretVersion = current.secretVersion + 1;
       const hash = requestHash({ operation:'dashboard_webhook_endpoint_rotate_secret_v0', merchantId:auth.merchantId, environment:auth.environment, endpointId, expectedRevision });
