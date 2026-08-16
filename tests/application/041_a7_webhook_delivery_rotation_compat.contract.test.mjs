@@ -119,8 +119,8 @@ test('A7 worker decrypts RSA-OAEP-SHA256 historical/current secret rows and emit
   assert.equal(outcome.requests[0].headers['x-swiftpay-signature-version'], '2');
 });
 
-test('A7 delivery database claim must read endpoint_url_snapshot rather than mutable endpoint url', async () => {
-  const source = await readFile('supabase/migrations/20260816034224_merchant_webhook_delivery_runtime_behavior.sql', 'utf8');
+test('A7 effective delivery database claim reads endpoint_url_snapshot rather than mutable endpoint url', async () => {
+  const source = await readFile('supabase/migrations/20260816063200_webhook_endpoint_management_behavior_fix.sql', 'utf8');
   assert.match(source, /endpoint_url_snapshot/);
   assert.doesNotMatch(source, /ep\.url\s+as\s+endpoint_url/i);
 });
