@@ -8,10 +8,11 @@ This is the executive checkpoint for one question: **how close is SwiftPay V2 to
 
 ## Executive status
 
-SwiftPay V2 now proves two distinct layers:
+SwiftPay V2 now proves three distinct layers:
 
-1. a complete deterministic sandbox Pix lifecycle from machine authentication through merchant webhook delivery; and
-2. a network-free, executable provider-conformance boundary for the retained AkkadPag and FlevoPay integrations.
+1. a complete deterministic sandbox Pix lifecycle from machine authentication through merchant webhook delivery;
+2. a network-free, executable provider-conformance boundary for the retained AkkadPag and FlevoPay integrations; and
+3. a reusable dashboard user-session authentication/merchant-authorization boundary for future administrative surfaces.
 
 The deterministic lifecycle currently proves:
 
@@ -27,15 +28,17 @@ The deterministic lifecycle currently proves:
 
 A5 additionally proves that provider-specific request mapping, capability rejection, status normalization and monetary uncertainty can live behind a narrow adapter boundary **without any live PSP network transport**.
 
+A6 additionally proves that a future dashboard request can use a server-confirmed Supabase Auth user identity and current K3/K4 merchant membership/role truth without granting machine API tokens administrative authority or introducing `service_role`/Supabase secret/JWT-secret access into the API.
+
 Current conservative estimate:
 
 - **Core architecture/domain/database/platform foundation:** ~99% complete.
-- **First end-to-end Pix MVP usable in sandbox:** ~88% complete.
-- **Production-capable Pix V1:** ~54% complete.
-- **Weighted V1 engineering completion:** ~67% complete.
-- **Broader SwiftPay product vision** including hosted checkout, payment links, richer merchant/admin surfaces, broader payout automation and integrations: ~33–38% complete.
+- **First end-to-end Pix MVP usable in sandbox:** ~90% complete.
+- **Production-capable Pix V1:** ~55% complete.
+- **Weighted V1 engineering completion:** ~68% complete.
+- **Broader SwiftPay product vision** including hosted checkout, payment links, richer merchant/admin surfaces, broader payout automation and integrations: ~34–39% complete.
 
-The sandbox percentage does not increase with A5 because merchants still lack first-class webhook endpoint management and broader operational surfaces. Production readiness increases because provider ambiguity/capability semantics are now executable and tested, but remains materially discounted because current PSP lineage, endpoints, idempotency/recovery and webhook-auth contracts are not yet proven.
+A6 improves the sandbox/product foundation because merchant-administration surfaces now have a safe identity/authorization boundary. It does not complete those surfaces: webhook endpoint management, API credential administration, transaction operations and broader KYC/admin UX are still absent. Production readiness remains materially discounted because current PSP lineage, endpoints, idempotency/recovery and webhook-auth contracts are not yet proven.
 
 ## Materially complete
 
@@ -55,7 +58,7 @@ Current canonical database lane:
 - K5 deterministic sandbox fixture lane: PASS;
 - K6 runtime-topology / least-privilege lane: PASS.
 
-A5 required no schema change or hosted Supabase mutation.
+A5 and A6 required no schema change or hosted Supabase mutation.
 
 ### K1–K7 — trusted executable platform — DONE
 
@@ -152,6 +155,42 @@ For FlevoPay, retained source proves the historical `app.flevopay.com.br/api/v1`
 
 The next provider step is therefore an **external current-contract evidence gate**, not more speculative adapter code.
 
+### A6 — dashboard session authentication — DONE
+
+Problem Analysis: `docs/design/a6-dashboard-session-authentication-problem-analysis.md`.
+
+Spec: `docs/specs/dashboard-session-authentication-v0.yaml`.
+
+Evidence: `docs/evidence/application/2026-08-16-a6-dashboard-session-authentication.md`.
+
+A6 closes the reusable trusted identity/authorization boundary for future merchant-administration routes while deliberately adding no business endpoint of its own.
+
+Accepted behavior includes:
+
+- strict Supabase user-session Bearer parsing;
+- one server-side Auth verification request to `/auth/v1/user`;
+- 5-second timeout, redirects disabled and no transparent retry;
+- only a verified UUID `userId` becomes identity authority;
+- JWT user/app metadata never grants merchant/environment/role authority;
+- 401/403 -> invalid session, while upstream/network/timeout/malformed success -> authentication unavailable;
+- `SWIFTPAY_SUPABASE_URL` must be an HTTPS origin;
+- `SWIFTPAY_SUPABASE_PUBLISHABLE_KEY` must be a modern `sb_publishable_...` key;
+- no `service_role`, `sb_secret_...` or Supabase JWT secret enters the API boundary;
+- K4 `app.require_dashboard_merchant_context(...)` remains the sole merchant/environment/role authority;
+- current membership/role disablement takes effect on the next authorization check;
+- dashboard tokens never fall back to the A1 machine-token verifier;
+- A1 machine tokens never become dashboard administrative identity;
+- no audit, payment, ledger, job or webhook side effects from authorization checks.
+
+Clean TDD evidence:
+
+- RED head `948f5369802dfe682e8c8c0aaeeb8cfa908f3ece`: typecheck/build PASS, 152 existing tests PASS + exactly 34 expected A6 behavior failures, no parser/module/harness error;
+- final GREEN head `4ac4e0b53776e55361f90d5589e5f72bcbdce49c`;
+- Application workflow `31928641553`: GREEN, **186/186 application contracts** plus K7/A1/A2/A3/A4/A6 real-database acceptance;
+- Database workflow `31928641539`: GREEN, pgTAP + K5 + K6.
+
+A6 adds no migration and required no hosted Supabase schema mutation.
+
 ## Weighted V1 workstream estimate
 
 | Workstream | Weight | Estimated completion | Weighted contribution |
@@ -159,16 +198,16 @@ The next provider step is therefore an **external current-contract evidence gate
 | Product contracts / architecture / reverse engineering | 10% | 98% | 9.8% |
 | Database + financial core | 20% | 99% | 19.8% |
 | Supabase security/platform foundation | 10% | 99% | 9.9% |
-| Trusted backend + public API runtime | 15% | 82% | 12.3% |
+| Trusted backend + public/dashboard API runtime | 15% | 87% | 13.1% |
 | Pix provider integrations + recovery | 15% | 50% | 7.5% |
 | Worker + merchant webhook HTTP runtime | 10% | 78% | 7.8% |
 | Merchant/admin UI | 10% | 5% | 0.5% |
 | Hosted checkout / payment links / conversion | 5% | 0% | 0.0% |
 | Wallet/payout operational application layer | 3% | 20% | 0.6% |
 | Deployment / observability / cutover | 2% | 15% | 0.3% |
-| **Total** | **100%** |  | **~68.5% raw weighted / ~67% conservative checkpoint** |
+| **Total** | **100%** |  | **~69.3% raw weighted / ~68% conservative checkpoint** |
 
-The conservative checkpoint discounts the raw weighted sum for unresolved external-provider contract evidence. Fixture conformance is necessary, but it is not a substitute for current authenticated PSP evidence and live recovery acceptance.
+The conservative checkpoint discounts the raw weighted sum for unresolved external-provider contract evidence and missing merchant/admin business surfaces. A reusable authorization boundary is necessary, but it is not equivalent to having the dashboard/product workflows themselves.
 
 ## Critical path
 
@@ -188,7 +227,8 @@ K1-K7 trusted foundation                         DONE
 A separate internal product-usability path is not blocked by PSP evidence:
 
 ```text
-A4 merchant delivery runtime                     DONE
+K3/K4 dashboard membership/database boundary     DONE
+  -> A6 dashboard session authentication         DONE
   -> merchant webhook endpoint management API    NEXT UNBLOCKED CANDIDATE
   -> merchant transaction / credential surfaces
   -> broader admin/KYC operations
@@ -196,7 +236,7 @@ A4 merchant delivery runtime                     DONE
 
 ## What still blocks a complete sandbox product
 
-The core deterministic money + webhook lifecycle is correct, but merchant usability still needs:
+The core deterministic money + webhook lifecycle is correct and dashboard identity is now executable, but merchant usability still needs:
 
 - webhook endpoint create/update/disable/secret-rotation/test/replay controls;
 - merchant transaction operational UI/API surfaces;
@@ -220,4 +260,4 @@ Production readiness requires:
 
 ## Current truth in one sentence
 
-**SwiftPay V2 has a complete deterministic sandbox Pix lifecycle through exactly-once accounting and signed/retried merchant webhooks, plus a GREEN network-free AkkadPag/FlevoPay conformance boundary; weighted V1 engineering is conservatively ~67%, sandbox MVP ~88%, and production-capable Pix V1 ~54%, with current PSP contract evidence now the primary external blocker.**
+**SwiftPay V2 has a complete deterministic sandbox Pix lifecycle through exactly-once accounting and signed/retried merchant webhooks, a GREEN network-free AkkadPag/FlevoPay conformance boundary, and a GREEN Supabase-user-to-K4 dashboard authorization boundary; weighted V1 engineering is conservatively ~68%, sandbox MVP ~90%, and production-capable Pix V1 ~55%, with current PSP contract evidence the primary external blocker and merchant/admin business surfaces the primary internal usability gap.**
