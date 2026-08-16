@@ -111,7 +111,11 @@ export function createWebhookDeliveryService(input: {
 
         let secret: string;
         try {
-          secret = secretForClaim({ claim, encryptionKey, privateKeyring: input.privateKeyring });
+          secret = secretForClaim({
+            claim,
+            encryptionKey,
+            ...(input.privateKeyring === undefined ? {} : { privateKeyring: input.privateKeyring }),
+          });
         } catch (error) {
           const code = error instanceof Error && 'code' in error && error.code === 'signing_secret_unavailable'
             ? 'signing_secret_unavailable'
