@@ -8,7 +8,7 @@ This is the executive checkpoint for one question: **how close is SwiftPay V2 to
 
 ## Executive status
 
-SwiftPay V2 now has an executable trusted API/worker runtime, accepted machine-to-machine authentication, and its first real authenticated Pix business path.
+SwiftPay V2 now has an executable trusted API/worker runtime and a complete deterministic sandbox money-state path through authenticated Pix creation, canonical paid transition, exactly-once ledger posting and merchant balance read.
 
 A merchant machine client can:
 
@@ -16,171 +16,134 @@ A merchant machine client can:
 2. create a sandbox Pix Payment through `POST /v1/transactions`;
 3. rely on database-backed idempotency across independent API processes;
 4. receive deterministic emulator Pix data;
-5. query the same Payment through `GET /v1/transactions/:id`.
+5. query the Payment through `GET /v1/transactions/:id`;
+6. have trusted worker-side paid evidence transition the Payment to `paid` exactly once;
+7. rely on an exactly-once balanced `settlement_paid` ledger posting;
+8. query merchant funds through authenticated `GET /v1/balance`.
 
-The platform is **not yet a complete Pix gateway** because no canonical provider/emulator paid transition currently posts ledger effects or merchant balance, merchant webhook delivery is not connected, and live PSP adapters remain gated behind conformance work.
+A3 also writes the durable canonical `payment.paid` merchant-webhook outbox event transactionally with the money-state transition. What is still missing from the sandbox lifecycle is the HTTP delivery runtime that signs, retries and terminally records merchant webhook delivery.
 
 Current estimate:
 
 - **Core architecture/domain/database/platform foundation:** ~98% complete.
-- **First end-to-end Pix MVP usable in sandbox:** ~68% complete.
-- **Production-capable Pix V1:** ~42% complete.
-- **Weighted V1 engineering completion:** ~56% complete.
-- **Broader SwiftPay product vision** including hosted checkout, payment links, richer merchant/admin surfaces, broader payout automation and integrations: ~26–31% complete.
+- **First end-to-end Pix MVP usable in sandbox:** ~82% complete.
+- **Production-capable Pix V1:** ~45% complete.
+- **Weighted V1 engineering completion:** ~59% complete.
+- **Broader SwiftPay product vision** including hosted checkout, payment links, richer merchant/admin surfaces, broader payout automation and integrations: ~29–34% complete.
 
-The practical reading is: the architectural/security/database risk has largely been retired, authentication and Pix creation are now real, and the critical risk has moved to **money-state transition, exactly-once ledger posting, asynchronous delivery and live-provider behavior**.
+The critical risk has moved from canonical financial correctness to **asynchronous merchant delivery, live-provider conformance/recovery, operational product surfaces and production hardening**.
 
-## What is already materially complete
+## Materially complete
 
-### Product and architecture contracts
+### Product / architecture / reconstruction contracts
 
-The repository is the canonical implementation source and carries PRD, architecture, ADRs, domain contracts, public API/provider/ledger/webhook contracts, specs, migrations, tests and evidence.
+The repository remains the canonical implementation source and carries PRD, architecture, ADRs, domain/public/provider/ledger/webhook contracts, specs, migrations, tests and evidence.
 
-The target remains a Pix-first modular monolith with:
+Target architecture remains:
 
+- Pix-first TypeScript modular monolith;
 - Fastify trusted API;
-- separate worker runtime;
-- Supabase/PostgreSQL canonical source of truth;
+- separate trusted worker;
+- Supabase/PostgreSQL canonical state;
 - provider-agnostic Payment Core;
-- append-only financial/audit boundaries;
-- durable jobs and merchant webhook persistence;
-- AkkadPag and FlevoPay retained as initial live PSP adapters, but blocked behind emulator/conformance gates.
+- append-oriented financial/audit semantics;
+- durable jobs and merchant webhook outbox/delivery persistence;
+- AkkadPag and FlevoPay retained as initial live PSP targets behind conformance gates.
 
-### Database and financial foundation
+### Database / financial foundation
 
-Strongly tested foundations exist for:
+Strongly tested foundations exist for merchant/KYC/provider identity, machine API credentials, idempotency/provider evidence, Payment/ProviderAttempt, double-entry ledger, durable jobs, merchant webhook persistence, payout/refund foundations, financial reservations, reconciliation, private KYC storage, append-only audit events, dashboard authorization and trusted runtime roles.
 
-- merchants, KYC/compliance and provider catalog;
-- machine API credentials;
-- payment idempotency and provider evidence;
-- canonical Payment/ProviderAttempt state;
-- ledger transactions/entries;
-- durable jobs;
-- merchant webhook persistence;
-- payout/refund state and execution foundations;
-- financial reservations;
-- reconciliation operations/evidence;
-- private KYC storage;
-- append-only audit events;
-- dashboard membership authorization;
-- trusted runtime database capability roles.
+Final A3 database acceptance workflow `31885388900` is GREEN:
 
-Final A2 database acceptance workflow `31877334073` is GREEN:
-
-- canonical pgTAP lane: **33 files / 1140 tests / PASS**;
+- **35 files / 1209 pgTAP tests / PASS**;
 - K5 deterministic sandbox fixture lane: PASS;
-- K6 runtime-topology lane: PASS.
+- K6 runtime-topology / least-privilege lane: PASS.
 
-### K5 — deterministic local sandbox fixtures
+### K5 / K6 / K7 — trusted executable platform
 
-K5 is DONE.
+K5, K6 and K7 are DONE.
 
-The canonical seed creates deterministic non-financial identity/KYC/provider-catalog data and deliberately avoids pre-seeding API credentials, payments, ledger transactions, jobs and merchant webhook events. A1/A2 runtime fixtures remain separate; the A2 emulator provider account is not hosted production-like business data.
+The canonical seed remains non-financial. API and worker use separate capability identities. Node.js 24/Fastify API and worker runtimes execute against real production-like database roles in acceptance.
 
-Evidence: `docs/evidence/supabase/2026-08-15-k5-local-sandbox-seed-fixtures.md`.
+Evidence:
 
-### K6 — trusted runtime deployment topology
+- `docs/evidence/supabase/2026-08-15-k5-local-sandbox-seed-fixtures.md`
+- `docs/evidence/supabase/2026-08-15-k6-trusted-runtime-deployment-topology.md`
+- `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.md`
 
-K6 is DONE.
+### A1 — API credential token authentication — DONE
 
-API and worker use separate PostgreSQL runtime identities/capabilities. Browser/Data API/service-role paths do not become trusted financial authority, and API/worker capabilities remain segregated.
-
-Evidence: `docs/evidence/supabase/2026-08-15-k6-trusted-runtime-deployment-topology.md`.
-
-### K7 — executable runtime bootstrap
-
-K7 is DONE.
-
-SwiftPay has:
-
-- Node.js 24 LTS workspace;
-- pinned/frozen pnpm dependencies;
-- executable Fastify API;
-- separate executable worker;
-- liveness/readiness behavior;
-- strict independent API/worker database configuration;
-- real K6 identity acceptance against isolated PostgreSQL.
-
-Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.md`.
-
-### A1 — API credential token authentication
-
-A1 is DONE.
-
-Accepted boundary:
-
-- `POST /v1/auth/token`;
-- exact `client_credentials` grant;
-- `scrypt-v1` Secret Key verification;
-- HS256 access JWTs with 900-second TTL;
-- exact-IP allowlists;
-- PostgreSQL-atomic 10-successful-token/3600-second issuance quota;
-- current DB revalidation of credential/merchant/environment/secret-version state;
-- immediate old-token invalidation after revocation/version rotation;
-- existence-indistinguishable invalid credential failures;
-- no payment/ledger/job/webhook side effects.
+Accepted boundary includes `POST /v1/auth/token`, canonical `scrypt-v1` verification, 900-second HS256 tokens, exact-IP allowlists, PostgreSQL-atomic issuance quota, current DB Bearer revalidation and immediate invalidation after credential revoke/version rotation.
 
 Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authentication.md`.
 
-### A2 — authenticated Pix create/get + deterministic emulator
+### A2 — authenticated Pix create/get + deterministic emulator — DONE
 
-A2 is DONE.
+Accepted behavior includes authenticated create/get, strict ownership and request validation, required idempotency, durable Payment/ProviderAttempt before execution, atomic attempt claim, deterministic visibly non-payable emulator output and safe replay/conflict/unknown/rejection semantics.
 
-Accepted public/runtime behavior:
+Canonical hosted A2 migrations:
 
-- authenticated `POST /v1/transactions`;
-- authenticated `GET /v1/transactions/:id`;
-- strict merchant/environment ownership;
-- required and normalized `Idempotency-Key`;
-- deterministic canonical request hash;
-- durable PostgreSQL idempotency;
-- Payment/ProviderAttempt persistence before emulator execution;
-- PostgreSQL-atomic attempt claim;
-- visibly non-payable deterministic emulator Pix output;
-- success/pending, execution-unknown and definitive-rejection outcomes;
-- replay without duplicate execution;
-- 409 for idempotency-key reuse with a different canonical request;
-- production create blocked before side effects;
-- no ledger/jobs/merchant-webhook/provider-event effects in this slice.
-
-The real acceptance starts two independent API processes against one PostgreSQL database and proves the create race converges safely. Final CI logged:
-
-`A2 create race statuses: 201/202`
-
-`SwiftPay A2 real runtime acceptance: OK`
-
-Final application workflow `31877334094` is GREEN with **91/91 application contracts**, K7, A1 and A2 real runtime acceptance.
-
-Canonical A2 hosted Supabase migrations:
-
-- `20260815101512_pix_create_get_emulator_foundation.sql`;
-- `20260815101609_pix_create_get_emulator_behavior.sql`;
-- `20260815101641_pix_create_get_emulator_prepare_key_count_fix.sql`;
-- `20260815101729_pix_create_get_emulator_resolve_coalesce_fix.sql`.
-
-Remote validation confirms the six A2 schema columns, four trusted routines, API-only execution boundary, PostgreSQL-17-compatible key counting and native `coalesce(...)` resolution behavior.
+- `20260815101512_pix_create_get_emulator_foundation.sql`
+- `20260815101609_pix_create_get_emulator_behavior.sql`
+- `20260815101641_pix_create_get_emulator_prepare_key_count_fix.sql`
+- `20260815101729_pix_create_get_emulator_resolve_coalesce_fix.sql`
 
 Evidence: `docs/evidence/application/2026-08-15-a2-pix-create-get-emulator.md`.
+
+### A3 — paid transition + ledger + merchant balance — DONE
+
+Spec: `docs/specs/paid-transition-ledger-balance-v0.yaml`.
+
+A3 closes the first canonical money-state path:
+
+- only `swiftpay_worker` may submit deterministic sandbox paid evidence;
+- Payment row lock serializes concurrent paid observations;
+- ProviderEvent identity makes evidence replay durable;
+- eligible `pending`/`expired` Pix transitions to `paid`;
+- exactly one `settlement_paid` double-entry ledger transaction posts per Payment;
+- duplicate/concurrent valid evidence cannot double-credit merchant funds;
+- merchant net is credited into `merchant_pending_liability`, not prematurely marked withdrawable;
+- authenticated `GET /v1/balance` derives merchant/environment only from A1 Bearer revalidation;
+- paid Payment remains merchant-safe and retains normalized Pix data;
+- canonical `payment.paid` webhook outbox event is written transactionally for A4.
+
+Final application/runtime workflow `31885388887` is GREEN:
+
+- **104/104 application contracts**;
+- K7 real runtime acceptance: GREEN;
+- A1 real runtime acceptance: GREEN, quota race `200/429`;
+- A2 real runtime acceptance: GREEN, create race `201/202`;
+- A3 real runtime acceptance: GREEN, paid-evidence race `applied/absorbed`.
+
+Canonical hosted Supabase A3 migrations:
+
+- `20260816004515_paid_transition_ledger_balance_foundation.sql`
+- `20260816004620_paid_transition_ledger_balance_behavior.sql`
+
+Remote post-apply validation confirms exact API/worker EXECUTE segregation, no migration-created financial postings/events, and zero Supabase Security Advisor lints. Git migration filenames are aligned to hosted history without SQL-content drift.
+
+Evidence: `docs/evidence/application/2026-08-15-a3-paid-transition-ledger-balance.md`.
 
 ## Weighted V1 workstream estimate
 
 | Workstream | Weight | Estimated completion | Weighted contribution |
 |---|---:|---:|---:|
 | Product contracts / architecture / reverse engineering | 10% | 96% | 9.6% |
-| Database + financial core | 20% | 97% | 19.4% |
+| Database + financial core | 20% | 99% | 19.8% |
 | Supabase security/platform foundation | 10% | 98% | 9.8% |
-| Trusted backend + public API runtime | 15% | 65% | 9.8% |
-| Pix provider integrations + recovery | 15% | 25% | 3.8% |
-| Worker + merchant webhook HTTP runtime | 10% | 20% | 2.0% |
+| Trusted backend + public API runtime | 15% | 78% | 11.7% |
+| Pix provider integrations + recovery | 15% | 30% | 4.5% |
+| Worker + merchant webhook HTTP runtime | 10% | 25% | 2.5% |
 | Merchant/admin UI | 10% | 5% | 0.5% |
 | Hosted checkout / payment links / conversion | 5% | 0% | 0.0% |
 | Wallet/payout operational application layer | 3% | 20% | 0.6% |
 | Deployment / observability / cutover | 2% | 12% | 0.2% |
-| **Total** | **100%** |  | **~56%** |
+| **Total** | **100%** |  | **~59%** |
 
-The emulator increases confidence in provider-independent payment orchestration but does not count as a live PSP integration. Provider-conformance/live-adapter completion therefore remains intentionally low.
+The emulator and A3 financial path materially increase confidence in the provider-independent core, but they are not live PSP integration. Provider-conformance/live-adapter completion therefore remains intentionally low.
 
-## Critical path from here
+## Critical path
 
 ```text
 K5 deterministic sandbox fixture                 DONE
@@ -188,57 +151,57 @@ K5 deterministic sandbox fixture                 DONE
   -> K7 executable API/worker runtime            DONE
   -> A1 API credential token authentication      DONE
   -> A2 authenticated Pix create/get + emulator  DONE
-  -> A3 paid transition + ledger + balance       NEXT / IN PROGRESS
-  -> A4 merchant webhook delivery runtime
+  -> A3 paid transition + ledger + balance       DONE
+  -> A4 merchant webhook delivery runtime        NEXT
   -> PSP conformance fixtures
   -> AkkadPag/FlevoPay live adapters
   -> dashboard operational surfaces
   -> production hardening / observability / cutover
 ```
 
-## Next slice: `paid-transition-ledger-balance-v0`
+## Next slice: A4 merchant webhook delivery runtime
 
-A3 must establish the money-moving invariant before merchant webhook delivery or live PSP integration.
+A4 must consume the durable outbox/delivery state without introducing financial authority into the HTTP delivery worker.
 
-Minimum intended boundary:
+Minimum boundary to freeze before implementation:
 
-1. accept canonical paid evidence from the emulator/provider-independent boundary;
-2. transition an eligible pending Payment to `paid` exactly once;
-3. preserve replay-safe evidence identity;
-4. post one balanced ledger transaction exactly once;
-5. ensure duplicate/concurrent evidence cannot double-credit merchant funds;
-6. expose the merchant balance/read model through a narrow trusted boundary;
-7. prove payment transition + ledger posting atomicity;
-8. hand off a durable paid event/state for the later merchant-webhook slice.
+1. atomic worker claim/lease semantics for delivery work;
+2. deterministic merchant webhook HTTP request and signature format;
+3. signing-secret access/isolation and log redaction;
+4. success/retry/backoff/terminal failure state machine;
+5. safe concurrent-worker and replay behavior;
+6. deterministic local merchant endpoint acceptance;
+7. no Payment/Ledger mutation from delivery processing;
+8. operational evidence sufficient to unblock provider-conformance work.
 
-The precise transition, account mapping, fee treatment, evidence identity and API surface must be frozen in YAML before implementation.
+Implementation does not start until A4 Problem Analysis, YAML specification and RED contracts are versioned.
 
 ## What still blocks a complete Pix sandbox MVP
 
-The most important remaining gaps are:
+The decisive remaining gap is A4:
 
-- canonical pending -> paid transition from provider/emulator evidence;
-- exactly-once balanced ledger posting;
-- merchant balance/read model;
-- merchant webhook delivery worker/runtime with retries and signing;
-- end-to-end sandbox acceptance from token -> create -> paid transition -> ledger/balance -> webhook.
+- claim durable `payment.paid` delivery work;
+- sign and send merchant HTTP webhooks;
+- retry/backoff correctly;
+- represent terminal failure/dead-letter state;
+- prove the end-to-end sandbox chain token -> create -> paid -> ledger/balance -> webhook.
 
-Pix **creation/status** is now usable in the deterministic sandbox boundary; the full payment lifecycle is not yet complete.
+The canonical payment and financial lifecycle through paid/balance is now present; merchant asynchronous delivery is the missing lifecycle leg.
 
 ## What still blocks production-capable Pix V1
 
-Beyond the sandbox lifecycle, production readiness additionally requires:
+Beyond A4, production readiness requires:
 
 - provider contract/conformance fixtures for AkkadPag and FlevoPay;
 - live adapters behind the provider abstraction;
-- provider webhook verification and replay handling;
-- timeout/retry/recovery policy proven against real PSP behavior;
-- credential/provider-secret management and rotation operations;
-- broader merchant/admin operational UI;
-- production observability, alerting, SLOs and runbooks;
+- live provider webhook verification/replay handling;
+- timeout/retry/unknown/recovery policy proven against real PSP behavior;
+- provider credential/secret management and rotation operations;
+- merchant/admin operational UI;
+- observability, alerting, SLOs and runbooks;
 - deployment/cutover/rollback evidence;
-- security and operational acceptance for the full money-moving path.
+- final security/operational acceptance of the complete money-moving path.
 
 ## Current truth in one sentence
 
-**SwiftPay V2 has completed its first authenticated, idempotent Pix create/get flow against a deterministic provider emulator; weighted V1 engineering is now ~56%, and the decisive next milestone is an exactly-once paid transition that atomically posts the ledger and exposes merchant balance.**
+**SwiftPay V2 now has an authenticated, idempotent sandbox Pix flow through exactly-once paid transition, double-entry ledger posting and merchant balance; weighted V1 engineering is ~59%, and A4 merchant webhook HTTP delivery is the next critical slice.**
