@@ -9,7 +9,8 @@
     { "path": "../../packages/auth" },
     { "path": "../../packages/config" },
     { "path": "../../packages/db" },
-    { "path": "../../packages/payments" }
+    { "path": "../../packages/payments" },
+    { "path": "../../packages/webhooks" }
   ],
   "include": ["src/**/*.ts"]
 }
