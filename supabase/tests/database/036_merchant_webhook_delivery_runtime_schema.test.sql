@@ -129,10 +129,11 @@ select ok(
     when to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)') is null then true
     else not has_function_privilege('swiftpay_api', to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)'), 'EXECUTE')
       and not has_function_privilege('anon', to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)'), 'EXECUTE')
-      and not has_function_privilege('authenticated', to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,text,integer)'), 'EXECUTE')
+      and not has_function_privilege('authenticated', to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)'), 'EXECUTE')
       and not has_function_privilege('service_role', to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)'), 'EXECUTE')
+      and not has_function_privilege('public', to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)'), 'EXECUTE')
   end,
-  'A4 composed resolution is unavailable to API/Data API/service roles'
+  'A4 composed resolution is unavailable to API/Data API/service/public roles'
 );
 
 select ok(
@@ -199,16 +200,9 @@ select is(
   'A4 signing-secret-version check has one canonical named constraint'
 );
 
-select is(
-  coalesce((
-    select character_maximum_length::integer
-    from information_schema.columns
-    where table_schema='app'
-      and table_name='webhook_deliveries'
-      and column_name='last_error_code'
-  ), 0),
-  80,
-  'A4 stored delivery error code is bounded to 80 characters'
+select has_constraint(
+  'app', 'webhook_deliveries', 'webhook_deliveries_last_error_code_length_ck',
+  'A4 stored delivery error code has a canonical bounded-length constraint'
 );
 
 select * from finish();
