@@ -23,27 +23,24 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - Draft PR: #1 — `foundation: establish SwiftPay V2 reconstruction baseline`
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
-- A4 hosted migration alignment commit: `ac41a57e64fca69871e0d26bafe05d888b8e3cbd`
-- A5 Problem Analysis: `docs/design/a5-provider-conformance-problem-analysis.md`
-- A5 frozen spec: `docs/specs/provider-conformance-v0.yaml`
-- A5 clean RED head: `10a7051afee1cdd07105c6f08bfac6a5f143ea35`
-- A5 GREEN implementation head: `3583f57e5090ce89284b7929980d738396aafd58`
-- A5 evidence: `docs/evidence/application/2026-08-16-a5-provider-conformance-fixtures.md`
-- A6 pre-analysis prerequisite: `docs/design/webhook-endpoint-management-preanalysis.md`
-- A6 Problem Analysis: `docs/design/a6-dashboard-session-authentication-problem-analysis.md`
-- A6 frozen spec: `docs/specs/dashboard-session-authentication-v0.yaml`
-- A6 clean RED head: `948f5369802dfe682e8c8c0aaeeb8cfa908f3ece`
-- A6 final GREEN head: `4ac4e0b53776e55361f90d5589e5f72bcbdce49c`
-- A6 evidence: `docs/evidence/application/2026-08-16-a6-dashboard-session-authentication.md`
-- A6 GREEN Application workflow: `31928641553` — GREEN, 186/186 contracts + K7/A1/A2/A3/A4/A6 real runtime
-- A6 GREEN Database workflow: `31928641539` — GREEN, pgTAP + K5 + K6
-- Canonical database lane: 37 files / 1272 pgTAP assertions / PASS
-- Core architecture/domain/database/platform foundation estimate: ~99%
-- Weighted V1 engineering estimate: ~68%
-- First end-to-end Pix sandbox MVP estimate: ~90%
-- Production-capable Pix V1 estimate: ~55%
-- Current external critical blocker: current PSP contract/lineage evidence for AkkadPag and FlevoPay
-- Next unblocked internal candidate: merchant webhook endpoint management API, with signing-secret key custody still requiring a frozen design
+- K1-K7: `DONE`
+- A1-A7: `DONE`
+- A7 Problem Analysis: `docs/design/a7-merchant-webhook-endpoint-management-problem-analysis.md`
+- A7 frozen spec: `docs/specs/merchant-webhook-endpoint-management-v0.yaml`
+- A7 evidence: `docs/evidence/application/2026-08-16-a7-merchant-webhook-endpoint-management.md`
+- A7 final behavior head: `155472ba299f1e75d33dd6cad430ad61b923a043`
+- A7 hosted migration alignment commit: `34e3ee28359b0ea8a96ade40d84323e0094e931d`
+- A7 post-alignment stale-path contract fix: `22e38df402175badfd83c4b01c739c55a73e28c1`
+- Final behavior Application workflow: `31934008876` — GREEN, **209/209 application contracts** + K7/A1/A2/A3/A4/A6/A7 real-database acceptance
+- Final behavior Database workflow: `31934008886` — GREEN, **38 files / 1282 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
+- Hosted Security Advisor after A7: **0 lints**
+- Core architecture/domain/database/platform estimate: ~99%
+- First end-to-end Pix sandbox MVP estimate: ~94%
+- Production-capable Pix V1 estimate: ~57%
+- Weighted V1 engineering estimate: ~71%
+- Current external critical blocker: current PSP contract/lineage/idempotency/recovery/webhook-auth evidence for AkkadPag and FlevoPay
+- Next unblocked internal candidate: **API credential management** through the A6/K4 dashboard realm while preserving the A1 machine-authentication contract
+- Next candidate after credentials: merchant transaction list/detail/search/status operations
 
 ## Non-negotiable delivery method
 
@@ -82,7 +79,7 @@ The repository contains PRD, architecture, ADRs, domain/public/provider/ledger/w
 - Financial reservations — `DONE`
 - Internal/provider reconciliation foundations — `DONE`
 
-Payout/refund merchant-usable application/API/UI execution remains pending. Live-provider reconciliation remains gated by current PSP evidence/live behavior.
+Payout/refund merchant-usable application/API/UI execution remains `PENDING`. Live-provider reconciliation remains blocked by current PSP evidence/live behavior.
 
 ---
 
@@ -129,109 +126,69 @@ Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.
 Spec: `docs/specs/api-credential-token-exchange-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authentication.md`.
 
-Credential create/rotate/revoke management UI/API and signing-key-ring rotation remain `PENDING`.
+Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation.
 
-## A2 — `pix-create-get-emulator-v0` — `DONE`
+Credential create/list/rotate/revoke administration remains `PENDING` as a separate dashboard product surface.
+
+## A2 — authenticated Pix create/get emulator — `DONE`
 
 Specs:
 
 - `docs/specs/pix-create-get-emulator-v0.yaml`
 - `docs/specs/pix-create-get-emulator-fixture-v0.yaml`
 
-Accepted: authenticated create/get, Bearer revalidation first, sandbox-only create, strict validation/hashing, required merchant/environment idempotency, durable Payment + ProviderAttempt before execution, atomic attempt claim, deterministic visibly non-payable emulator, pending/unknown/rejection semantics, safe replay/conflict and production fail-closed behavior.
-
 Evidence: `docs/evidence/application/2026-08-15-a2-pix-create-get-emulator.md`.
 
-## A3 — `paid-transition-ledger-balance-v0` — `DONE`
+Accepted: authenticated create/get, strict validation/hashing, required idempotency, durable Payment + ProviderAttempt before execution, atomic attempt claim, deterministic visibly non-payable emulator, safe replay/conflict and production fail-closed behavior.
+
+## A3 — paid transition + ledger + balance — `DONE`
 
 Spec: `docs/specs/paid-transition-ledger-balance-v0.yaml`.
-
-Accepted: worker-only sandbox paid evidence, serialized Payment transition, immutable ProviderEvent evidence identity, replay/concurrency absorption, exactly one `settlement_paid` double-entry posting, pending-liability merchant credit, authenticated `GET /v1/balance`, merchant-safe paid projection and transactional `payment.paid` outbox creation.
-
 Evidence: `docs/evidence/application/2026-08-15-a3-paid-transition-ledger-balance.md`.
 
-## A4 — merchant webhook delivery runtime — `DONE`
+Accepted: worker-only sandbox paid evidence, replay/concurrency absorption, exactly one `settlement_paid` double-entry posting, authenticated balance read and transactional `payment.paid` outbox creation.
+
+## A4 — merchant webhook delivery runtime — `DONE / HOSTED`
 
 Problem Analysis: `docs/design/a4-merchant-webhook-delivery-problem-analysis.md`.
 Spec: `docs/specs/merchant-webhook-delivery-runtime-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-16-a4-merchant-webhook-delivery-runtime.md`.
 
-Accepted boundary includes composed Job/WebhookDelivery fencing, exact worker-only capability, AES-256-GCM secret isolation, deterministic HMAC signing, SSRF-safe HTTPS destination policy, deterministic retry/attempt ceiling, concurrency/stale-fence acceptance and zero financial authority.
-
-Canonical hosted migrations:
+Hosted migrations:
 
 - `20260816034121_merchant_webhook_delivery_runtime_foundation.sql`
 - `20260816034224_merchant_webhook_delivery_runtime_behavior.sql`
 
-Hosted Security Advisor: zero lints.
+Accepted: composed Job/WebhookDelivery fencing, worker-only capability, signed HTTP delivery, SSRF-safe destination policy, deterministic retry/terminal semantics, A4 AES secret isolation and zero financial authority.
 
 ---
 
 # Phase 4 — PSP conformance and live Pix providers
 
-## A5 — provider conformance fixtures — `DONE`
+## A5 — provider conformance fixtures — `DONE / FIXTURE-ONLY`
 
 Problem Analysis: `docs/design/a5-provider-conformance-problem-analysis.md`.
 Spec: `docs/specs/provider-conformance-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-16-a5-provider-conformance-fixtures.md`.
 
-A5 is intentionally **fixture-only** and network-free. It does not enable live provider execution.
-
 Accepted boundary:
 
 - exactly AkkadPag and FlevoPay retained;
-- provider fact classification: `proven_current | proven_legacy | inferred_non_authoritative | unknown`;
+- evidence classified `proven_current | proven_legacy | inferred_non_authoritative | unknown`;
 - only `proven_current` may independently unlock production;
 - 23 sanitized deterministic provider fixture artifacts;
-- explicit fixture-only capability matrix;
-- historical Basic Auth / `X-API-Key` request mapping behind injected transport;
-- integer-cent canonical money;
-- stable client-reference/provider-ID separation;
+- integer-cent money and stable client/provider identifier separation;
 - no synthetic customer identity/contact data;
 - unsupported capabilities fail before transport;
 - monetary transport executes at most once;
 - timeout/reset/malformed 2xx/unproven 4xx/ambiguous 5xx -> `execution_unknown`;
-- known status normalization and unknown status fail-closed;
+- unknown statuses fail closed;
 - FlevoPay Pix-out remains unsupported;
-- refund remains unsupported for both;
-- provider webhook authority remains unavailable until exact current verification/replay evidence exists;
-- no live Node HTTP/HTTPS/net/TLS/DNS transport or native fetch in provider package.
-
-### A5 gate sequence
-
-- [x] inventory canonical provider/reverse-engineering evidence
-- [x] separate proven facts from assumptions/unknowns
-- [x] Problem Analysis
-- [x] freeze provider-conformance YAML spec
-- [x] freeze capability/auth/idempotency/recovery matrices
-- [x] add sanitized deterministic fixtures
-- [x] executable RED scaffold without module/parser/harness failure
-- [x] RED common adapter conformance suite
-- [x] RED AkkadPag fixture suite
-- [x] RED FlevoPay fixture suite
-- [x] minimal adapters/translators GREEN against fixtures only
-- [x] `execution_unknown` / no-transparent-retry tests
-- [x] provider webhook fail-closed authority guard
-- [x] fixture provenance/network/security guards
-- [x] evidence report
-
-Clean RED:
-
-- head `10a7051afee1cdd07105c6f08bfac6a5f143ea35`;
-- Application workflow `31926931467`: typecheck/build PASS, 132 PASS + exactly 15 expected A5 behavior failures;
-- no missing module/parser/harness error;
-- K7/A1/A2/A3/A4 real-runtime path preserved;
-- database lanes preserved.
-
-GREEN:
-
-- head `3583f57e5090ce89284b7929980d738396aafd58`;
-- Application workflow `31927064932`: GREEN, 147/147 + K7/A1/A2/A3/A4 real runtime;
-- Database workflow `31927064836`: GREEN, pgTAP + K5 + K6.
+- refunds remain unsupported for both;
+- provider webhook authority remains unavailable without exact current verification/replay evidence;
+- provider package contains no live network transport.
 
 ## Current-provider contract evidence gate — `EVIDENCE_REQUIRED`
-
-This is now the primary external blocker for live PSP work.
 
 ### AkkadPag
 
@@ -248,7 +205,7 @@ Required before live activation:
 
 ### FlevoPay
 
-Legacy evidence proves historical `app.flevopay.com.br/api/v1`, `X-API-Key`, Pix create/query and no Pix-out adapter. Current public material is insufficient to freeze current technical semantics.
+Legacy evidence proves historical `app.flevopay.com.br/api/v1`, `X-API-Key`, Pix create/query and no Pix-out adapter. Current public material remains insufficient to freeze current technical semantics.
 
 Required before live activation:
 
@@ -260,19 +217,13 @@ Required before live activation:
 
 ## AkkadPag live transport/adapter activation — `BLOCKED ON CURRENT EVIDENCE`
 
-A5 is GREEN, but that does not authorize real monetary transport.
-
 ## FlevoPay live transport/adapter activation — `BLOCKED ON CURRENT EVIDENCE`
-
-A5 is GREEN, but current production/sandbox contract proof remains insufficient.
 
 ## Provider webhook ingress — `BLOCKED ON CURRENT EVIDENCE`
 
-Exact provider-specific authentication/replay contracts are required before inbound evidence can be trusted.
-
 ## Provider recovery/reconciliation runtime — `BLOCKED ON CURRENT EVIDENCE`
 
-Requires authoritative current query/recovery semantics and subsequently live adapter acceptance.
+**A5 being GREEN does not authorize real monetary transport.**
 
 ---
 
@@ -285,64 +236,79 @@ Problem Analysis: `docs/design/a6-dashboard-session-authentication-problem-analy
 Spec: `docs/specs/dashboard-session-authentication-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-16-a6-dashboard-session-authentication.md`.
 
-A6 makes the K3/K4 dashboard authorization model executable from the trusted API runtime without adding a dashboard business route.
+Accepted: strict dashboard Bearer verification through Supabase Auth, verified user UUID only, current K4 merchant/environment/role authority, no JWT metadata authority, no service-role/JWT-secret authority, no fallback to A1 machine auth and no financial/async side effects.
+
+## A7 — merchant webhook endpoint management — `DONE / HOSTED`
+
+Problem Analysis: `docs/design/a7-merchant-webhook-endpoint-management-problem-analysis.md`.
+Spec: `docs/specs/merchant-webhook-endpoint-management-v0.yaml`.
+Evidence: `docs/evidence/application/2026-08-16-a7-merchant-webhook-endpoint-management.md`.
 
 Accepted boundary:
 
-- `/v1/**` machine-token realm remains separate from future `/dashboard/v1/**` Supabase-user realm;
-- strict Bearer parsing;
-- exactly one server-side Supabase Auth `/auth/v1/user` verification attempt;
-- 5-second timeout, no redirects, no hidden retry;
-- only verified `userId` becomes identity authority;
-- JWT metadata cannot grant merchant/environment/role authority;
-- 401/403 becomes invalid session;
-- Auth/network/timeout/redirect/rate-limit/malformed success becomes authentication unavailable;
-- modern `sb_publishable_...` key only;
-- no `service_role`, `sb_secret_...` or Supabase JWT secret in API authority;
-- `app.require_dashboard_merchant_context(...)` remains the sole merchant/environment/role boundary;
-- current role/status changes are visible on the next check;
-- no fallback from dashboard session verification to A1 machine authentication;
-- no authorization side effects.
+- dashboard-only routes;
+- member read / admin mutation authority;
+- create/list/get/update/disable/enable/rotate-secret;
+- no DELETE in V0;
+- URL mutation only while disabled;
+- exactly `payment.paid` subscription in V0;
+- positive optimistic `revision` fencing;
+- durable request idempotency with completed replay evaluated before stale-revision rejection;
+- append-only audit exactly once per winning successful mutation;
+- one-time `whsec_...` plaintext on winning create/rotation only;
+- plaintext never stored in DB/idempotency/audit/jobs/logs and never re-disclosed on replay;
+- RSA-OAEP-SHA256 wrapping: API public-key encrypt authority only, worker private-keyring decrypt authority only;
+- A4 AES legacy delivery compatibility;
+- durable multi-version secret history with bounded overlap;
+- immutable delivery URL and signing-secret-version snapshots;
+- `X-SwiftPay-Signature-Version` from immutable delivery state;
+- disabling terminalizes pending not-yet-leased work without HTTP;
+- financial table counts invariant across the real A7 lifecycle acceptance.
 
-Clean RED:
+Hosted migrations:
 
-- head `948f5369802dfe682e8c8c0aaeeb8cfa908f3ece`;
-- Application workflow `31928177006`: typecheck/build PASS, 152 existing tests PASS + exactly 34 expected A6 behavior failures;
-- runtime reached A6 after K7/A1/A2/A3/A4 and failed only with `behavior_not_implemented:createDashboardAuthorizationService`;
-- Database workflow `31928177032`: GREEN.
+- `20260816073330_webhook_endpoint_management_foundation.sql`
+- `20260816073500_webhook_endpoint_management_behavior.sql`
+- `20260816073604_webhook_endpoint_management_behavior_fix.sql`
 
-GREEN:
+Hosted post-deploy audit:
 
-- final head `4ac4e0b53776e55361f90d5589e5f72bcbdce49c`;
-- Application workflow `31928641553`: GREEN, 186/186 + K7/A1/A2/A3/A4/A6 real runtime;
-- Database workflow `31928641539`: GREEN, pgTAP + K5 + K6;
-- no migration or hosted Supabase schema mutation required.
+- `swiftpay_api`: exact 16-routine EXECUTE allowlist;
+- `swiftpay_worker`: exact 6-routine EXECUTE allowlist;
+- zero direct runtime table privileges over endpoint/secret/idempotency/audit tables;
+- worker cannot administer A7; API cannot execute worker claim/resolve;
+- private `_a7_*` helpers unavailable to runtime roles;
+- Security Advisor: zero lints.
 
-## Webhook endpoint management API — `PENDING / NEXT UNBLOCKED CANDIDATE`
+No hosted seed/fixture/business acceptance data and no live PSP monetary call were used for A7 deployment.
 
-A4 can already deliver to durable endpoints and A6 now provides the trusted dashboard identity/merchant-authorization prerequisite, but merchants still do not have a first-class management surface.
+## API credential management — `PENDING / NEXT UNBLOCKED CANDIDATE`
 
-Existing pre-analysis found one remaining design blocker that must be frozen before RED: the A4 AES webhook-secret encryption key is worker-only. The API must not silently receive that worker key merely to create/rotate endpoint signing secrets.
+This is the next recommended internal slice.
 
-Candidate boundary to plan next:
+Required design questions before RED:
 
-- create endpoint;
-- list/get merchant-owned endpoints;
-- update subscribed event types / URL within the frozen A4 destination policy;
-- disable/re-enable endpoint;
-- create/rotate signing secret with one-time plaintext return and encrypted-at-rest storage through an explicitly designed key-management boundary;
-- strict dashboard merchant/environment ownership through A6/K4;
-- audit events and least-privilege trusted DB routines;
-- no direct browser table mutation;
-- test/replay controls only if separately frozen and safe.
+- dashboard route realm and minimum K4 role for create/list/rotate/revoke;
+- public-key naming/format and environment scoping;
+- Secret Key generation entropy and one-time plaintext disclosure;
+- verifier-only storage compatible with A1 `scrypt-v1` authentication;
+- exact create/rotation idempotency and replay semantics without storing plaintext;
+- immediate revocation and token revalidation behavior;
+- secret-version increments and invalidation of already-issued A1 tokens when required;
+- exact-IP allowlist management semantics;
+- audit identity and sensitive-data redaction;
+- optimistic concurrency for mutable credential policy;
+- least-privilege operation-specific RPCs with no direct browser mutation.
 
-Mandatory pipeline still starts at Problem Analysis; no implementation is authorized yet.
+Mandatory pipeline: Problem Analysis -> frozen YAML spec -> clean RED -> implementation GREEN -> evidence.
+
+## Merchant transaction operations — `PENDING`
+
+Dashboard list/detail/search/status over existing canonical A2/A3 Payment data, without financial mutation authority.
 
 Other merchant/admin work:
 
-- Dashboard login/session UX and Supabase Auth product configuration — `PENDING` (trusted server-side verification boundary A6 is DONE)
-- API credential management UI/API — `PENDING`
-- Merchant Pix transaction list/detail/search/status UI — `PENDING`
+- Dashboard login/session UX and Supabase Auth product configuration — `PENDING` (trusted server-side A6 boundary is DONE)
 - KYC/compliance operations UI — `PENDING`
 - Payout/refund operational API/UI — `PENDING`
 
@@ -394,11 +360,12 @@ Foundation contracts / architecture                       DONE
        -> live provider transport/recovery               BLOCKED
        -> provider webhook ingress                       BLOCKED
 
-Parallel unblocked product path:
+Parallel internal product path:
   -> A6 dashboard session authentication                 DONE
-  -> webhook endpoint management API                     PENDING / NEXT CANDIDATE
-  -> merchant transaction/credential operations         PENDING
-  -> broader admin/KYC operations                        PENDING
+  -> A7 webhook endpoint management                      DONE
+  -> API credential management                           PENDING / NEXT CANDIDATE
+  -> merchant transaction operations                     PENDING
+  -> broader admin/KYC/payout operations                 PENDING
 
 Then:
   -> production hardening / observability / cutover      PENDING
@@ -406,12 +373,12 @@ Then:
 
 ## Immediate next action
 
-Because live PSP work is correctly blocked on external/current contract evidence, the next internal slice can advance sandbox usability without guessing provider behavior:
+Because live PSP work is correctly blocked on external/current contract evidence, the next internal slice should improve merchant usability without guessing provider behavior:
 
-1. promote `docs/design/webhook-endpoint-management-preanalysis.md` into the full Problem Analysis using A6 as the identity prerequisite;
-2. freeze the signing-secret generation/encryption/key-custody boundary without giving the generic API the worker-only A4 encryption key by accident;
-3. freeze endpoint CRUD/status/subscription/rotation/audit semantics in a management/API YAML specification;
-4. write RED database/application contracts;
+1. write full Problem Analysis for API credential lifecycle administration using A6/K4 as dashboard authority and preserving A1 as the machine-auth contract;
+2. freeze Secret Key generation, verifier-only storage, one-time disclosure, rotation/revocation, token-version invalidation, IP policy, idempotency, optimistic concurrency and audit semantics;
+3. freeze the dashboard credential-management YAML specification and operation-specific trusted DB boundaries;
+4. write clean RED database/application contracts;
 5. implement only after clean RED.
 
 In parallel, provider evidence should be upgraded through provider-owned current technical documentation or authenticated non-monetary/current sandbox proof.
