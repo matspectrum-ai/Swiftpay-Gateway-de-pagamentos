@@ -114,7 +114,7 @@ select ok(
       'EXECUTE'
     )
   end,
-  'A3 swiftpay_worker can execute only the composed sandbox paid-evidence command'
+  'A3 swiftpay_worker can execute the composed sandbox paid-evidence command'
 );
 select ok(
   case
@@ -193,12 +193,14 @@ select ok(
 
 select ok(
   coalesce((
-    select count(*) = 4
+    select count(*) = 6
       and bool_and(p.oid = any(array[
         to_regprocedure('app.claim_jobs(text,integer,integer)')::oid,
         to_regprocedure('app.complete_job(uuid,uuid)')::oid,
         to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)')::oid,
-        to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')::oid
+        to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')::oid,
+        to_regprocedure('app.claim_merchant_webhook_deliveries(text,integer,integer)')::oid,
+        to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)')::oid
       ]::oid[]))
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
@@ -207,7 +209,7 @@ select ok(
       and acl.grantee = (select oid from pg_roles where rolname = 'swiftpay_worker')
       and acl.privilege_type = 'EXECUTE'
   ), false),
-  'A3 swiftpay_worker EXECUTE grants equal jobs plus one sandbox paid command'
+  'A3 paid capability remains present inside the exact A4 six-routine worker allowlist'
 );
 
 select ok(
