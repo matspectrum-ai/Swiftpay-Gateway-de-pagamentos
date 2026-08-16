@@ -2,13 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [configSource, runtimeSource, appSource, authSource, dbSource] = await Promise.all([
+const [configSource, runtimeSource, appSource, authSource, dbIndexSource, dbCoreSource] = await Promise.all([
   readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../apps/api/src/app.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/auth/src/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/db/src/index.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../packages/db/src/core.ts', import.meta.url), 'utf8'),
 ]);
+const dbSource = `${dbIndexSource}\n${dbCoreSource}`;
 
 test('A6 API config requires only Supabase project URL and modern publishable key for dashboard authentication', () => {
   assert.match(configSource, /SWIFTPAY_SUPABASE_URL/);
@@ -45,8 +47,10 @@ test('A6 preserves the A1 machine authenticator as a separate runtime capability
   assert.doesNotMatch(runtimeSource, /authenticateAccessToken[\s\S]{0,400}createSupabaseDashboardSessionVerifier[\s\S]{0,400}(fallback|catch)/i);
 });
 
-test('A6 adds no dashboard business HTTP route before a later resource contract', () => {
-  assert.doesNotMatch(appSource, /app\.(?:get|post|put|patch|delete)\(\s*['"]\/dashboard\/v1\//);
+test('A6 dashboard authentication boundary is reused by later dashboard resources rather than machine auth', () => {
+  assert.match(appSource, /dashboardWebhookEndpoints/);
+  assert.match(appSource, /\/dashboard\/v1\/merchants/);
+  assert.doesNotMatch(appSource, /dashboardWebhookEndpoints[\s\S]{0,500}authenticateBearerRequest/i);
 });
 
 test('A6 keeps machine and dashboard route realms explicitly separate in application source', () => {
