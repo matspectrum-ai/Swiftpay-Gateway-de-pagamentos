@@ -54,6 +54,7 @@ state_for_source() {
     "select ${projection}
        from app.webhook_events ev
        join app.webhook_deliveries d on d.webhook_event_id=ev.id
+       join app.webhook_endpoints ep on ep.id=d.webhook_endpoint_id
        join app.jobs j
          on j.kind='merchant_webhook_delivery'
         and j.resource_type='webhook_delivery'
@@ -133,7 +134,7 @@ SQL
 run_driver 'concurrency-success'
 
 concurrency_state="$(state_for_source "${CONCURRENCY_SOURCE}" \
-  "j.state || '|' || d.state || '|' || j.attempt_count || '|' || d.attempt_count || '|' || d.signing_secret_version || '|' || ep.secret_version || '|' || ep.previous_secret_version from app.webhook_endpoints ep where ep.id=d.webhook_endpoint_id")"
+  "j.state || '|' || d.state || '|' || j.attempt_count || '|' || d.attempt_count || '|' || d.signing_secret_version || '|' || ep.secret_version || '|' || ep.previous_secret_version")"
 [[ "${concurrency_state}" == 'completed|succeeded|1|1|7|8|7' ]]
 
 # Restore a valid current v7 secret for independent subsequent phases.
