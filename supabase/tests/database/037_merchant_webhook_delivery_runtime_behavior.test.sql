@@ -132,11 +132,11 @@ begin
 end;
 $$;
 
-create procedure pg_temp.a4_capture_resolve(
+create procedure pg_temp.a4_capture_resolve_case(
   p_capture_name text,
-  p_job_id uuid,
-  p_delivery_id uuid,
-  p_lease_token uuid,
+  p_case_name text,
+  p_claim_capture_name text,
+  p_lease_token_override uuid,
   p_outcome text,
   p_http_status integer,
   p_error_class text,
@@ -147,15 +147,32 @@ language plpgsql
 security invoker
 as $$
 declare
+  v_job_id uuid;
+  v_delivery_id uuid;
+  v_lease_token uuid;
   v_resolved boolean;
   v_error_state text;
   v_error_message text;
 begin
+  select job_id, delivery_id
+    into strict v_job_id, v_delivery_id
+    from pg_temp.a4_cases
+   where case_name=p_case_name;
+
+  if p_lease_token_override is not null then
+    v_lease_token := p_lease_token_override;
+  else
+    select (result -> 0 ->> 'leaseToken')::uuid
+      into strict v_lease_token
+      from pg_temp.a4_claims
+     where capture_name=p_claim_capture_name;
+  end if;
+
   execute 'set local role swiftpay_worker';
   begin
     execute 'select app.resolve_merchant_webhook_delivery($1,$2,$3,$4,$5,$6,$7,$8)'
       into v_resolved
-      using p_job_id, p_delivery_id, p_lease_token, p_outcome,
+      using v_job_id, v_delivery_id, v_lease_token, p_outcome,
             p_http_status, p_error_class, p_error_code, p_retry_after_seconds;
   exception when others then
     get stacked diagnostics
@@ -270,10 +287,8 @@ select is((select jsonb_array_length(result) from a4_claims where capture_name='
   'A4 competing worker cannot obtain the already-valid delivery lease');
 
 -- A stale token cannot overwrite the current claim.
-call pg_temp.a4_capture_resolve(
-  'stale_resolve',
-  (select job_id from a4_cases where case_name='retry_then_success'),
-  (select delivery_id from a4_cases where case_name='retry_then_success'),
+call pg_temp.a4_capture_resolve_case(
+  'stale_resolve', 'retry_then_success', null,
   'a4400000-0000-0000-0000-000000000099'::uuid,
   'success', 204, null, null, null
 );
@@ -282,11 +297,8 @@ select is((select error_state from a4_resolutions where capture_name='stale_reso
 select is((select resolved from a4_resolutions where capture_name='stale_resolve'), false,
   'A4 stale/foreign lease token cannot resolve current delivery');
 
-call pg_temp.a4_capture_resolve(
-  'retry_resolve',
-  (select job_id from a4_cases where case_name='retry_then_success'),
-  (select delivery_id from a4_cases where case_name='retry_then_success'),
-  (select (result -> 0 ->> 'leaseToken')::uuid from a4_claims where capture_name='first_claim'),
+call pg_temp.a4_capture_resolve_case(
+  'retry_resolve', 'retry_then_success', 'first_claim', null,
   'retry', 500, 'transient', 'http_500', 5
 );
 select is((select error_state from a4_resolutions where capture_name='retry_resolve'), null,
@@ -327,11 +339,8 @@ select is((select jsonb_array_length(result) from a4_claims where capture_name='
 select is((select (result -> 0 ->> 'attemptNumber')::integer from a4_claims where capture_name='second_claim'), 2,
   'A4 retry claim advances the durable dispatch attempt number exactly once');
 
-call pg_temp.a4_capture_resolve(
-  'success_resolve',
-  (select job_id from a4_cases where case_name='retry_then_success'),
-  (select delivery_id from a4_cases where case_name='retry_then_success'),
-  (select (result -> 0 ->> 'leaseToken')::uuid from a4_claims where capture_name='second_claim'),
+call pg_temp.a4_capture_resolve_case(
+  'success_resolve', 'retry_then_success', 'second_claim', null,
   'success', 204, null, null, null
 );
 select is((select resolved from a4_resolutions where capture_name='success_resolve'), true,
@@ -402,11 +411,8 @@ select is(
   null,
   'A4 expired historical secret returns no usable ciphertext to worker'
 );
-call pg_temp.a4_capture_resolve(
-  'expired_secret_terminal',
-  (select job_id from a4_cases where case_name='expired_secret'),
-  (select delivery_id from a4_cases where case_name='expired_secret'),
-  (select (result -> 0 ->> 'leaseToken')::uuid from a4_claims where capture_name='expired_secret_claim'),
+call pg_temp.a4_capture_resolve_case(
+  'expired_secret_terminal', 'expired_secret', 'expired_secret_claim', null,
   'terminal', null, 'configuration', 'signing_secret_unavailable', null
 );
 select is((select resolved from a4_resolutions where capture_name='expired_secret_terminal'), true,
@@ -432,11 +438,8 @@ update app.webhook_deliveries set attempt_count=7
 call pg_temp.a4_capture_claim('attempt_eight_claim', 'a4-worker-one', 10, 30);
 select is((select (result -> 0 ->> 'attemptNumber')::integer from a4_claims where capture_name='attempt_eight_claim'), 8,
   'A4 final allowed dispatch claim is attempt eight');
-call pg_temp.a4_capture_resolve(
-  'attempt_eight_retry',
-  (select job_id from a4_cases where case_name='attempt_ceiling'),
-  (select delivery_id from a4_cases where case_name='attempt_ceiling'),
-  (select (result -> 0 ->> 'leaseToken')::uuid from a4_claims where capture_name='attempt_eight_claim'),
+call pg_temp.a4_capture_resolve_case(
+  'attempt_eight_retry', 'attempt_ceiling', 'attempt_eight_claim', null,
   'retry', 503, 'transient', 'http_503', 7200
 );
 select is((select resolved from a4_resolutions where capture_name='attempt_eight_retry'), true,
