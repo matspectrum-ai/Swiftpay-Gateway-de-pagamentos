@@ -193,14 +193,18 @@ update app.webhook_endpoints
  where id='a4100000-0000-0000-0000-000000000001'::uuid;
 
 -- An unrelated due job must never be consumed by the A4 composed scheduler.
-perform app.enqueue_job(
-  'provider_event_application',
-  'provider_event',
-  'a4300000-0000-0000-0000-000000000001'::uuid,
-  'a4-unrelated-provider-event',
-  '{"provider_event_id":"a4300000-0000-0000-0000-000000000001"}'::jsonb,
-  1, 5, now()
-);
+do $$
+begin
+  perform app.enqueue_job(
+    'provider_event_application',
+    'provider_event',
+    'a4300000-0000-0000-0000-000000000001'::uuid,
+    'a4-unrelated-provider-event',
+    '{"provider_event_id":"a4300000-0000-0000-0000-000000000001"}'::jsonb,
+    1, 5, now()
+  );
+end;
+$$;
 
 call pg_temp.a4_capture_claim('first_claim', 'a4-worker-one', 10, 30);
 
