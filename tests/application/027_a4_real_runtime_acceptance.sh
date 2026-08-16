@@ -82,6 +82,50 @@ run_driver() {
 
 read -r before_payments before_accounts before_ledger_transactions before_ledger_entries < <(read_counts)
 
+# A1-A3 real acceptances run in the same isolated Postgres before A4. A3
+# intentionally leaves its durable payment.paid outbox pending for A4 to consume.
+# Quarantine only those pre-existing due items so this acceptance can prove A4
+# behavior against its own fixtures without deleting, completing or otherwise
+# rewriting historical outbox state. A pre-existing live lease is an error.
+psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL' >/dev/null
+do $$
+begin
+  if exists (
+    select 1
+      from app.jobs j
+      join app.webhook_deliveries d
+        on d.id=j.resource_id
+     where j.kind='merchant_webhook_delivery'
+       and j.resource_type='webhook_delivery'
+       and (j.state='leased' or d.state='leased')
+  ) then
+    raise exception 'pre-existing leased webhook delivery prevents isolated A4 acceptance';
+  end if;
+end
+$$;
+
+update app.jobs j
+   set available_at='2099-01-01T00:00:00Z'::timestamptz,
+       updated_at=now()
+  from app.webhook_deliveries d
+ where j.kind='merchant_webhook_delivery'
+   and j.resource_type='webhook_delivery'
+   and j.resource_id=d.id
+   and j.state='pending'
+   and d.state='pending';
+
+update app.webhook_deliveries d
+   set next_attempt_at='2099-01-01T00:00:00Z'::timestamptz,
+       updated_at=now()
+  from app.jobs j
+ where j.kind='merchant_webhook_delivery'
+   and j.resource_type='webhook_delivery'
+   and j.resource_id=d.id
+   and j.state='pending'
+   and d.state='pending'
+   and j.available_at='2099-01-01T00:00:00Z'::timestamptz;
+SQL
+
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=merchant_id="${MERCHANT_ID}" \
   --set=endpoint_id="${ENDPOINT_ID}" \
@@ -160,7 +204,7 @@ record_event "${RETRY_SOURCE}"
 run_driver 'retry-once'
 retry_state="$(state_for_source "${RETRY_SOURCE}" \
   "j.state || '|' || d.state || '|' || j.attempt_count || '|' || d.attempt_count || '|' || coalesce(d.last_http_status::text,'') || '|' || coalesce(j.last_error_class,'') || '|' || coalesce(j.last_error_code,'') || '|' || coalesce(d.last_error_class,'') || '|' || coalesce(d.last_error_code,'') || '|' || (j.available_at=d.next_attempt_at)::text || '|' || (j.available_at>now())::text")"
-[[ "${retry_state}" == 'pending|pending|1|1|500|transient|http_503|transient|http_503|true|true' ]]
+[[ "${retry_state}" == 'pending|pending|1|1|503|transient|http_503|transient|http_503|true|true' ]]
 
 # Keep the proven retry pending but move it outside this acceptance horizon so it
 # cannot interfere with the disable/reclaim scenarios below.
