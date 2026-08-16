@@ -1,0 +1,847 @@
+feature: provider-conformance-v0
+status: frozen_for_tdd
+phase: 4
+
+problem:
+  statement: >-
+    A1-A4 prove the deterministic SwiftPay sandbox lifecycle through machine
+    authentication, Pix creation, paid evidence, exactly-once accounting,
+    balance projection and merchant webhook HTTP delivery. Production provider
+    execution remains unsafe because the retained AkkadPag and FlevoPay adapters
+    are known primarily from an audited legacy revision while current provider
+    API lineage, idempotency/recovery guarantees and webhook authentication are
+    not sufficiently proven. A5 must create a network-free conformance boundary
+    that preserves source-proven provider knowledge, explicitly marks unknowns,
+    prevents blind monetary retry and keeps all live-provider activation disabled.
+  primary_risk: >-
+    Treating historical compatibility, similarly branded public documentation or
+    marketing claims as a current executable provider contract could duplicate
+    monetary execution or admit unauthenticated financial evidence.
+
+source_of_truth:
+  problem_analysis:
+    - docs/design/a5-provider-conformance-problem-analysis.md
+  canonical_contracts:
+    - docs/contracts/native-pix-provider-adapter.md
+    - docs/contracts/payment-and-provider-attempt.md
+    - docs/contracts/reconciliation.md
+  provider_scope:
+    - docs/reverse-engineering/provider-retention.md
+    - docs/decisions/0004-provider-orchestration.md
+  retained_provider_audit:
+    - docs/reverse-engineering/retained-providers-akkadpag-flevopay.md
+    - docs/evidence/providers/2026-08-14-retained-provider-conformance.md
+    - docs/reverse-engineering/provider-inventory.md
+  legacy_revision:
+    repository: SwiftPay-Prod/swiftpay---Prod
+    commit: f60a515d2bbfa6ed8142f46fa778fb27068a700d
+    akkadpag:
+      - swiftpay-api-payment/Clients/AkkadPag/AkkadPagClient.cs
+      - swiftpay-api-payment/Clients/AkkadPag/Models/AkkadPagModels.cs
+      - swiftpay-api-payment/Services/Acquirers/AkkadPagService.cs
+      - swiftpay-api-payment/Services/Acquirers/Utils/AkkadPagStatusConverter.cs
+    flevopay:
+      - swiftpay-api-payment/Clients/FlevoPay/FlevoPayClient.cs
+      - swiftpay-api-payment/Clients/FlevoPay/Models/FlevoPayModels.cs
+      - swiftpay-api-payment/Services/Acquirers/FlevoPayService.cs
+      - swiftpay-api-payment/Services/Acquirers/Utils/FlevoPayStatusConverter.cs
+  public_provider_material_rechecked_2026_08_16:
+    akadpay_discovery_only:
+      - https://akadpay.com.br/
+      - https://painel.akadpay.com.br/docs/api-pix/receive
+      - https://painel.akadpay.com.br/docs/api-pix/send
+      - https://painel.akadpay.com.br/docs/api-pix/webhooks
+    flevopay_discovery_only:
+      - https://flevopay.com.br/
+
+provider_scope:
+  retained_exactly:
+    - akkadpag
+    - flevopay
+  deferred_legacy_providers_are_out_of_scope: true
+  adding_provider_requires_new_adr: true
+
+objectives:
+  - Freeze an evidence classification and contract-lineage model for provider facts.
+  - Add a small capability-oriented provider package only after RED contracts exist.
+  - Preserve canonical integer BRL-cent money at the SwiftPay boundary.
+  - Preserve stable SwiftPay client references separately from all provider identifiers.
+  - Model execution certainty explicitly and never collapse transport ambiguity into failure.
+  - Prove monetary operations perform no transparent retry.
+  - Prove unsupported operations produce zero transport calls.
+  - Remove all legacy synthetic customer identity/contact behavior.
+  - Normalize only known historical statuses; unknown status must fail closed.
+  - Keep live webhook authority unavailable until exact provider verification is proven.
+  - Add synthetic sanitized provider fixtures with explicit provenance.
+  - Make A5 conformance CI network-free and independent of provider credentials/accounts.
+  - Keep production activation disabled for every retained-provider operation in A5.
+
+non_objectives:
+  - Any live request to AkkadPag, AkadPay or FlevoPay.
+  - Any DNS resolution or provider network socket in conformance CI.
+  - Real provider credentials.
+  - Provider onboarding or account creation.
+  - Production Pix creation, payout or refund.
+  - Assuming AkkadPag and AkadPay are the same contract lineage.
+  - Enabling FlevoPay Pix Out based on current marketing material.
+  - Provider webhook ingress that can mutate Payment/ledger state.
+  - Provider-specific reconciliation semantics based on unproven missing-record behavior.
+  - Production rate-limit/backoff tuning.
+  - Refund enablement.
+  - Database schema changes.
+  - Changes to A1-A4 public HTTP behavior.
+
+ evidence_model:
+  classification_enum:
+    - proven_current
+    - proven_legacy
+    - inferred_non_authoritative
+    - unknown
+  precedence:
+    - current_provider_owned_technical_documentation_bound_to_exact_lineage
+    - current_authenticated_non_monetary_sandbox_evidence
+    - provider_owned_written_lineage_or_contract_confirmation
+    - retained_legacy_source_at_audited_revision
+    - public_marketing_discovery_only
+  activation_rule: >-
+    Only proven_current evidence may independently unlock a production operation.
+    proven_legacy may define fixture compatibility but cannot activate production
+    where current lineage/semantics are material.
+  inference_never_enables_money_movement: true
+
+operation_state_model:
+  enum:
+    - unsupported
+    - fixture_only
+    - current_contract_proven
+    - sandbox_proven
+    - production_enabled
+  a5_maximum_state: fixture_only
+  production_enabled_allowed_in_a5: false
+
+contract_lineages:
+  akkadpag_legacy:
+    id: akkadpag-legacy-api-v1
+    provider: akkadpag
+    classification: proven_legacy
+    base_url_observed: https://api.akkadpag.com/v1/
+    current_endpoint_approved: false
+  akadpay_public_2026:
+    id: akadpay-public-2026
+    provider_identity_binding_to_akkadpag: unknown
+    classification_for_akkadpag: inferred_non_authoritative
+    import_into_akkadpag_adapter: forbidden
+  flevopay_legacy:
+    id: flevopay-legacy-app-api-v1
+    provider: flevopay
+    classification: proven_legacy
+    base_url_observed: https://app.flevopay.com.br/api/v1/
+    current_endpoint_approved: false
+  flevopay_public_2026:
+    id: flevopay-public-api-v1-marketing
+    advertised_host: api.flevopay.com/v1
+    exact_legacy_compatibility: unknown
+    classification_for_runtime_contract: inferred_non_authoritative
+
+activation_matrix:
+  akkadpag:
+    pix_in:
+      a5_state: fixture_only
+      production_activation: blocked
+      blockers:
+        - current contract lineage/base URL
+        - current create request/response semantics
+        - current idempotency/replay guarantee
+        - authoritative recovery identifier and absence semantics
+        - current status vocabulary
+        - exact webhook authentication/replay contract
+        - rate limits/safe read retry contract
+    pix_out:
+      a5_state: fixture_only
+      production_activation: blocked
+      blockers:
+        - all current Pix-in lineage concerns where applicable
+        - current payout request/response contract
+        - provider payout idempotency/replay guarantee
+        - payout authoritative recovery semantics
+        - payout webhook authentication/replay contract
+    refund:
+      a5_state: unsupported
+      production_activation: blocked
+  flevopay:
+    pix_in:
+      a5_state: fixture_only
+      production_activation: blocked
+      blockers:
+        - current contract lineage/base URL
+        - current create/query request/response semantics
+        - current idempotency/replay guarantee
+        - authoritative recovery identifier and absence semantics
+        - exact webhook authentication/replay contract
+        - current status vocabulary
+        - rate limits/safe read retry contract
+    pix_out:
+      a5_state: unsupported
+      production_activation: blocked
+      reason: audited retained adapter has no Pix-out operation; current marketing is not an executable contract
+    refund:
+      a5_state: unsupported
+      production_activation: blocked
+
+canonical_provider_types:
+  provider_name: akkadpag | flevopay
+  environment: sandbox | production
+  operation: pix_create | pix_query | pix_recover | webhook_verify | pix_out_create | pix_out_query | pix_out_recover | refund
+  amount:
+    canonical_type: integer
+    unit: BRL_centavos
+    minimum: 1
+    floating_point_forbidden: true
+  customer:
+    fields:
+      name: string_or_null
+      document: string_or_null
+      email: string_or_null
+      phone: string_or_null
+    synthetic_substitution_forbidden: true
+  identifiers:
+    keep_semantically_distinct:
+      - client_reference
+      - provider_payment_id
+      - provider_transaction_id
+      - provider_pix_txid
+      - provider_end_to_end_id
+      - provider_event_id
+      - provider_specific_lookup_reference
+    overloading_all_as_txid: forbidden
+
+provider_capability_contract:
+  akkadpag:
+    pix_in: fixture_only
+    pix_query: fixture_only
+    pix_recover: fixture_only_with_no_authoritative_absence_claim
+    webhook_verify: unavailable_for_live_authority
+    pix_out_create: fixture_only
+    pix_out_query: fixture_only
+    pix_out_recover: fixture_only_with_no_authoritative_absence_claim
+    refund: unsupported
+  flevopay:
+    pix_in: fixture_only
+    pix_query: fixture_only
+    pix_recover: fixture_only_with_no_authoritative_absence_claim
+    webhook_verify: unavailable_for_live_authority
+    pix_out_create: unsupported
+    pix_out_query: unsupported
+    pix_out_recover: unsupported
+    refund: unsupported
+
+provider_transport_contract:
+  interface_semantics:
+    request:
+      method: GET | POST
+      relative_path: string
+      headers: map<string,string>
+      body_utf8: string_or_null
+      operation: canonical_provider_operation
+    response:
+      status_code: integer
+      headers: map<string,string>
+      body_utf8: string
+    errors:
+      pre_transmission:
+        meaning: transport proves no request bytes could have reached provider
+      transmission_ambiguous:
+        meaning: request may have reached provider or response may have been lost
+  a5_implementation:
+    fixture_transport_only: true
+    production_http_transport: forbidden
+    DNS: forbidden
+    sockets: forbidden
+    fetch: forbidden
+    node_http_https: forbidden_in_conformance_path
+  invocation_count:
+    monetary_operation_per_adapter_call: exactly_1_or_0_if_local_failure
+    query_operation_per_adapter_call: at_most_1
+    hidden_retry: forbidden
+
+execution_certainty:
+  create_result_enum:
+    - succeeded
+    - definitive_rejection
+    - pre_execution_failure
+    - execution_unknown
+    - configuration_error
+    - unsupported
+  rules:
+    local_validation_failure: pre_execution_failure
+    missing_invalid_credentials_before_transport: configuration_error
+    explicit_fixture_transport_pre_transmission_failure: pre_execution_failure
+    timeout_after_possible_transmission: execution_unknown
+    connection_reset_after_possible_transmission: execution_unknown
+    response_lost_after_possible_transmission: execution_unknown
+    malformed_2xx_body_after_request_transmitted: execution_unknown
+    unproven_provider_4xx_for_monetary_post: execution_unknown
+    provider_5xx_for_monetary_post: execution_unknown
+    replay_after_execution_unknown: forbidden
+    definitive_rejection_requires_explicit_accepted_contract_evidence: true
+  rationale_for_4xx: >-
+    The current retained-provider error taxonomy is not sufficiently proven to
+    assert that every provider 4xx means non-execution. A5 therefore defaults
+    provider-side monetary 4xx to execution_unknown. A later provider-specific
+    current contract may narrow individual codes to definitive_rejection.
+
+recovery_contract:
+  result_enum:
+    - found_pending
+    - found_paid
+    - found_expired
+    - found_failed
+    - proven_not_created
+    - still_unknown
+    - unrecognized_provider_status
+  default_missing_record_result: still_unknown
+  proven_not_created_requires_provider_contract_guarantee: true
+  new_monetary_attempt_after_unknown:
+    allowed_only_if:
+      - previous attempt resolves proven_not_created
+      - provider replay/idempotency is separately proven safe
+  read_retry_inside_adapter: forbidden_in_a5
+
+fixture_security:
+  root: tests/application/provider-fixtures
+  synthetic_only: true
+  forbidden:
+    - live API keys
+    - live tokens
+    - live client secrets
+    - live withdrawal keys
+    - real Authorization header values
+    - real webhook signing secrets
+    - production CPF_or_CNPJ
+    - production customer email_or_phone
+    - production Pix key
+    - production transaction_or_end_to_end identifiers
+  manifest_required: true
+  manifest_fields:
+    provider: required
+    contract_lineage: required
+    operation: required
+    fixture_version: required
+    evidence_classification: required
+    source_artifacts: required_nonempty_array
+    contains_real_secrets: false
+    contains_real_pii: false
+    production_activation: blocked
+  fixture_body_may_use_synthetic_secrets: true
+  logs_must_not_emit_secret_values: true
+
+akkadpag_legacy_fixture_contract:
+  lineage: akkadpag-legacy-api-v1
+  credentials:
+    pix_in_query:
+      required:
+        - publicKey
+        - secretKey
+      request_auth:
+        header: Authorization
+        scheme: Basic
+        payload: base64_utf8(publicKey + ':' + secretKey)
+    pix_out:
+      additionally_required:
+        - withdrawalKey
+      request_header:
+        x-withdrawal-key: withdrawalKey
+    missing_credentials:
+      result: configuration_error
+      transport_calls: 0
+  pix_create:
+    method: POST
+    relative_path: transactions
+    amount:
+      source: amount_cents
+      provider_unit: integer_centavos
+      exact_transform: identity
+    payment_method: PIX
+    client_reference:
+      source: ProviderAttempt.client_reference
+      provider_field: items[0].external_ref
+      idempotency_claim: none
+      rule: correlation_only_until_current_provider_contract_proves_more
+    description:
+      provider_field: items[0].title
+      when_null: Pagamento PIX
+    item:
+      unit_price: amount_cents
+      quantity: 1
+      tangible: false
+    customer:
+      v2_fixture_minimum_input:
+        - name
+        - email
+        - phone
+        - document
+      normalization:
+        name: trim
+        email: trim
+        phone: digits_only
+        document: digits_only
+        document_type:
+          11_digits: CPF
+          14_digits: CNPJ
+          otherwise: local_validation_failure
+      missing_field: pre_execution_failure
+      placeholder_generation: forbidden
+    postback_url:
+      a5_value: synthetic_https_fixture_url
+      live_authority: false
+    response_success_requires:
+      - nonempty id
+      - nonempty pix.copy_paste
+    normalized_success:
+      result: succeeded
+      provider_payment_id: response.id
+      provider_transaction_id: response.id
+      provider_end_to_end_id: response.pix.end_to_end_or_null
+      pix_copy_and_paste: response.pix.copy_paste
+      pix_qr_code: response.pix.copy_paste
+      effective_expires_at: response.pix.expires_at_or_null
+      raw_status: response.status_or_null
+    malformed_2xx: execution_unknown
+  pix_query:
+    method: GET
+    relative_path_template: transactions/{provider_payment_id}
+    accepted_lookup_evidence: provider_payment_id_from_prior_success
+    not_found_proves_non_execution: false
+  payment_status_legacy_mapping:
+    case_normalization: uppercase
+    WAITING_PAYMENT: pending
+    PENDING: pending
+    APPROVED: paid
+    PAID: paid
+    REFUSED: failed
+    CANCELLED: cancelled
+    REFUNDED: refunded_evidence
+    IN_PROTEST: disputed
+    CHARGEBACK: disputed
+    unknown: unrecognized_provider_status
+  pix_out_create:
+    method: POST
+    relative_path: transfers
+    amount_transform: integer_centavos_identity
+    request_fields:
+      - amount
+      - pix_key
+      - pix_key_type
+      - document_optional
+      - postback_url_optional
+    stable_swiftpay_client_reference:
+      persisted_internally: true
+      provider_request_field_proven: false
+      provider_idempotency_claim: none
+    pix_key_type_legacy_mapping:
+      cpf: CPF
+      cnpj: CNPJ
+      email: EMAIL
+      phone: PHONE
+      fallback: EVP
+    response_success_requires:
+      - nonempty id
+      - nonempty status
+    processing_is_not_failure: true
+  payout_status_legacy_mapping:
+    case_normalization: uppercase
+    PENDING_ANALYSIS: processing
+    PROCESSING: processing
+    COMPLETED: completed
+    REFUSED: failed
+    CANCELLED: cancelled
+    unknown: unrecognized_provider_status
+  webhook:
+    historical_payload_shape_fixture: allowed
+    current_authentication_contract: unknown
+    verify_live_authority_result: verification_unavailable
+    may_create_trusted_provider_event: false
+    historical_fields:
+      transaction:
+        - event
+        - transaction.id
+        - transaction.status
+        - transaction.amount
+        - transaction.currency
+        - transaction.payment_method
+        - transaction.pix.copy_paste
+        - transaction.pix.end_to_end
+        - transaction.pix.expires_at
+        - transaction.paid_at
+        - sent_at
+      withdrawal:
+        - event
+        - withdrawal.id
+        - withdrawal.status
+        - withdrawal.amount
+        - withdrawal.net_amount
+        - withdrawal.pix_key
+        - withdrawal.pix_key_type
+        - sent_at
+  refund:
+    supported: false
+    transport_calls: 0
+
+flevopay_legacy_fixture_contract:
+  lineage: flevopay-legacy-app-api-v1
+  credentials:
+    required:
+      - secretKey
+    request_auth:
+      header: X-API-Key
+      value: secretKey
+    missing_credentials:
+      result: configuration_error
+      transport_calls: 0
+  pix_create:
+    method: POST
+    relative_path: transaction
+    amount:
+      source: amount_cents
+      provider_unit: integer_centavos
+      exact_transform: identity
+    client_reference:
+      source: ProviderAttempt.client_reference
+      provider_field: reference
+      legacy_behavior_corrected: >-
+        Legacy preferred merchant externalId and otherwise generated a tx id.
+        V2 fixture conformance always uses the stable ProviderAttempt client reference
+        so merchant external identity and provider execution correlation remain distinct.
+      idempotency_claim: none
+    source_field: api_externa
+    description:
+      provider_field: description
+      when_null: Pagamento PIX
+    customer:
+      v2_fixture_minimum_input:
+        - name
+        - email
+        - phone
+        - document
+      normalization:
+        name: trim
+        email: trim
+        phone: digits_only
+        document: digits_only
+      missing_field: pre_execution_failure
+      placeholder_generation: forbidden
+    postback_url:
+      a5_value: synthetic_https_fixture_url
+      live_authority: false
+    response_success_requires:
+      provider_id:
+        precedence:
+          - transaction_id_stringified_when_nonempty
+          - id_when_nonempty
+      qr_code: nonempty
+    normalized_success:
+      result: succeeded
+      provider_payment_id: selected_provider_id
+      provider_transaction_id: transaction_id_stringified_or_null
+      provider_specific_lookup_reference: selected_provider_id
+      pix_copy_and_paste: response.qr_code
+      pix_qr_code: response.qr_code
+      qr_code_base64_private_evidence: response.qr_code_base64_or_null
+      effective_expires_at: parse_rfc3339_or_null
+      raw_status: response.status_or_null
+    malformed_2xx: execution_unknown
+  pix_query:
+    method: GET
+    relative_path_template: query?action=get_transaction&id={urlencoded_lookup_id}
+    fixture_lookup_id: provider_specific_lookup_reference_from_prior_success
+    not_found_proves_non_execution: false
+  payment_status_legacy_mapping:
+    case_normalization: lowercase
+    pending: pending
+    processing: processing
+    approved: paid
+    under_review: processing
+    failed: failed
+    refunded: refunded_evidence
+    chargeback: disputed
+    unknown: unrecognized_provider_status
+  webhook:
+    historical_payload_shape_fixture: allowed
+    current_authentication_contract: unknown
+    legacy_application_auth_existed: true
+    legacy_exact_provider_verification_replay_contract_proven_current: false
+    verify_live_authority_result: verification_unavailable
+    may_create_trusted_provider_event: false
+    historical_fields:
+      - transaction_id
+      - external_id
+      - status
+      - amount
+      - payment_method
+      - customer
+      - pix_code
+      - raw_status
+      - webhook_type
+      - timestamp
+      - recurring_id
+  pix_out:
+    supported: false
+    local_result: unsupported
+    transport_calls: 0
+  refund:
+    supported: false
+    local_result: unsupported
+    transport_calls: 0
+
+webhook_verification_contract:
+  result_enum:
+    - verified
+    - rejected
+    - verification_unavailable
+  a5_live_provider_results:
+    akkadpag: verification_unavailable
+    flevopay: verification_unavailable
+  verified_required_before_trusted_normalization: true
+  verification_unavailable_behavior:
+    create_trusted_provider_event: false
+    mutate_payment_or_ledger: false
+    response_may_be_used_as_authoritative_financial_evidence: false
+  raw_payload_parser_may_exist_for_fixture_validation: true
+  parser_output_trust_level: untrusted
+
+status_normalization:
+  raw_status_persistable_as_private_evidence: true
+  unknown_default_to_pending: forbidden
+  unknown_default_to_processing: forbidden
+  unknown_result: unrecognized_provider_status
+  unknown_may_mutate_canonical_financial_state: false
+  stale_or_backward_transition_guard_remains_orchestrator_responsibility: true
+
+public_api_boundary:
+  provider_specific_DTOs_exposed: false
+  forbidden_public_fields:
+    - provider credential
+    - Authorization header
+    - X-API-Key
+    - x-withdrawal-key
+    - raw response body
+    - provider base URL
+    - provider account id
+    - provider status raw unless a future explicit public contract adds it
+    - internal client reference
+  A1_A4_route_behavior_changes: none
+
+package_boundary:
+  proposed_package: packages/providers
+  creation_allowed_only_after_clean_RED: true
+  responsibilities:
+    - canonical provider types
+    - provider capability metadata
+    - fixture-compatible AkkadPag adapter
+    - fixture-compatible FlevoPay adapter
+    - status normalization
+    - request construction
+    - response parsing
+    - explicit execution certainty
+  forbidden_responsibilities:
+    - database writes
+    - ledger writes
+    - HTTP route registration
+    - live credential loading
+    - provider routing policy persistence
+    - transparent retry
+    - production network transport in A5
+
+fixture_layout:
+  root: tests/application/provider-fixtures
+  akkadpag:
+    manifest: akkadpag/manifest.json
+    required_cases:
+      - akkadpag/pix-create-success.json
+      - akkadpag/pix-create-malformed-2xx.json
+      - akkadpag/pix-create-ambiguous-4xx.json
+      - akkadpag/pix-create-ambiguous-5xx.json
+      - akkadpag/pix-query-pending.json
+      - akkadpag/pix-query-paid.json
+      - akkadpag/pix-query-unknown-status.json
+      - akkadpag/webhook-known-status.json
+      - akkadpag/webhook-unknown-status.json
+      - akkadpag/payout-create-processing.json
+      - akkadpag/payout-create-completed.json
+      - akkadpag/payout-unknown-status.json
+  flevopay:
+    manifest: flevopay/manifest.json
+    required_cases:
+      - flevopay/pix-create-success.json
+      - flevopay/pix-create-malformed-2xx.json
+      - flevopay/pix-create-ambiguous-4xx.json
+      - flevopay/pix-create-ambiguous-5xx.json
+      - flevopay/pix-query-pending.json
+      - flevopay/pix-query-paid.json
+      - flevopay/pix-query-unknown-status.json
+      - flevopay/webhook-known-status.json
+      - flevopay/webhook-unknown-status.json
+  fixture_format:
+    request:
+      method: required
+      relativePath: required
+      expectedHeaders: required
+      body: object_or_null
+    response_or_error:
+      exactly_one_of:
+        - response
+        - transportError
+    response:
+      statusCode: required
+      headers: object
+      body: object_or_string
+    transportError:
+      kind: pre_transmission | transmission_ambiguous
+      code: synthetic_string
+    expected:
+      normalized_result: required
+      transport_calls: required
+
+conformance_tests:
+  planned_files:
+    - tests/application/028_a5_provider_contract.contract.test.mjs
+    - tests/application/029_a5_akkadpag_fixture_conformance.contract.test.mjs
+    - tests/application/030_a5_flevopay_fixture_conformance.contract.test.mjs
+    - tests/application/031_a5_fixture_security_network.contract.test.mjs
+  common_contract_cases:
+    - exactly two retained provider names are exposed
+    - capabilities are explicit per operation
+    - unsupported operation returns before transport
+    - amount cents must be positive safe integer
+    - customer identity is never synthesized
+    - stable client reference remains separate from provider identifiers
+    - monetary adapter invocation has at most one transport call
+    - transmission ambiguity becomes execution_unknown
+    - unrecognized status becomes unrecognized_provider_status
+    - provider DTOs do not leak into canonical result/public projection
+    - live production activation flag does not exist or is false in A5 package
+  akkadpag_cases:
+    - synthetic Basic auth construction
+    - missing credentials fail before transport
+    - Pix-create exact legacy-lineage relative path
+    - amount and single-item amount remain integer cents
+    - item external_ref receives stable client reference
+    - missing customer data fails instead of generating placeholders
+    - CPF/CNPJ document typing is deterministic
+    - successful Pix response normalization
+    - malformed 2xx is execution_unknown
+    - unproven monetary 4xx is execution_unknown
+    - 5xx is execution_unknown
+    - ambiguous transport error is execution_unknown
+    - no second monetary POST occurs
+    - query path uses prior provider payment id
+    - known payment statuses map exactly
+    - unknown payment status fails closed
+    - payout requires withdrawalKey
+    - payout Processing is nonterminal not rejection
+    - payout unknown status fails closed
+    - payout ambiguity does not become failed
+    - refund is unsupported with zero transport
+    - webhook verification is unavailable and cannot create trusted evidence
+  flevopay_cases:
+    - synthetic X-API-Key construction
+    - missing credential fails before transport
+    - Pix-create exact legacy-lineage relative path
+    - amount remains integer cents
+    - reference receives stable client reference
+    - missing customer data fails instead of generating placeholders
+    - source equals api_externa
+    - successful response prefers transaction_id then id
+    - provider identifiers remain semantically distinct
+    - QR code normalization is deterministic
+    - malformed 2xx is execution_unknown
+    - unproven monetary 4xx is execution_unknown
+    - 5xx is execution_unknown
+    - ambiguous transport error is execution_unknown
+    - no second monetary POST occurs
+    - query path URL-encodes lookup id
+    - known statuses map exactly
+    - unknown status fails closed
+    - Pix-out is unsupported with zero transport
+    - refund is unsupported with zero transport
+    - webhook verification is unavailable and cannot create trusted evidence
+  security_network_cases:
+    - every fixture manifest says contains_real_secrets false
+    - every fixture manifest says contains_real_pii false
+    - every fixture manifest says production_activation blocked
+    - fixture files contain only reserved synthetic identifiers/domains
+    - tests do not require provider credential environment variables
+    - conformance source contains no live provider network implementation
+    - fetch/http/https live transport imports are absent from packages/providers in A5
+
+red_gate:
+  required_before_implementation: true
+  expected_failure_count: all_A5_contract_assertions_requiring_packages/providers
+  allowed_preexisting_failures: 0
+  harness_errors_allowed: 0
+  parser_errors_allowed: 0
+  module_resolution_errors_allowed: 0
+  rule: >-
+    A5 RED tests must execute to assertions. If packages/providers does not yet
+    exist, tests must detect that condition deliberately and fail an assertion;
+    an uncaught ERR_MODULE_NOT_FOUND is a harness failure and does not satisfy RED.
+
+implementation_gate:
+  requires:
+    - this YAML status frozen_for_tdd
+    - all four A5 test files committed
+    - required fixture manifests/cases committed
+    - existing A1-A4 application contracts remain GREEN
+    - A5 failures are assertion-level and attributable only to absent behavior
+    - no database contract regression
+  minimal_GREEN_only: true
+  production_network_transport_allowed: false
+
+acceptance:
+  A5_done_requires:
+    - common provider conformance GREEN
+    - AkkadPag fixture conformance GREEN
+    - FlevoPay fixture conformance GREEN
+    - fixture security/network guard GREEN
+    - all A1-A4 tests remain GREEN
+    - no live PSP call in CI
+    - no real provider secret/PII in Git history introduced by A5
+    - evidence report records fixture-only nature and activation blockers
+  A5_done_does_not_mean:
+    - AkkadPag production ready
+    - AkadPay equivalent to AkkadPag
+    - FlevoPay production ready
+    - FlevoPay Pix-out supported
+    - live webhook auth proven
+    - provider missing-record reconciliation semantics proven
+
+post_A5_activation_gate:
+  per_provider_operation_required_evidence:
+    - exact current contract lineage and environment/base URL
+    - exact credential/header placement
+    - exact request/response schema and money unit
+    - provider idempotency/replay classification
+    - authoritative recovery identifiers
+    - missing-record/absence guarantee or explicit lack thereof
+    - current status vocabulary
+    - webhook verification algorithm and replay identity
+    - rate limits and safe read retry semantics
+    - authenticated sandbox evidence when available
+    - secret/PII redaction acceptance
+    - explicit capability/routing enablement
+
+invariants:
+  - SwiftPay remains authoritative for canonical Payment and ledger state.
+  - Provider facts are bound to evidence classification and contract lineage.
+  - Historical compatibility never silently becomes production activation.
+  - AkkadPag/AkadPay equivalence is unresolved until explicitly proven.
+  - FlevoPay Pix-out remains unsupported in A5.
+  - Unknown provider status never defaults to pending/processing/success/failure.
+  - Monetary transport ambiguity becomes execution_unknown.
+  - Monetary POSTs are never transparently retried.
+  - A missing provider record does not prove non-execution by default.
+  - Customer identity/contact data is never synthesized.
+  - Provider credentials never leave trusted adapter/transport request construction.
+  - A5 webhook payloads have no trusted financial authority because verification is unproven.
+  - Unsupported capability fails before external I/O.
+  - A5 is network-free and creates no database/financial side effect.
