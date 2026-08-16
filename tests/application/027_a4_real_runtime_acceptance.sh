@@ -49,8 +49,7 @@ SQL
 state_for_source() {
   local source_id="$1"
   local projection="$2"
-  psql "${ADMIN_DB_URL}" --tuples-only --no-align --set=ON_ERROR_STOP=1 \
-    --set=source_id="${source_id}" --command \
+  psql "${ADMIN_DB_URL}" --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
     "select ${projection}
        from app.webhook_events ev
        join app.webhook_deliveries d on d.webhook_event_id=ev.id
@@ -60,7 +59,7 @@ state_for_source() {
         and j.resource_type='webhook_delivery'
         and j.resource_id=d.id
       where ev.source_type='payment'
-        and ev.source_id=:'source_id'::uuid
+        and ev.source_id='${source_id}'::uuid
         and ev.type='payment.paid';"
 }
 
@@ -241,7 +240,7 @@ readonly DISABLED_SOURCE='b4400000-0000-0000-0000-000000000003'
 record_event "${DISABLED_SOURCE}"
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=endpoint_id="${ENDPOINT_ID}" --command \
-  "update app.webhook_endpoints set status='disabled', updated_at=now() where id=:'endpoint_id'::uuid;" >/dev/null
+  "update app.webhook_endpoints set status='disabled', updated_at=now() where id='${ENDPOINT_ID}'::uuid;" >/dev/null
 run_driver 'disabled'
 disabled_state="$(state_for_source "${DISABLED_SOURCE}" \
   "j.state || '|' || d.state || '|' || j.attempt_count || '|' || d.attempt_count")"
@@ -252,7 +251,7 @@ disabled_state="$(state_for_source "${DISABLED_SOURCE}" \
 readonly STALE_SOURCE='b4400000-0000-0000-0000-000000000004'
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=endpoint_id="${ENDPOINT_ID}" --command \
-  "update app.webhook_endpoints set status='active', updated_at=now() where id=:'endpoint_id'::uuid;" >/dev/null
+  "update app.webhook_endpoints set status='active', updated_at=now() where id='${ENDPOINT_ID}'::uuid;" >/dev/null
 record_event "${STALE_SOURCE}"
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=source_id="${STALE_SOURCE}" --set=stale_token="${STALE_TOKEN}" <<'SQL' >/dev/null
