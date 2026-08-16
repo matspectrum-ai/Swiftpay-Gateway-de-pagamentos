@@ -8,7 +8,7 @@ export interface ProviderAdapterOptions {
 
 export class ProviderTransportError extends Error {
   readonly kind: string;
-  readonly code?: string;
+  readonly code: string | undefined;
 
   constructor(kind: string, code?: string) {
     super('Provider transport failed.');
