@@ -94,7 +94,15 @@ test('A4 worker runtime never uses generic claim_jobs for webhook delivery sched
 test('A4 worker config names a worker-only webhook encryption key without fallback or secret echo', async () => {
   const source = await readFile('packages/config/src/index.ts', 'utf8');
   assert.match(source, /SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY/);
-  assert.doesNotMatch(source, /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY.*WEBHOOK|WEBHOOK.*SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY/s);
+
+  const helperMatch = source.match(/function webhookSecretEncryptionKey\([\s\S]*?\n}\n/);
+  assert.ok(helperMatch, 'webhook key validator must be explicit and independently auditable');
+  assert.doesNotMatch(
+    helperMatch[0],
+    /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY|ACCESS_TOKEN_SIGNING_KEY_ENV/,
+    'webhook key validation must never fall back to the access-token signing key',
+  );
+
   const runtimeSource = await readFile('apps/worker/src/runtime.ts', 'utf8');
   assert.doesNotMatch(runtimeSource, /console\.(log|error).*WEBHOOK_SECRET|process\.stdout.*webhookEncryptionKey/i);
 });
