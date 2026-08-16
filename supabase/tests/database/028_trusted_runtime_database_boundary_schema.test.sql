@@ -269,15 +269,18 @@ select ok(
     'dashboard context helper is not executable by public Data API service or worker roles'
 );
 
--- Exact worker allowlist after A3: existing lease lifecycle plus one sandbox paid command.
+-- Exact worker allowlist after A4: generic lease lifecycle, A3 sandbox paid command,
+-- and two narrow composed merchant-webhook delivery routines.
 select ok(
     coalesce((
-        select count(*) = 4
+        select count(*) = 6
            and bool_and(p.oid = any(array[
                to_regprocedure('app.claim_jobs(text,integer,integer)')::oid,
                to_regprocedure('app.complete_job(uuid,uuid)')::oid,
                to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)')::oid,
-               to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')::oid
+               to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')::oid,
+               to_regprocedure('app.claim_merchant_webhook_deliveries(text,integer,integer)')::oid,
+               to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)')::oid
            ]::oid[]))
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
@@ -286,7 +289,7 @@ select ok(
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_worker')
           and acl.privilege_type = 'EXECUTE'
     ), false),
-    'swiftpay_worker EXECUTE grants equal job lease lifecycle plus A3 sandbox paid command'
+    'swiftpay_worker EXECUTE grants equal A3 capabilities plus A4 composed webhook delivery boundary'
 );
 select ok(
     has_function_privilege('swiftpay_worker', 'app.claim_jobs(text,integer,integer)', 'EXECUTE'),
@@ -320,12 +323,14 @@ select ok(
             to_regprocedure('app.claim_jobs(text,integer,integer)'),
             to_regprocedure('app.complete_job(uuid,uuid)'),
             to_regprocedure('app.reschedule_job(uuid,uuid,text,text,integer)'),
-            to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)')
+            to_regprocedure('app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)'),
+            to_regprocedure('app.claim_merchant_webhook_deliveries(text,integer,integer)'),
+            to_regprocedure('app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)')
         )
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ),
-    'swiftpay_api cannot execute worker-only lease or simulator mutation functions'
+    'swiftpay_api cannot execute worker-only lease simulator or webhook delivery functions'
 );
 select ok(
     not exists (
