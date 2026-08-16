@@ -281,3 +281,12 @@ export function createApiCredentialAuthStore(pool: QueryOnlyPool): ApiCredential
 export * from './pix.js';
 export * from './financial.js';
 export * from './webhooks.js';
+export {
+  createDashboardMerchantContextStore,
+  type DashboardEnvironment,
+  type DashboardMembershipRole,
+  type DashboardMerchantContext,
+  type DashboardMerchantContextInput,
+  type DashboardMerchantContextResult,
+  type DashboardMerchantContextStore,
+} from './dashboard.js';
