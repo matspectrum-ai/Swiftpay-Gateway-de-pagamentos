@@ -169,7 +169,7 @@ begin
                attempt_count = v_attempt_number,
                lease_token = v_lease_token,
                lease_expires_at = v_lease_expires_at,
-               first_attempt_at = pg_catalog.coalesce(first_attempt_at, v_now),
+               first_attempt_at = coalesce(first_attempt_at, v_now),
                last_attempt_at = v_now,
                updated_at = v_now
          where id = v_candidate.delivery_id;
