@@ -69,6 +69,7 @@ run_driver() {
   local log_file="/tmp/swiftpay-a4-${mode}.log"
   if ! node "${DRIVER}" "${mode}" >"${log_file}" 2>&1; then
     echo "A4 runtime acceptance driver failed in phase ${mode}" >&2
+    grep '^A4_DIAG ' "${log_file}" >&2 || true
     exit 1
   fi
   if grep -Eq 'whsec_|MGqlfqa6|JHRLQtcG|v1=[0-9a-f]{64}' "${log_file}"; then
