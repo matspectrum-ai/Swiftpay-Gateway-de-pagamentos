@@ -10,6 +10,7 @@ import {
 import {
   createApiCredentialAuthStore,
   createDashboardMerchantContextStore,
+  createDashboardWebhookEndpointStore,
   createMerchantBalanceStore,
   createPixPaymentStore,
   verifyRuntimeBoundary,
@@ -18,8 +19,14 @@ import {
   createDeterministicPixEmulator,
   createPixPaymentService,
 } from '../../../packages/payments/dist/index.js';
+import {
+  createDashboardWebhookEndpointManagementService,
+  createNodeWebhookEndpointPolicy,
+  parseWebhookWrappingPublicKey,
+} from '../../../packages/webhooks/dist/index.js';
 import type {
   BearerAuthenticator,
+  DashboardWebhookEndpointsHttpService,
   MerchantBalanceHttpService,
   PixPaymentsHttpService,
 } from './app.js';
@@ -29,6 +36,8 @@ type ApiRuntimePool = Parameters<typeof verifyRuntimeBoundary>[0];
 export interface ApiRuntimeServicesOptions extends TokenExchangeServiceOptions {
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
+  readonly webhookSecretWrapKeyId?: string;
+  readonly webhookSecretWrapPublicKey?: string;
 }
 
 export interface ApiRuntimeServices {
@@ -36,6 +45,7 @@ export interface ApiRuntimeServices {
   readonly tokenExchange: TokenExchangeHandler;
   readonly authenticateBearer: BearerAuthenticator;
   readonly dashboardAuthorization: DashboardAuthorizationService;
+  readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly pixPayments: PixPaymentsHttpService;
   readonly merchantBalance: MerchantBalanceHttpService;
 }
@@ -57,6 +67,20 @@ export function createApiRuntimeServices(
     createDeterministicPixEmulator(),
   );
 
+  let dashboardWebhookEndpoints: DashboardWebhookEndpointsHttpService | undefined;
+  if (options.webhookSecretWrapKeyId !== undefined && options.webhookSecretWrapPublicKey !== undefined) {
+    parseWebhookWrappingPublicKey(options.webhookSecretWrapPublicKey);
+    const webhookEndpointStore = createDashboardWebhookEndpointStore(pool);
+    dashboardWebhookEndpoints = createDashboardWebhookEndpointManagementService({
+      sessionVerifier: dashboardSessionVerifier,
+      contextStore: dashboardContextStore,
+      endpointPolicy: createNodeWebhookEndpointPolicy(),
+      store: webhookEndpointStore,
+      wrappingKeyId: options.webhookSecretWrapKeyId,
+      wrappingPublicKey: options.webhookSecretWrapPublicKey,
+    });
+  }
+
   return {
     readinessProbe: () => verifyRuntimeBoundary(pool, 'api'),
     tokenExchange: createTokenExchangeHandler(authStore, options),
@@ -70,6 +94,7 @@ export function createApiRuntimeServices(
       sessionVerifier: dashboardSessionVerifier,
       contextStore: dashboardContextStore,
     }),
+    ...(dashboardWebhookEndpoints === undefined ? {} : { dashboardWebhookEndpoints }),
     pixPayments: {
       create: (input) => pixService.create(input),
       get: ({ principal, paymentId }) => pixStore.getPayment({
