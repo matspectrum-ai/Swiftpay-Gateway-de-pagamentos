@@ -52,6 +52,8 @@ jobs:
       SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
       SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY: 0123456789abcdef0123456789abcdef
       SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+      SWIFTPAY_SUPABASE_URL: https://project-a6.supabase.co
+      SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: sb_publishable_a6_ci_key
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js 24 LTS
@@ -85,3 +87,5 @@ jobs:
         run: bash tests/application/021_a3_real_runtime_acceptance.sh
       - name: Run A4 real merchant webhook runtime acceptance
         run: bash tests/application/027_a4_real_runtime_acceptance.sh
+      - name: Run A6 dashboard authorization real-database acceptance
+        run: bash tests/application/036_a6_dashboard_authorization_runtime_acceptance.sh
