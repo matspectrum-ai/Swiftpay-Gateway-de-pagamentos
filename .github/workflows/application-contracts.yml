@@ -51,6 +51,7 @@ jobs:
       SWIFTPAY_API_DATABASE_URL: postgresql://swiftpay_api_runtime:local_api_runtime_only@127.0.0.1:54322/postgres
       SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
       SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY: 0123456789abcdef0123456789abcdef
+      SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js 24 LTS
