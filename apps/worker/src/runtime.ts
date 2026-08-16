@@ -28,26 +28,42 @@ export interface WorkerRuntimeServices {
   readonly webhookDeliveries: WebhookDeliveryService;
 }
 
+function unconfiguredWebhookDeliveryService(): WebhookDeliveryService {
+  return {
+    async runBatch() {
+      throw new Error('Webhook delivery runtime is not configured');
+    },
+  };
+}
+
 export function createWorkerRuntimeServices(
   pool: WorkerRuntimePool,
-  options: WorkerRuntimeOptions,
+  options?: WorkerRuntimeOptions,
 ): WorkerRuntimeServices {
-  const webhookStore = createMerchantWebhookDeliveryStore(pool);
-  const endpointPolicy = options.webhookEndpointPolicy ?? createNodeWebhookEndpointPolicy();
-  const transport = options.webhookTransport ?? createNodeWebhookTransport();
-  const clock = options.clock ?? {
-    nowUnixSeconds: () => Math.floor(Date.now() / 1000),
-  };
+  let webhookDeliveries: WebhookDeliveryService;
 
-  return {
-    readinessProbe: () => verifyRuntimeBoundary(pool, 'worker'),
-    sandboxPaidEvidence: createSandboxPaidEvidenceStore(pool),
-    webhookDeliveries: createWebhookDeliveryService({
+  if (options === undefined) {
+    webhookDeliveries = unconfiguredWebhookDeliveryService();
+  } else {
+    const webhookStore = createMerchantWebhookDeliveryStore(pool);
+    const endpointPolicy = options.webhookEndpointPolicy ?? createNodeWebhookEndpointPolicy();
+    const transport = options.webhookTransport ?? createNodeWebhookTransport();
+    const clock = options.clock ?? {
+      nowUnixSeconds: () => Math.floor(Date.now() / 1000),
+    };
+
+    webhookDeliveries = createWebhookDeliveryService({
       store: webhookStore,
       encryptionKey: options.webhookEncryptionKey,
       endpointPolicy,
       transport,
       clock,
-    }),
+    });
+  }
+
+  return {
+    readinessProbe: () => verifyRuntimeBoundary(pool, 'worker'),
+    sandboxPaidEvidence: createSandboxPaidEvidenceStore(pool),
+    webhookDeliveries,
   };
 }
