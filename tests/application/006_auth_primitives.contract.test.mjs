@@ -24,6 +24,8 @@ const validConfigSource = {
   SWIFTPAY_ENVIRONMENT: 'sandbox',
   SWIFTPAY_API_DATABASE_URL: 'postgresql://api:test@127.0.0.1:5432/postgres',
   SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY: '0123456789abcdef0123456789abcdef',
+  SWIFTPAY_SUPABASE_URL: 'https://project-a6.supabase.co',
+  SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_a6_test_key',
 };
 
 test('A1 scrypt-v1 verifies the exact opaque plaintext secret', async () => {
