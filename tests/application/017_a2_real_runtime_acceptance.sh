@@ -154,14 +154,14 @@ for (const [body, status] of [[bodyOne, statusOne], [bodyTwo, statusTwo]]) {
   assert.equal(body.environment, 'sandbox');
   assert.equal(body.externalId, 'order-a2-real-runtime-001');
   assert.equal(body.description, 'A2 real runtime');
-  if (status === 201) {
+  if (body.status === 'creating') {
+    assert.equal(status, 202, 'creating response must use 202');
+    assert.equal(body.pix, null);
+  } else {
     assert.equal(body.status, 'pending');
     assert.match(body.pix?.copyAndPaste ?? '', /^SWIFTPAY_EMULATOR_COPY_/);
     assert.match(body.pix?.qrCode ?? '', /^SWIFTPAY_EMULATOR_QR_/);
     assert.match(body.pix?.txId ?? '', /^swiftpay-emulator-tx:/);
-  } else {
-    assert.equal(body.status, 'creating');
-    assert.equal(body.pix, null);
   }
 }
 assert.equal(bodyOne.id, bodyTwo.id, 'concurrent callers must observe the same logical Payment');
