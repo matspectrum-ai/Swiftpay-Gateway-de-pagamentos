@@ -1,11 +1,15 @@
 import {
   authenticateAccessToken,
+  createDashboardAuthorizationService,
+  createSupabaseDashboardSessionVerifier,
   createTokenExchangeHandler,
+  type DashboardAuthorizationService,
   type TokenExchangeHandler,
   type TokenExchangeServiceOptions,
 } from '@swiftpay/auth';
 import {
   createApiCredentialAuthStore,
+  createDashboardMerchantContextStore,
   createMerchantBalanceStore,
   createPixPaymentStore,
   verifyRuntimeBoundary,
@@ -22,12 +26,16 @@ import type {
 
 type ApiRuntimePool = Parameters<typeof verifyRuntimeBoundary>[0];
 
-export type ApiRuntimeServicesOptions = TokenExchangeServiceOptions;
+export interface ApiRuntimeServicesOptions extends TokenExchangeServiceOptions {
+  readonly supabaseUrl: string;
+  readonly supabasePublishableKey: string;
+}
 
 export interface ApiRuntimeServices {
   readonly readinessProbe: () => Promise<void>;
   readonly tokenExchange: TokenExchangeHandler;
   readonly authenticateBearer: BearerAuthenticator;
+  readonly dashboardAuthorization: DashboardAuthorizationService;
   readonly pixPayments: PixPaymentsHttpService;
   readonly merchantBalance: MerchantBalanceHttpService;
 }
@@ -37,6 +45,11 @@ export function createApiRuntimeServices(
   options: ApiRuntimeServicesOptions,
 ): ApiRuntimeServices {
   const authStore = createApiCredentialAuthStore(pool);
+  const dashboardContextStore = createDashboardMerchantContextStore(pool);
+  const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({
+    projectUrl: options.supabaseUrl,
+    publishableKey: options.supabasePublishableKey,
+  });
   const pixStore = createPixPaymentStore(pool);
   const balanceStore = createMerchantBalanceStore(pool);
   const pixService = createPixPaymentService(
@@ -53,6 +66,10 @@ export function createApiRuntimeServices(
       authStore,
       options.nowSeconds?.(),
     ),
+    dashboardAuthorization: createDashboardAuthorizationService({
+      sessionVerifier: dashboardSessionVerifier,
+      contextStore: dashboardContextStore,
+    }),
     pixPayments: {
       create: (input) => pixService.create(input),
       get: ({ principal, paymentId }) => pixStore.getPayment({
