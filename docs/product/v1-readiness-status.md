@@ -1,37 +1,37 @@
 # SwiftPay V2 — V1 Readiness Status
 
-Updated: 2026-08-15
+Updated: 2026-08-16
 
 This is the executive checkpoint for one question: **how close is SwiftPay V2 to being usable and production-ready?**
 
-`TODOS.md` is the detailed engineering ledger. Percentages here are planning estimates weighted by engineering effort, integration risk and unresolved operational surface; they are not raw file/TODO counts.
+`TODOS.md` is the detailed engineering ledger. Percentages are planning estimates weighted by engineering effort, integration risk and unresolved operational surface; they are not raw file/TODO counts.
 
 ## Executive status
 
-SwiftPay V2 now has an executable trusted API/worker runtime and a complete deterministic sandbox money-state path through authenticated Pix creation, canonical paid transition, exactly-once ledger posting and merchant balance read.
-
-A merchant machine client can:
+SwiftPay V2 now has an executable trusted API/worker runtime and a complete deterministic sandbox Pix lifecycle through merchant delivery:
 
 1. exchange API credentials for a 900-second Bearer token;
 2. create a sandbox Pix Payment through `POST /v1/transactions`;
 3. rely on database-backed idempotency across independent API processes;
 4. receive deterministic emulator Pix data;
 5. query the Payment through `GET /v1/transactions/:id`;
-6. have trusted worker-side paid evidence transition the Payment to `paid` exactly once;
-7. rely on an exactly-once balanced `settlement_paid` ledger posting;
-8. query merchant funds through authenticated `GET /v1/balance`.
+6. apply trusted worker-side paid evidence exactly once;
+7. post one balanced `settlement_paid` ledger transaction;
+8. query merchant funds through authenticated `GET /v1/balance`;
+9. create the canonical `payment.paid` webhook event transactionally;
+10. claim, sign, deliver, retry and terminally record merchant HTTP webhook delivery with lease fencing and no financial authority.
 
-A3 also writes the durable canonical `payment.paid` merchant-webhook outbox event transactionally with the money-state transition. What is still missing from the sandbox lifecycle is the HTTP delivery runtime that signs, retries and terminally records merchant webhook delivery.
+A4 closes the missing asynchronous sandbox leg. The critical risk has therefore moved to **provider conformance/live-provider recovery, merchant operational surfaces and production hardening**.
 
-Current estimate:
+Current conservative estimate:
 
-- **Core architecture/domain/database/platform foundation:** ~98% complete.
-- **First end-to-end Pix MVP usable in sandbox:** ~82% complete.
-- **Production-capable Pix V1:** ~45% complete.
-- **Weighted V1 engineering completion:** ~59% complete.
-- **Broader SwiftPay product vision** including hosted checkout, payment links, richer merchant/admin surfaces, broader payout automation and integrations: ~29–34% complete.
+- **Core architecture/domain/database/platform foundation:** ~99% complete.
+- **First end-to-end Pix MVP usable in sandbox:** ~88% complete.
+- **Production-capable Pix V1:** ~49% complete.
+- **Weighted V1 engineering completion:** ~64% complete.
+- **Broader SwiftPay product vision** including hosted checkout, payment links, richer merchant/admin surfaces, broader payout automation and integrations: ~32–37% complete.
 
-The critical risk has moved from canonical financial correctness to **asynchronous merchant delivery, live-provider conformance/recovery, operational product surfaces and production hardening**.
+The sandbox percentage is not 100% because merchants still lack first-class webhook endpoint management and broader operational surfaces; production readiness remains materially lower because no live PSP has crossed the conformance gate yet.
 
 ## Materially complete
 
@@ -39,30 +39,19 @@ The critical risk has moved from canonical financial correctness to **asynchrono
 
 The repository remains the canonical implementation source and carries PRD, architecture, ADRs, domain/public/provider/ledger/webhook contracts, specs, migrations, tests and evidence.
 
-Target architecture remains:
-
-- Pix-first TypeScript modular monolith;
-- Fastify trusted API;
-- separate trusted worker;
-- Supabase/PostgreSQL canonical state;
-- provider-agnostic Payment Core;
-- append-oriented financial/audit semantics;
-- durable jobs and merchant webhook outbox/delivery persistence;
-- AkkadPag and FlevoPay retained as initial live PSP targets behind conformance gates.
+Target architecture remains a Pix-first TypeScript modular monolith with Fastify trusted API, separate trusted worker, Supabase/PostgreSQL canonical state, provider-agnostic Payment Core, append-oriented financial/audit semantics, durable jobs/webhooks and AkkadPag/FlevoPay retained as initial provider targets behind conformance gates.
 
 ### Database / financial foundation
 
-Strongly tested foundations exist for merchant/KYC/provider identity, machine API credentials, idempotency/provider evidence, Payment/ProviderAttempt, double-entry ledger, durable jobs, merchant webhook persistence, payout/refund foundations, financial reservations, reconciliation, private KYC storage, append-only audit events, dashboard authorization and trusted runtime roles.
+Strongly tested foundations exist for merchant/KYC/provider identity, API credentials, idempotency/provider evidence, Payment/ProviderAttempt, double-entry ledger, durable jobs, merchant webhook persistence/runtime, payout/refund foundations, financial reservations, reconciliation, private KYC storage, append-only audit events, dashboard authorization and trusted runtime roles.
 
-Final A3 database acceptance workflow `31885388900` is GREEN:
+Current canonical database lane after A4:
 
-- **35 files / 1209 pgTAP tests / PASS**;
+- **37 pgTAP files / 1272 assertions / PASS**;
 - K5 deterministic sandbox fixture lane: PASS;
 - K6 runtime-topology / least-privilege lane: PASS.
 
-### K5 / K6 / K7 — trusted executable platform
-
-K5, K6 and K7 are DONE.
+### K5 / K6 / K7 — trusted executable platform — DONE
 
 The canonical seed remains non-financial. API and worker use separate capability identities. Node.js 24/Fastify API and worker runtimes execute against real production-like database roles in acceptance.
 
@@ -80,9 +69,9 @@ Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authenti
 
 ### A2 — authenticated Pix create/get + deterministic emulator — DONE
 
-Accepted behavior includes authenticated create/get, strict ownership and request validation, required idempotency, durable Payment/ProviderAttempt before execution, atomic attempt claim, deterministic visibly non-payable emulator output and safe replay/conflict/unknown/rejection semantics.
+Accepted behavior includes authenticated create/get, strict ownership/request validation, required idempotency, durable Payment/ProviderAttempt before execution, atomic attempt claim, deterministic visibly non-payable emulator output and safe replay/conflict/unknown/rejection semantics.
 
-Canonical hosted A2 migrations:
+Canonical hosted migrations:
 
 - `20260815101512_pix_create_get_emulator_foundation.sql`
 - `20260815101609_pix_create_get_emulator_behavior.sql`
@@ -93,55 +82,61 @@ Evidence: `docs/evidence/application/2026-08-15-a2-pix-create-get-emulator.md`.
 
 ### A3 — paid transition + ledger + merchant balance — DONE
 
-Spec: `docs/specs/paid-transition-ledger-balance-v0.yaml`.
+A3 closes the canonical money-state path: worker-only paid evidence, serialized/replay-safe ProviderEvent application, one `settlement_paid` double-entry posting, pending-liability merchant credit, authenticated `GET /v1/balance`, merchant-safe paid Payment projection and transactional `payment.paid` outbox creation.
 
-A3 closes the first canonical money-state path:
-
-- only `swiftpay_worker` may submit deterministic sandbox paid evidence;
-- Payment row lock serializes concurrent paid observations;
-- ProviderEvent identity makes evidence replay durable;
-- eligible `pending`/`expired` Pix transitions to `paid`;
-- exactly one `settlement_paid` double-entry ledger transaction posts per Payment;
-- duplicate/concurrent valid evidence cannot double-credit merchant funds;
-- merchant net is credited into `merchant_pending_liability`, not prematurely marked withdrawable;
-- authenticated `GET /v1/balance` derives merchant/environment only from A1 Bearer revalidation;
-- paid Payment remains merchant-safe and retains normalized Pix data;
-- canonical `payment.paid` webhook outbox event is written transactionally for A4.
-
-Final application/runtime workflow `31885388887` is GREEN:
-
-- **104/104 application contracts**;
-- K7 real runtime acceptance: GREEN;
-- A1 real runtime acceptance: GREEN, quota race `200/429`;
-- A2 real runtime acceptance: GREEN, create race `201/202`;
-- A3 real runtime acceptance: GREEN, paid-evidence race `applied/absorbed`.
-
-Canonical hosted Supabase A3 migrations:
+Canonical hosted migrations:
 
 - `20260816004515_paid_transition_ledger_balance_foundation.sql`
 - `20260816004620_paid_transition_ledger_balance_behavior.sql`
 
-Remote post-apply validation confirms exact API/worker EXECUTE segregation, no migration-created financial postings/events, and zero Supabase Security Advisor lints. Git migration filenames are aligned to hosted history without SQL-content drift.
-
 Evidence: `docs/evidence/application/2026-08-15-a3-paid-transition-ledger-balance.md`.
+
+### A4 — merchant webhook delivery runtime — DONE
+
+A4 consumes the durable outbox without weakening financial authority:
+
+- composed Job + WebhookDelivery lease/fencing capability;
+- exact worker-only RPC boundary;
+- AES-256-GCM signing-secret isolation and version snapshot/rotation handling;
+- deterministic canonical JSON + HMAC-SHA256 webhook signature;
+- strict HTTPS/DNS/IP/redirect policy and pinned TLS destination;
+- one 5-second transport attempt with no hidden retry;
+- deterministic retry/backoff/Retry-After policy and eight-attempt ceiling;
+- success/retry/terminal/disabled durable state transitions;
+- concurrency, retry, disabled-after-fanout and stale-fence real runtime acceptance;
+- explicit financial-table invariance and secret-log leakage checks.
+
+Canonical hosted migrations:
+
+- `20260816034121_merchant_webhook_delivery_runtime_foundation.sql`
+- `20260816034224_merchant_webhook_delivery_runtime_behavior.sql`
+
+Hosted verification confirms only `swiftpay_worker` can execute the two new privileged routines, the worker function allowlist is exactly six capabilities and Supabase Security Advisor returns zero lints.
+
+Accepted/post-sync CI:
+
+- Application workflow `31924944437`: GREEN, **128/128 application contracts** plus K7/A1/A2/A3/A4 runtime acceptance;
+- Database workflow `31924944433`: GREEN, **37 files / 1272 pgTAP assertions**, K5 and K6.
+
+Evidence: `docs/evidence/application/2026-08-16-a4-merchant-webhook-delivery-runtime.md`.
 
 ## Weighted V1 workstream estimate
 
 | Workstream | Weight | Estimated completion | Weighted contribution |
 |---|---:|---:|---:|
-| Product contracts / architecture / reverse engineering | 10% | 96% | 9.6% |
+| Product contracts / architecture / reverse engineering | 10% | 97% | 9.7% |
 | Database + financial core | 20% | 99% | 19.8% |
-| Supabase security/platform foundation | 10% | 98% | 9.8% |
-| Trusted backend + public API runtime | 15% | 78% | 11.7% |
+| Supabase security/platform foundation | 10% | 99% | 9.9% |
+| Trusted backend + public API runtime | 15% | 80% | 12.0% |
 | Pix provider integrations + recovery | 15% | 30% | 4.5% |
-| Worker + merchant webhook HTTP runtime | 10% | 25% | 2.5% |
+| Worker + merchant webhook HTTP runtime | 10% | 78% | 7.8% |
 | Merchant/admin UI | 10% | 5% | 0.5% |
 | Hosted checkout / payment links / conversion | 5% | 0% | 0.0% |
 | Wallet/payout operational application layer | 3% | 20% | 0.6% |
-| Deployment / observability / cutover | 2% | 12% | 0.2% |
-| **Total** | **100%** |  | **~59%** |
+| Deployment / observability / cutover | 2% | 15% | 0.3% |
+| **Total** | **100%** |  | **~65% raw weighted / ~64% conservative checkpoint** |
 
-The emulator and A3 financial path materially increase confidence in the provider-independent core, but they are not live PSP integration. Provider-conformance/live-adapter completion therefore remains intentionally low.
+The conservative checkpoint intentionally discounts the raw weighted sum for external-provider uncertainty. A deterministic emulator and robust merchant delivery do not substitute for live PSP conformance.
 
 ## Critical path
 
@@ -152,50 +147,54 @@ K5 deterministic sandbox fixture                 DONE
   -> A1 API credential token authentication      DONE
   -> A2 authenticated Pix create/get + emulator  DONE
   -> A3 paid transition + ledger + balance       DONE
-  -> A4 merchant webhook delivery runtime        NEXT
-  -> PSP conformance fixtures
+  -> A4 merchant webhook delivery runtime        DONE
+  -> A5 provider conformance fixtures            NEXT
   -> AkkadPag/FlevoPay live adapters
-  -> dashboard operational surfaces
+  -> provider webhook ingress/recovery
+  -> merchant/admin operational surfaces
   -> production hardening / observability / cutover
 ```
 
-## Next slice: A4 merchant webhook delivery runtime
+## Next slice: A5 provider conformance fixtures
 
-A4 must consume the durable outbox/delivery state without introducing financial authority into the HTTP delivery worker.
+A5 must remain fixture-first and network-free. It should prove the retained providers against `docs/contracts/native-pix-provider-adapter.md` before any monetary POST can reach a live PSP.
 
 Minimum boundary to freeze before implementation:
 
-1. atomic worker claim/lease semantics for delivery work;
-2. deterministic merchant webhook HTTP request and signature format;
-3. signing-secret access/isolation and log redaction;
-4. success/retry/backoff/terminal failure state machine;
-5. safe concurrent-worker and replay behavior;
-6. deterministic local merchant endpoint acceptance;
-7. no Payment/Ledger mutation from delivery processing;
-8. operational evidence sufficient to unblock provider-conformance work.
+1. source-of-truth evidence and confidence level for AkkadPag/FlevoPay request/response/webhook contracts;
+2. authentication and credential placement without committing real secrets;
+3. exact amount-unit conversion and customer requirements;
+4. stable client-reference/idempotency semantics;
+5. Pix create success/rejection/ambiguous transport mapping;
+6. query/recovery support after `execution_unknown`;
+7. provider payment/TxId/event identity uniqueness scope;
+8. webhook authentication/replay semantics;
+9. canonical status/error taxonomy mapping;
+10. deterministic sanitized fixtures and adapter conformance tests;
+11. explicit capability matrix — unsupported operations remain disabled;
+12. no live network calls in conformance CI.
 
-Implementation does not start until A4 Problem Analysis, YAML specification and RED contracts are versioned.
+A5 implementation may not begin until Problem Analysis, frozen YAML specification and RED conformance contracts are versioned.
 
-## What still blocks a complete Pix sandbox MVP
+## What still blocks a complete sandbox product
 
-The decisive remaining gap is A4:
+The core lifecycle now exists, but product usability still needs:
 
-- claim durable `payment.paid` delivery work;
-- sign and send merchant HTTP webhooks;
-- retry/backoff correctly;
-- represent terminal failure/dead-letter state;
-- prove the end-to-end sandbox chain token -> create -> paid -> ledger/balance -> webhook.
+- merchant-facing webhook endpoint create/update/disable/secret-rotation/test/replay controls;
+- merchant transaction operational UI;
+- API credential management UI/API;
+- broader admin/KYC operational surfaces.
 
-The canonical payment and financial lifecycle through paid/balance is now present; merchant asynchronous delivery is the missing lifecycle leg.
+These no longer block correctness of the deterministic sandbox money + webhook chain itself.
 
 ## What still blocks production-capable Pix V1
 
-Beyond A4, production readiness requires:
+Production readiness requires:
 
-- provider contract/conformance fixtures for AkkadPag and FlevoPay;
-- live adapters behind the provider abstraction;
+- A5 provider contract/conformance fixtures;
+- live AkkadPag/FlevoPay adapters behind the stable provider abstraction;
 - live provider webhook verification/replay handling;
-- timeout/retry/unknown/recovery policy proven against real PSP behavior;
+- timeout/retry/`execution_unknown` recovery policy proven against real PSP behavior;
 - provider credential/secret management and rotation operations;
 - merchant/admin operational UI;
 - observability, alerting, SLOs and runbooks;
@@ -204,4 +203,4 @@ Beyond A4, production readiness requires:
 
 ## Current truth in one sentence
 
-**SwiftPay V2 now has an authenticated, idempotent sandbox Pix flow through exactly-once paid transition, double-entry ledger posting and merchant balance; weighted V1 engineering is ~59%, and A4 merchant webhook HTTP delivery is the next critical slice.**
+**SwiftPay V2 now has an authenticated, idempotent deterministic sandbox Pix flow through exactly-once paid accounting and signed/retried merchant webhook delivery; weighted V1 engineering is conservatively ~64%, the sandbox MVP is ~88%, and provider conformance is the next critical gate before any live PSP integration.**
