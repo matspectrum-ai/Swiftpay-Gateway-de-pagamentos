@@ -424,3 +424,27 @@ export function createTokenExchangeHandler(
     }
   };
 }
+
+import {
+  createDashboardAuthorizationService as createDashboardAuthorizationServiceImpl,
+  createSupabaseDashboardSessionVerifier as createSupabaseDashboardSessionVerifierImpl,
+} from './dashboard.js';
+
+export const createSupabaseDashboardSessionVerifier = createSupabaseDashboardSessionVerifierImpl;
+export const createDashboardAuthorizationService = createDashboardAuthorizationServiceImpl;
+export type {
+  DashboardAuthTransport,
+  DashboardAuthTransportRequest,
+  DashboardAuthTransportResponse,
+  DashboardAuthorizationInput,
+  DashboardAuthorizationResult,
+  DashboardAuthorizationService,
+  DashboardMerchantContext,
+  DashboardMerchantContextInput,
+  DashboardMerchantContextResult,
+  DashboardMerchantContextStore,
+  DashboardSessionVerificationResult,
+  DashboardSessionVerifier,
+  DashboardSessionVerifierOptions,
+  DashboardUserPrincipal,
+} from './dashboard.js';
