@@ -3,6 +3,9 @@ export type SwiftpayEnvironment = 'sandbox' | 'production';
 export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
 export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
 export const WEBHOOK_SECRET_ENCRYPTION_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY';
+export const WEBHOOK_SECRET_WRAP_KEY_ID_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID';
+export const WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY';
+export const WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS';
 export const SUPABASE_URL_ENV = 'SWIFTPAY_SUPABASE_URL';
 export const SUPABASE_PUBLISHABLE_KEY_ENV = 'SWIFTPAY_SUPABASE_PUBLISHABLE_KEY';
 
@@ -12,6 +15,8 @@ export interface ApiConfig {
   readonly accessTokenSigningKey: string;
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
+  readonly webhookSecretWrapKeyId: string;
+  readonly webhookSecretWrapPublicKey: string;
   readonly host: string;
   readonly port: number;
 }
@@ -20,6 +25,7 @@ export interface WorkerConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
   readonly webhookSecretEncryptionKey: string;
+  readonly webhookSecretWrapPrivateKeys?: string;
 }
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
@@ -128,6 +134,54 @@ function webhookSecretEncryptionKey(source: EnvironmentSource): string {
   return value;
 }
 
+function webhookSecretWrapKeyId(source: EnvironmentSource): string {
+  const value = required(source, WEBHOOK_SECRET_WRAP_KEY_ID_ENV);
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value)) {
+    throw new ConfigurationError(`${WEBHOOK_SECRET_WRAP_KEY_ID_ENV} must be a valid wrapping key identifier`);
+  }
+  return value;
+}
+
+function canonicalBase64Url(source: EnvironmentSource, name: string): string {
+  const value = required(source, name);
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.includes('=')) {
+    throw new ConfigurationError(`${name} must be canonical base64url without padding`);
+  }
+  try {
+    const decoded = Buffer.from(value, 'base64url');
+    if (decoded.length === 0 || decoded.toString('base64url') !== value) {
+      throw new Error('invalid base64url');
+    }
+  } catch {
+    throw new ConfigurationError(`${name} must be canonical base64url without padding`);
+  }
+  return value;
+}
+
+function optionalPrivateKeyring(source: EnvironmentSource): string | undefined {
+  const raw = source[WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV]?.trim();
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid keyring');
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.length < 1 || entries.length > 16) throw new Error('invalid keyring');
+    for (const [keyId, encoded] of entries) {
+      if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(keyId)
+        || typeof encoded !== 'string'
+        || !/^[A-Za-z0-9_-]+$/.test(encoded)
+        || encoded.includes('=')) {
+        throw new Error('invalid keyring');
+      }
+      const decoded = Buffer.from(encoded, 'base64url');
+      if (decoded.length === 0 || decoded.toString('base64url') !== encoded) throw new Error('invalid keyring');
+    }
+    return raw;
+  } catch {
+    throw new ConfigurationError(`${WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV} must be a JSON keyId-to-base64url private-key object`);
+  }
+}
+
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
   return {
     environment: environment(source),
@@ -135,6 +189,8 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     accessTokenSigningKey: accessTokenSigningKey(source),
     supabaseUrl: supabaseUrl(source),
     supabasePublishableKey: supabasePublishableKey(source),
+    webhookSecretWrapKeyId: webhookSecretWrapKeyId(source),
+    webhookSecretWrapPublicKey: canonicalBase64Url(source, WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV),
     host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
     port: port(source),
   };
@@ -144,10 +200,12 @@ export function loadWorkerConfig(source: EnvironmentSource = process.env): Worke
   const resolvedEnvironment = environment(source);
   const databaseUrl = postgresUrl(source, 'SWIFTPAY_WORKER_DATABASE_URL');
   const encryptionKey = webhookSecretEncryptionKey(source);
+  const privateKeys = optionalPrivateKeyring(source);
 
   return {
     environment: resolvedEnvironment,
     databaseUrl,
     webhookSecretEncryptionKey: encryptionKey,
+    ...(privateKeys === undefined ? {} : { webhookSecretWrapPrivateKeys: privateKeys }),
   };
 }
