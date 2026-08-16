@@ -29,15 +29,21 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - A5 clean RED head: `10a7051afee1cdd07105c6f08bfac6a5f143ea35`
 - A5 GREEN implementation head: `3583f57e5090ce89284b7929980d738396aafd58`
 - A5 evidence: `docs/evidence/application/2026-08-16-a5-provider-conformance-fixtures.md`
-- A5 GREEN Application workflow: `31927064932` — GREEN, 147/147 contracts + K7/A1/A2/A3/A4 real runtime
-- A5 GREEN Database workflow: `31927064836` — GREEN, pgTAP + K5 + K6
+- A6 pre-analysis prerequisite: `docs/design/webhook-endpoint-management-preanalysis.md`
+- A6 Problem Analysis: `docs/design/a6-dashboard-session-authentication-problem-analysis.md`
+- A6 frozen spec: `docs/specs/dashboard-session-authentication-v0.yaml`
+- A6 clean RED head: `948f5369802dfe682e8c8c0aaeeb8cfa908f3ece`
+- A6 final GREEN head: `4ac4e0b53776e55361f90d5589e5f72bcbdce49c`
+- A6 evidence: `docs/evidence/application/2026-08-16-a6-dashboard-session-authentication.md`
+- A6 GREEN Application workflow: `31928641553` — GREEN, 186/186 contracts + K7/A1/A2/A3/A4/A6 real runtime
+- A6 GREEN Database workflow: `31928641539` — GREEN, pgTAP + K5 + K6
 - Canonical database lane: 37 files / 1272 pgTAP assertions / PASS
 - Core architecture/domain/database/platform foundation estimate: ~99%
-- Weighted V1 engineering estimate: ~67%
-- First end-to-end Pix sandbox MVP estimate: ~88%
-- Production-capable Pix V1 estimate: ~54%
+- Weighted V1 engineering estimate: ~68%
+- First end-to-end Pix sandbox MVP estimate: ~90%
+- Production-capable Pix V1 estimate: ~55%
 - Current external critical blocker: current PSP contract/lineage evidence for AkkadPag and FlevoPay
-- Next unblocked internal candidate: merchant webhook endpoint management API
+- Next unblocked internal candidate: merchant webhook endpoint management API, with signing-secret key custody still requiring a frozen design
 
 ## Non-negotiable delivery method
 
@@ -272,9 +278,51 @@ Requires authoritative current query/recovery semantics and subsequently live ad
 
 # Phase 5 — Merchant/admin product surfaces
 
+## A6 — dashboard session authentication — `DONE`
+
+Pre-analysis prerequisite: `docs/design/webhook-endpoint-management-preanalysis.md`.
+Problem Analysis: `docs/design/a6-dashboard-session-authentication-problem-analysis.md`.
+Spec: `docs/specs/dashboard-session-authentication-v0.yaml`.
+Evidence: `docs/evidence/application/2026-08-16-a6-dashboard-session-authentication.md`.
+
+A6 makes the K3/K4 dashboard authorization model executable from the trusted API runtime without adding a dashboard business route.
+
+Accepted boundary:
+
+- `/v1/**` machine-token realm remains separate from future `/dashboard/v1/**` Supabase-user realm;
+- strict Bearer parsing;
+- exactly one server-side Supabase Auth `/auth/v1/user` verification attempt;
+- 5-second timeout, no redirects, no hidden retry;
+- only verified `userId` becomes identity authority;
+- JWT metadata cannot grant merchant/environment/role authority;
+- 401/403 becomes invalid session;
+- Auth/network/timeout/redirect/rate-limit/malformed success becomes authentication unavailable;
+- modern `sb_publishable_...` key only;
+- no `service_role`, `sb_secret_...` or Supabase JWT secret in API authority;
+- `app.require_dashboard_merchant_context(...)` remains the sole merchant/environment/role boundary;
+- current role/status changes are visible on the next check;
+- no fallback from dashboard session verification to A1 machine authentication;
+- no authorization side effects.
+
+Clean RED:
+
+- head `948f5369802dfe682e8c8c0aaeeb8cfa908f3ece`;
+- Application workflow `31928177006`: typecheck/build PASS, 152 existing tests PASS + exactly 34 expected A6 behavior failures;
+- runtime reached A6 after K7/A1/A2/A3/A4 and failed only with `behavior_not_implemented:createDashboardAuthorizationService`;
+- Database workflow `31928177032`: GREEN.
+
+GREEN:
+
+- final head `4ac4e0b53776e55361f90d5589e5f72bcbdce49c`;
+- Application workflow `31928641553`: GREEN, 186/186 + K7/A1/A2/A3/A4/A6 real runtime;
+- Database workflow `31928641539`: GREEN, pgTAP + K5 + K6;
+- no migration or hosted Supabase schema mutation required.
+
 ## Webhook endpoint management API — `PENDING / NEXT UNBLOCKED CANDIDATE`
 
-A4 can already deliver to durable endpoints, but merchants do not yet have a first-class trusted management surface.
+A4 can already deliver to durable endpoints and A6 now provides the trusted dashboard identity/merchant-authorization prerequisite, but merchants still do not have a first-class management surface.
+
+Existing pre-analysis found one remaining design blocker that must be frozen before RED: the A4 AES webhook-secret encryption key is worker-only. The API must not silently receive that worker key merely to create/rotate endpoint signing secrets.
 
 Candidate boundary to plan next:
 
@@ -282,8 +330,8 @@ Candidate boundary to plan next:
 - list/get merchant-owned endpoints;
 - update subscribed event types / URL within the frozen A4 destination policy;
 - disable/re-enable endpoint;
-- create/rotate signing secret with one-time plaintext return and encrypted-at-rest storage;
-- strict merchant/environment ownership;
+- create/rotate signing secret with one-time plaintext return and encrypted-at-rest storage through an explicitly designed key-management boundary;
+- strict dashboard merchant/environment ownership through A6/K4;
 - audit events and least-privilege trusted DB routines;
 - no direct browser table mutation;
 - test/replay controls only if separately frozen and safe.
@@ -292,7 +340,7 @@ Mandatory pipeline still starts at Problem Analysis; no implementation is author
 
 Other merchant/admin work:
 
-- Merchant authentication/session surface — `PENDING`
+- Dashboard login/session UX and Supabase Auth product configuration — `PENDING` (trusted server-side verification boundary A6 is DONE)
 - API credential management UI/API — `PENDING`
 - Merchant Pix transaction list/detail/search/status UI — `PENDING`
 - KYC/compliance operations UI — `PENDING`
@@ -347,6 +395,7 @@ Foundation contracts / architecture                       DONE
        -> provider webhook ingress                       BLOCKED
 
 Parallel unblocked product path:
+  -> A6 dashboard session authentication                 DONE
   -> webhook endpoint management API                     PENDING / NEXT CANDIDATE
   -> merchant transaction/credential operations         PENDING
   -> broader admin/KYC operations                        PENDING
@@ -359,10 +408,10 @@ Then:
 
 Because live PSP work is correctly blocked on external/current contract evidence, the next internal slice can advance sandbox usability without guessing provider behavior:
 
-1. audit the existing merchant-webhook persistence/A4 contracts for endpoint lifecycle and secret rotation;
-2. produce Problem Analysis for merchant webhook endpoint management;
-3. freeze a management/API YAML specification;
-4. write RED DB/application contracts;
+1. promote `docs/design/webhook-endpoint-management-preanalysis.md` into the full Problem Analysis using A6 as the identity prerequisite;
+2. freeze the signing-secret generation/encryption/key-custody boundary without giving the generic API the worker-only A4 encryption key by accident;
+3. freeze endpoint CRUD/status/subscription/rotation/audit semantics in a management/API YAML specification;
+4. write RED database/application contracts;
 5. implement only after clean RED.
 
 In parallel, provider evidence should be upgraded through provider-owned current technical documentation or authenticated non-monetary/current sandbox proof.
