@@ -5,6 +5,7 @@
     { "path": "./packages/config" },
     { "path": "./packages/db" },
     { "path": "./packages/payments" },
+    { "path": "./packages/providers" },
     { "path": "./packages/webhooks" },
     { "path": "./apps/api" },
     { "path": "./apps/worker" }
