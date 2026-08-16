@@ -47,12 +47,43 @@ export interface MerchantBalanceHttpService {
   }): Promise<unknown>;
 }
 
+interface DashboardWebhookListInput {
+  readonly authorization?: string;
+  readonly merchantId: string;
+  readonly environment: string;
+}
+
+interface DashboardWebhookItemInput extends DashboardWebhookListInput {
+  readonly endpointId: string;
+}
+
+interface DashboardWebhookMutationInput extends DashboardWebhookItemInput {
+  readonly idempotencyKey?: string;
+  readonly request: unknown;
+}
+
+interface DashboardWebhookCreateInput extends DashboardWebhookListInput {
+  readonly idempotencyKey?: string;
+  readonly request: unknown;
+}
+
+export interface DashboardWebhookEndpointsHttpService {
+  list?(input: DashboardWebhookListInput): Promise<Record<string, unknown>>;
+  get?(input: DashboardWebhookItemInput): Promise<Record<string, unknown>>;
+  create?(input: DashboardWebhookCreateInput): Promise<Record<string, unknown>>;
+  update?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+  disable?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+  enable?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+  rotateSecret?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+}
+
 export interface BuildAppOptions {
   readonly readinessProbe: ReadinessProbe;
   readonly tokenExchange?: TokenExchangeHandler;
   readonly authenticateBearer?: BearerAuthenticator;
   readonly pixPayments?: PixPaymentsHttpService;
   readonly merchantBalance?: MerchantBalanceHttpService;
+  readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
 }
 
 function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
@@ -151,6 +182,81 @@ async function authenticatePaymentRequest(
   return authenticateBearerRequest(request, reply, options);
 }
 
+function dashboardAuthorizationHeader(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function idempotencyHeader(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function resultKind(result: Record<string, unknown>): string {
+  return typeof result.kind === 'string' ? result.kind : 'internal_error';
+}
+
+function dashboardWebhookError(kind: string, requestId: string): {
+  status: 400 | 401 | 403 | 404 | 409 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid webhook endpoint request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'Webhook endpoint was not found.', requestId } } };
+    case 'resource_conflict':
+      return { status: 409, body: { error: { code: 'resource_conflict', message: 'Webhook endpoint state changed.', requestId } } };
+    case 'idempotency_conflict':
+      return { status: 409, body: { error: { code: 'idempotency_conflict', message: 'Idempotency key conflicts with another request.', requestId } } };
+    case 'idempotency_in_progress':
+      return { status: 409, body: { error: { code: 'idempotency_in_progress', message: 'Idempotent request is still in progress.', requestId } } };
+    case 'endpoint_limit_reached':
+      return { status: 409, body: { error: { code: 'endpoint_limit_reached', message: 'Webhook endpoint limit reached.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Webhook endpoint operation failed.', requestId } } };
+  }
+}
+
+async function sendDashboardWebhookResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+  successKind: 'list' | 'item' | 'create' | 'mutation' | 'rotate',
+) {
+  const kind = resultKind(result);
+  if (kind !== 'ok' && kind !== 'created') {
+    const failure = dashboardWebhookError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+
+  if (successKind === 'list') {
+    return reply.code(200).send({ object: 'list', data: result.endpoints ?? [] });
+  }
+  if (successKind === 'item' || successKind === 'mutation') {
+    return reply.code(200).send(result.endpoint);
+  }
+  if (successKind === 'create') {
+    const replayed = result.replayed === true;
+    return reply.code(replayed ? 200 : 201).send({
+      ...(result.endpoint as Record<string, unknown>),
+      signingSecret: result.signingSecret ?? null,
+      secretAvailable: result.secretAvailable === true,
+      replayed,
+    });
+  }
+  return reply.code(200).send({
+    ...(result.endpoint as Record<string, unknown>),
+    signingSecret: result.signingSecret ?? null,
+    secretAvailable: result.secretAvailable === true,
+    replayed: result.replayed === true,
+  });
+}
+
 export function buildApp(options: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -166,6 +272,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           '*.withdrawal_key',
           '*.database_url',
           '*.connection_string',
+          '*.signingSecret',
+          '*.secretCiphertext',
+          '*.wrappingPrivateKey',
         ],
         censor: '[REDACTED]',
       },
@@ -301,6 +410,86 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       return reply.code(500).send(paymentInternalError(request.id));
     }
   });
+
+  const dashboardWebhookBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints';
+
+  app.get(dashboardWebhookBase, async (request, reply) => {
+    const service = options.dashboardWebhookEndpoints?.list;
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        merchantId,
+        environment,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, 'list');
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    }
+  });
+
+  app.get(`${dashboardWebhookBase}/:endpointId`, async (request, reply) => {
+    const service = options.dashboardWebhookEndpoints?.get;
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    const { merchantId, environment, endpointId } = request.params as { merchantId: string; environment: string; endpointId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }), merchantId, environment, endpointId,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, 'item');
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    }
+  });
+
+  app.post(dashboardWebhookBase, async (request, reply) => {
+    const service = options.dashboardWebhookEndpoints?.create;
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, request: request.body,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, 'create');
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    }
+  });
+
+  async function mutationRoute(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operation: 'update' | 'disable' | 'enable' | 'rotateSecret',
+    successKind: 'mutation' | 'rotate',
+  ) {
+    const service = options.dashboardWebhookEndpoints?.[operation];
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, successKind);
+    const { merchantId, environment, endpointId } = request.params as { merchantId: string; environment: string; endpointId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, endpointId, request: request.body,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, successKind);
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, successKind);
+    }
+  }
+
+  app.patch(`${dashboardWebhookBase}/:endpointId`, (request, reply) => mutationRoute(request, reply, 'update', 'mutation'));
+  app.post(`${dashboardWebhookBase}/:endpointId/disable`, (request, reply) => mutationRoute(request, reply, 'disable', 'mutation'));
+  app.post(`${dashboardWebhookBase}/:endpointId/enable`, (request, reply) => mutationRoute(request, reply, 'enable', 'mutation'));
+  app.post(`${dashboardWebhookBase}/:endpointId/rotate-secret`, (request, reply) => mutationRoute(request, reply, 'rotateSecret', 'rotate'));
 
   return app;
 }
