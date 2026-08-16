@@ -7,6 +7,8 @@ const config = loadApiConfig();
 const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'api' });
 const services = createApiRuntimeServices(pool, {
   signingKey: config.accessTokenSigningKey,
+  supabaseUrl: config.supabaseUrl,
+  supabasePublishableKey: config.supabasePublishableKey,
 });
 const app = buildApp(services);
 
