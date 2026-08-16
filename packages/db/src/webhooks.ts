@@ -11,6 +11,8 @@ type WebhookErrorClass =
   | 'permanent'
   | 'internal';
 
+type WebhookSecretCiphertextFormat = 'aes-256-gcm-v1' | 'rsa-oaep-sha256-v1';
+
 export interface RuntimeMerchantWebhookDeliveryClaim {
   readonly jobId: string;
   readonly deliveryId: string;
@@ -24,6 +26,8 @@ export interface RuntimeMerchantWebhookDeliveryClaim {
     readonly environment: SwiftpayEnvironment;
     readonly signingSecretVersion: number;
     readonly signingSecretCiphertext: string | null;
+    readonly signingSecretCiphertextFormat?: WebhookSecretCiphertextFormat | null;
+    readonly signingSecretWrappingKeyId?: string | null;
   };
   readonly event: {
     readonly id: string;
@@ -92,6 +96,10 @@ const ERROR_CLASSES = new Set<WebhookErrorClass>([
   'permanent',
   'internal',
 ]);
+const SECRET_FORMATS = new Set<WebhookSecretCiphertextFormat>([
+  'aes-256-gcm-v1',
+  'rsa-oaep-sha256-v1',
+]);
 
 function invalid(): never {
   throw new RuntimeWebhookDeliveryStoreError();
@@ -129,9 +137,17 @@ function mapClaim(value: unknown): RuntimeMerchantWebhookDeliveryClaim {
 
   const endpoint = value.endpoint;
   const event = value.event;
-  if (!isRecord(endpoint) || !hasExactKeys(endpoint, [
+  if (!isRecord(endpoint)) invalid();
+  const legacyEndpointKeys = [
     'id', 'url', 'environment', 'signingSecretVersion', 'signingSecretCiphertext',
-  ])) invalid();
+  ] as const;
+  const a7EndpointKeys = [
+    ...legacyEndpointKeys,
+    'signingSecretCiphertextFormat', 'signingSecretWrappingKeyId',
+  ] as const;
+  const legacyShape = hasExactKeys(endpoint, legacyEndpointKeys);
+  const a7Shape = hasExactKeys(endpoint, a7EndpointKeys);
+  if (!legacyShape && !a7Shape) invalid();
   if (!isRecord(event) || !hasExactKeys(event, [
     'id', 'type', 'occurredAt', 'payloadVersion', 'payload',
   ])) invalid();
@@ -160,6 +176,36 @@ function mapClaim(value: unknown): RuntimeMerchantWebhookDeliveryClaim {
     invalid();
   }
 
+  if (a7Shape) {
+    const format = endpoint.signingSecretCiphertextFormat;
+    const wrappingKeyId = endpoint.signingSecretWrappingKeyId;
+    if (!(format === null || (typeof format === 'string' && SECRET_FORMATS.has(format as WebhookSecretCiphertextFormat)))
+      || !(wrappingKeyId === null || (typeof wrappingKeyId === 'string' && wrappingKeyId.length >= 1 && wrappingKeyId.length <= 64))) {
+      invalid();
+    }
+    if (format === 'rsa-oaep-sha256-v1' && wrappingKeyId === null) invalid();
+    if (format === 'aes-256-gcm-v1' && wrappingKeyId !== null) invalid();
+    if (endpoint.signingSecretCiphertext === null && format === null && wrappingKeyId !== null) invalid();
+  }
+
+  const mappedEndpoint: RuntimeMerchantWebhookDeliveryClaim['endpoint'] = a7Shape
+    ? {
+        id: endpoint.id,
+        url: endpoint.url,
+        environment: endpoint.environment,
+        signingSecretVersion: endpoint.signingSecretVersion,
+        signingSecretCiphertext: endpoint.signingSecretCiphertext,
+        signingSecretCiphertextFormat: endpoint.signingSecretCiphertextFormat as WebhookSecretCiphertextFormat | null,
+        signingSecretWrappingKeyId: endpoint.signingSecretWrappingKeyId as string | null,
+      }
+    : {
+        id: endpoint.id,
+        url: endpoint.url,
+        environment: endpoint.environment,
+        signingSecretVersion: endpoint.signingSecretVersion,
+        signingSecretCiphertext: endpoint.signingSecretCiphertext,
+      };
+
   return {
     jobId: value.jobId,
     deliveryId: value.deliveryId,
@@ -167,13 +213,7 @@ function mapClaim(value: unknown): RuntimeMerchantWebhookDeliveryClaim {
     attemptNumber: value.attemptNumber,
     maxAttempts: value.maxAttempts,
     leaseExpiresAt: value.leaseExpiresAt,
-    endpoint: {
-      id: endpoint.id,
-      url: endpoint.url,
-      environment: endpoint.environment,
-      signingSecretVersion: endpoint.signingSecretVersion,
-      signingSecretCiphertext: endpoint.signingSecretCiphertext,
-    },
+    endpoint: mappedEndpoint,
     event: {
       id: event.id,
       type: event.type,
