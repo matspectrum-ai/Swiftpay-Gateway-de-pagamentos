@@ -3,11 +3,15 @@ export type SwiftpayEnvironment = 'sandbox' | 'production';
 export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
 export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
 export const WEBHOOK_SECRET_ENCRYPTION_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY';
+export const SUPABASE_URL_ENV = 'SWIFTPAY_SUPABASE_URL';
+export const SUPABASE_PUBLISHABLE_KEY_ENV = 'SWIFTPAY_SUPABASE_PUBLISHABLE_KEY';
 
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
   readonly accessTokenSigningKey: string;
+  readonly supabaseUrl: string;
+  readonly supabasePublishableKey: string;
   readonly host: string;
   readonly port: number;
 }
@@ -46,7 +50,6 @@ function postgresUrl(source: EnvironmentSource, name: string): string {
   } catch {
     throw new ConfigurationError(`${name} must be a valid PostgreSQL URL`);
   }
-
   return value;
 }
 
@@ -80,6 +83,34 @@ function accessTokenSigningKey(source: EnvironmentSource): string {
   return value;
 }
 
+function supabaseUrl(source: EnvironmentSource): string {
+  const value = required(source, SUPABASE_URL_ENV);
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol !== 'https:'
+      || parsed.username !== ''
+      || parsed.password !== ''
+      || (parsed.pathname !== '' && parsed.pathname !== '/')
+      || parsed.search !== ''
+      || parsed.hash !== ''
+    ) {
+      throw new Error('invalid Supabase origin');
+    }
+    return parsed.origin;
+  } catch {
+    throw new ConfigurationError(`${SUPABASE_URL_ENV} must be a valid HTTPS origin`);
+  }
+}
+
+function supabasePublishableKey(source: EnvironmentSource): string {
+  const value = required(source, SUPABASE_PUBLISHABLE_KEY_ENV);
+  if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(value)) {
+    throw new ConfigurationError(`${SUPABASE_PUBLISHABLE_KEY_ENV} must be a modern sb_publishable_ key`);
+  }
+  return value;
+}
+
 function webhookSecretEncryptionKey(source: EnvironmentSource): string {
   const value = required(source, WEBHOOK_SECRET_ENCRYPTION_KEY_ENV);
   if (!/^[A-Za-z0-9_-]+$/.test(value) || value.includes('=')) {
@@ -94,7 +125,6 @@ function webhookSecretEncryptionKey(source: EnvironmentSource): string {
   } catch {
     throw new ConfigurationError(`${WEBHOOK_SECRET_ENCRYPTION_KEY_ENV} must be a valid 32-byte base64url-no-padding key`);
   }
-
   return value;
 }
 
@@ -103,6 +133,8 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     environment: environment(source),
     databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
     accessTokenSigningKey: accessTokenSigningKey(source),
+    supabaseUrl: supabaseUrl(source),
+    supabasePublishableKey: supabasePublishableKey(source),
     host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
     port: port(source),
   };
