@@ -1,0 +1,828 @@
+feature: merchant-webhook-endpoint-management-v0
+status: frozen_for_tdd
+phase: 5
+date: 2026-08-16
+
+problem:
+  statement: >-
+    A4 can durably deliver signed merchant webhooks and A6 can authenticate a
+    dashboard user and resolve current merchant/environment/role authority, but
+    no trusted dashboard surface manages webhook endpoints. A7 must add that
+    surface without widening machine credentials, exposing the worker legacy AES
+    key, redirecting already-created deliveries after URL edits, losing secret
+    versions referenced by durable deliveries, or introducing unaudited and
+    non-idempotent security-sensitive mutations.
+
+source_of_truth:
+  problem_analysis:
+    - docs/design/a7-merchant-webhook-endpoint-management-problem-analysis.md
+  predecessors:
+    - docs/specs/merchant-webhook-delivery-runtime-v0.yaml
+    - docs/specs/dashboard-session-authentication-v0.yaml
+    - docs/specs/trusted-runtime-database-boundary-v0.yaml
+  existing_schema:
+    - supabase/migrations/20260814010000_payment_idempotency_and_provider_events.sql
+    - supabase/migrations/20260814022000_merchant_webhook_persistence.sql
+    - supabase/migrations/20260815022800_audit_events_behavior.sql
+    - supabase/migrations/20260815032700_trusted_runtime_database_boundary_behavior.sql
+    - supabase/migrations/20260816034121_merchant_webhook_delivery_runtime_foundation.sql
+    - supabase/migrations/20260816034224_merchant_webhook_delivery_runtime_behavior.sql
+  runtime:
+    - packages/auth/src/index.ts
+    - packages/db/src/index.ts
+    - packages/webhooks/src/index.ts
+    - apps/api/src/app.ts
+    - apps/api/src/runtime.ts
+    - apps/worker/src/runtime.ts
+
+precedence:
+  - A7 narrows endpoint lifecycle/rotation behavior left open by A4.
+  - A4 event/delivery identity, HMAC input, retry policy, SSRF policy and no-financial-authority rules remain authoritative unless explicitly extended here.
+  - A6 dashboard identity and K4 membership authority remain authoritative and cannot fall back to A1 machine authentication.
+
+objectives:
+  - Add dashboard list/get/create/update/disable/re-enable/rotate-secret webhook endpoint operations.
+  - Reuse A6 server-verified dashboard user identity and K4 role hierarchy.
+  - Require admin for every mutation and member for reads.
+  - Require durable Idempotency-Key for every mutation.
+  - Add positive endpoint revision and expected-revision optimistic concurrency.
+  - Validate endpoint URLs with the same A4 HTTPS/DNS/IP/SSRF policy before persistence.
+  - Snapshot endpoint URL on every new WebhookDelivery so later edits cannot redirect existing work.
+  - Preserve A4 signing-secret version snapshot semantics.
+  - Replace current-plus-one-previous secret selection with durable multi-version ciphertext history.
+  - Keep legacy aes-256-gcm-v1 decrypt capability worker-only for existing rows.
+  - Wrap every new signing secret with API-public/worker-private RSA-OAEP-SHA256 authority.
+  - Return plaintext signing secret once only on the winning create/rotate response.
+  - Add X-SwiftPay-Signature-Version to delivery requests.
+  - Append exactly one safe audit event for every successful mutation.
+  - Preserve zero direct table authority for swiftpay_api and swiftpay_worker.
+  - Preserve zero Payment/ledger/balance/provider/payout/refund effects.
+
+non_objectives:
+  - DELETE endpoint.
+  - Manual test webhook or redelivery.
+  - Webhook event/delivery history API.
+  - Arbitrary event subscriptions.
+  - Provider webhook ingress.
+  - Provider HTTP execution.
+  - Machine-token webhook-management scopes.
+  - KMS/HSM integration.
+  - Secret-version pruning.
+  - Per-endpoint retry policy.
+  - Dashboard login/signup/MFA UX.
+  - Financial mutation of any kind.
+
+route_realm:
+  prefix: /dashboard/v1
+  machine_bearer_fallback: forbidden
+  base_path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints
+  merchantId:
+    type: uuid
+  environment:
+    allowed: [sandbox, production]
+  authorization_sequence:
+    - A6 strict dashboard Bearer verification
+    - A6 K4 authorization using route merchantId/environment and route minimum role
+    - operation-specific trusted database routine re-checks K4 using verified userId
+  current_membership_required_at_database_mutation: true
+
+roles:
+  list: member
+  get: member
+  create: admin
+  update: admin
+  disable: admin
+  enable: admin
+  rotate_secret: admin
+  rationale: >-
+    An admin allowed to create a new subscribed endpoint already has authority to
+    redirect event data and receive a new signing secret, so making rotation
+    owner-only would not create a coherent security boundary.
+
+supported_events:
+  exact_v0:
+    - payment.paid
+  request_rules:
+    type: array
+    minimum_items: 1
+    duplicates: forbidden
+    unknown_values: forbidden
+    canonical_order: lexicographic_ascending
+  future_refund_or_payout_names: rejected_until_executable
+
+endpoint_projection:
+  fields:
+    id: uuid
+    merchantId: uuid
+    environment: sandbox | production
+    url: normalized_https_url
+    status: active | disabled
+    subscribedEvents: array
+    secretVersion: positive_integer
+    revision: positive_integer
+    createdAt: utc_rfc3339
+    updatedAt: utc_rfc3339
+  always_forbidden:
+    - secretCiphertext
+    - ciphertextFormat
+    - wrappingKeyId
+    - historicalSecretCiphertexts
+    - wrappingPublicKey
+    - wrappingPrivateKey
+    - accessToken
+    - authorizationHeader
+
+http_contract:
+  list:
+    method: GET
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints
+    minimum_role: member
+    status: 200
+    body:
+      object: list
+      data: endpoint_projection_array
+    ordering:
+      - createdAt_desc
+      - id_desc
+  get:
+    method: GET
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints/{endpointId}
+    minimum_role: member
+    success_status: 200
+    foreign_or_missing_status: 404
+    disclosure_rule: foreign_and_missing_are_indistinguishable
+  create:
+    method: POST
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints
+    minimum_role: admin
+    required_header: Idempotency-Key
+    body:
+      strict_unknown_fields: true
+      fields:
+        url:
+          type: string
+          required: true
+          max_length: 2048
+        subscribedEvents:
+          type: array
+          required: true
+          rules: supported_events.request_rules
+    first_success:
+      status: 201
+      projection: endpoint_projection
+      additional:
+        signingSecret: plaintext_once
+        secretAvailable: true
+        replayed: false
+    completed_replay:
+      status: 200
+      projection: original_public_response_snapshot
+      additional:
+        signingSecret: null
+        secretAvailable: false
+        replayed: true
+  update:
+    method: PATCH
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints/{endpointId}
+    minimum_role: admin
+    required_header: Idempotency-Key
+    body:
+      strict_unknown_fields: true
+      fields:
+        expectedRevision:
+          type: integer
+          minimum: 1
+          required: true
+        url:
+          type: string
+          max_length: 2048
+          required: false
+        subscribedEvents:
+          type: array
+          required: false
+          rules: supported_events.request_rules
+      at_least_one_mutable_field_required: true
+    url_change:
+      allowed_only_when_endpoint_status: disabled
+      active_endpoint_result: 409
+      existing_deliveries_redirected: false
+    subscriptions_change:
+      active_endpoint_allowed: true
+      affects_existing_deliveries: false
+    success_status: 200
+  disable:
+    method: POST
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints/{endpointId}/disable
+    minimum_role: admin
+    required_header: Idempotency-Key
+    body:
+      strict_unknown_fields: true
+      expectedRevision: positive_integer_required
+    success_status: 200
+  enable:
+    method: POST
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints/{endpointId}/enable
+    minimum_role: admin
+    required_header: Idempotency-Key
+    body:
+      strict_unknown_fields: true
+      expectedRevision: positive_integer_required
+    success_status: 200
+  rotate_secret:
+    method: POST
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints/{endpointId}/rotate-secret
+    minimum_role: admin
+    required_header: Idempotency-Key
+    body:
+      strict_unknown_fields: true
+      expectedRevision: positive_integer_required
+    first_success:
+      status: 200
+      projection: endpoint_projection
+      additional:
+        signingSecret: plaintext_once
+        secretAvailable: true
+        replayed: false
+    completed_replay:
+      status: 200
+      projection: original_public_response_snapshot
+      additional:
+        signingSecret: null
+        secretAvailable: false
+        replayed: true
+
+idempotency:
+  table: app.request_idempotency
+  normalized_header:
+    name: Idempotency-Key
+    normalization: trim
+    min_length: 1
+    max_length: 160
+    empty: forbidden
+  required_for:
+    - create
+    - update
+    - disable
+    - enable
+    - rotate_secret
+  operation_names:
+    create: dashboard_webhook_endpoint_create_v0
+    update: dashboard_webhook_endpoint_update_v0
+    disable: dashboard_webhook_endpoint_disable_v0
+    enable: dashboard_webhook_endpoint_enable_v0
+    rotate_secret: dashboard_webhook_endpoint_rotate_secret_v0
+  request_hash:
+    digest: SHA256
+    encoding: lowercase_hex
+    canonical_json: recursively_sorted_object_keys_no_whitespace
+    include:
+      - operation
+      - merchantId
+      - environment
+      - endpointId_when_present
+      - expectedRevision_when_present
+      - normalized_url_when_present
+      - canonical_subscribedEvents_when_present
+    exclude:
+      - generated_endpoint_id
+      - generated_plaintext_secret
+      - wrapped_ciphertext
+      - wrapping_randomness
+      - request_id
+  same_key_same_hash_completed:
+    mutation_again: false
+    audit_again: false
+    new_secret_generation_authority: false
+    plaintext_secret_returned: false
+    response: original_public_snapshot_with_replayed_true
+  same_key_same_hash_in_progress:
+    status: 409
+    code: idempotency_in_progress
+    mutation_again: false
+  same_key_different_hash:
+    status: 409
+    code: idempotency_conflict
+  durable_response_snapshot_must_not_contain:
+    - plaintext_signing_secret
+    - secret_ciphertext
+    - wrapping_key_material
+
+optimistic_concurrency:
+  column: app.webhook_endpoints.revision
+  type: bigint
+  default: 1
+  check: greater_than_zero
+  successful_mutation_increment: 1
+  expectedRevision_required_for_item_mutations: true
+  mismatch:
+    status: 409
+    code: resource_conflict
+    mutation: none
+    audit: none
+    secret_generated_or_persisted: false
+
+endpoint_policy:
+  management_validation:
+    implementation_source: packages/webhooks A4 endpoint policy
+    scheme: https_only
+    absolute_url: required
+    username_password: forbidden
+    fragment: forbidden
+    port: 443_only
+    hostname: required
+    any_private_or_special_resolved_ip: reject
+    normalized_url_persisted: true
+    dns_validation_before_persistence: required
+  dispatch_validation:
+    rerun_every_attempt: true
+    management_validation_is_not_dispatch_authority: true
+  query_string:
+    allowed_by_A4_policy: true
+    audit_full_url: forbidden
+    logs_full_url: forbidden_for_management_failures
+
+endpoint_limits:
+  maximum_active_endpoints_per_merchant_environment: 10
+  create_when_active_limit_reached:
+    status: 409
+    code: endpoint_limit_reached
+  enable_when_active_limit_reached:
+    status: 409
+    code: endpoint_limit_reached
+
+lifecycle:
+  delete: forbidden
+  create_status: active
+  disable:
+    new_fanout_after_commit: forbidden
+    pending_not_leased_deliveries:
+      delivery_state: disabled
+      paired_job_state: completed
+      attempt_increment: false
+      performed_transactionally: true
+    leased_or_in_flight_delivery:
+      remote_recall_guarantee: false
+      may_complete_one_already_claimed_transport: true
+    history_deleted: false
+  enable:
+    affects_future_fanout: true
+    resurrects_historical_disabled_deliveries: false
+
+schema_changes:
+  webhook_endpoints:
+    add_columns:
+      revision:
+        type: bigint
+        nullable: false
+        default: 1
+        check: greater_than_zero
+    existing_secret_columns:
+      retained_as_compatibility_mirrors_in_A7: true
+      canonical_secret_selection_after_A7: app.webhook_endpoint_secret_versions
+      drop_in_A7: false
+  webhook_deliveries:
+    add_columns:
+      endpoint_url_snapshot:
+        type: text
+        nullable: false_after_backfill
+        purpose: immutable destination selected at event fanout
+    backfill:
+      endpoint_url_snapshot: referenced_webhook_endpoint_url
+    fanout:
+      snapshot_url_and_secret_version_atomically: true
+  webhook_endpoint_secret_versions:
+    new_table: app.webhook_endpoint_secret_versions
+    columns:
+      webhook_endpoint_id: uuid_not_null_fk_webhook_endpoints
+      secret_version: positive_integer
+      ciphertext_format: aes-256-gcm-v1 | rsa-oaep-sha256-v1
+      wrapping_key_id: nullable_text_max_64
+      secret_ciphertext: nonempty_text
+      usable_until: timestamptz_nullable
+      created_at: timestamptz_not_null_default_now
+    primary_key:
+      - webhook_endpoint_id
+      - secret_version
+    format_shape:
+      aes-256-gcm-v1:
+        wrapping_key_id: null
+      rsa-oaep-sha256-v1:
+        wrapping_key_id: required
+    backfill:
+      current_A4_secret:
+        format: aes-256-gcm-v1
+        version: webhook_endpoints.secret_version
+        ciphertext: webhook_endpoints.secret_ciphertext
+        usable_until: null
+      previous_A4_secret_when_present:
+        format: aes-256-gcm-v1
+        version: webhook_endpoints.previous_secret_version
+        ciphertext: webhook_endpoints.previous_secret_ciphertext
+        usable_until: webhook_endpoints.previous_secret_expires_at
+
+secret_plaintext:
+  representation: whsec_<32_random_bytes_base64url_no_padding>
+  random_source: node_crypto_randomBytes
+  random_bytes: 32
+  plaintext_database_persistence: forbidden
+  request_idempotency_snapshot: forbidden
+  audit: forbidden
+  job_payload: forbidden
+  logs: forbidden
+  returned_on:
+    winning_create: once
+    winning_rotate: once
+  completed_idempotency_replay:
+    signingSecret: null
+    secretAvailable: false
+  lost_first_response_recovery: explicit_new_rotate_with_new_idempotency_key
+
+secret_wrapping:
+  new_format:
+    name: rsa-oaep-sha256-v1
+    algorithm: RSA-OAEP
+    padding: RSA_PKCS1_OAEP_PADDING
+    oaep_hash: sha256_explicit
+    mgf1_hash: sha256
+    minimum_modulus_bits: 2048
+    maximum_modulus_bits: 4096
+    ciphertext_encoding: base64url_no_padding
+    ciphertext_representation: rsa-oaep-sha256-v1$<ciphertext-base64url>
+    oaep_label_utf8: |-
+      swiftpay-webhook-secret-wrap-v1
+      <endpoint-id>
+      <secret-version>
+      <wrapping-key-id>
+  wrapping_key_id:
+    min_length: 1
+    max_length: 64
+    pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+  api_authority:
+    encrypt: allowed
+    decrypt: forbidden
+    config:
+      key_id: SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID
+      public_key: SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY
+      public_key_encoding: base64url_DER_SPKI
+      private_key: forbidden
+      legacy_AES_key: forbidden
+  worker_authority:
+    decrypt_new_RSA: allowed
+    encrypt_new_RSA: not_required
+    config:
+      private_keyring: SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS
+      shape: JSON_object_keyId_to_base64url_DER_PKCS8
+      keyring_is_secret: true
+      missing_referenced_key_id: signing_secret_unavailable
+    legacy_AES:
+      environment_variable: SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY
+      retained_for_legacy_rows: true
+      exposed_to_API: false
+  unwrap_failure:
+    network_call: forbidden
+    classification: configuration
+    code: signing_secret_invalid
+    resolution: terminal
+
+secret_rotation:
+  new_version: current_secret_version_plus_one
+  version_overflow: validation_failure
+  overlap_seconds: 86400
+  prior_current_row:
+    usable_until: rotation_time_plus_86400_seconds
+  older_rows:
+    usable_until_changed: false
+  new_row:
+    usable_until: null
+    format: rsa-oaep-sha256-v1
+  endpoint_current_pointer_moves_to_new_version: true
+  compatibility_mirror_updated: true
+  revision_increment: 1
+  plaintext_old_secret_returned: false
+  pruning_in_A7: false
+
+secret_selection_for_delivery:
+  lookup_identity:
+    - webhook_endpoint_id
+    - webhook_deliveries.signing_secret_version
+  current_version:
+    usable: true
+  historical_version:
+    usable_only_when_usable_until_strictly_after_claim_time: true
+  missing_or_expired:
+    ciphertext_returned: null
+    network_call: forbidden
+    resolution: terminal_configuration_signing_secret_unavailable
+  rapid_rotations_supported: true
+
+signature_protocol_extension:
+  existing_A4_HMAC_input_changed: false
+  new_header:
+    X-SwiftPay-Signature-Version: positive_integer_decimal
+  value: webhook_deliveries.signing_secret_version
+  stable_across_retries: true
+  secret_information: false
+
+trusted_database_boundary:
+  direct_table_access_swiftpay_api: forbidden
+  direct_table_access_swiftpay_worker: forbidden
+  generic_record_audit_event_execute_swiftpay_api: forbidden
+  generic_request_idempotency_table_access_swiftpay_api: forbidden
+  all_A7_routines:
+    security_definer: true
+    search_path: empty
+    anon_execute: forbidden
+    authenticated_execute: forbidden
+    service_role_execute: forbidden
+    swiftpay_worker_execute: forbidden
+    swiftpay_api_execute: allowed
+    recheck_K4_internally: true
+  read_routines:
+    list:
+      name: app.list_dashboard_webhook_endpoints
+      signature: [uuid, uuid, text]
+      returns: setof_jsonb
+      arguments: [userId, merchantId, environment]
+      required_role: member
+    get:
+      name: app.get_dashboard_webhook_endpoint
+      signature: [uuid, uuid, text, uuid]
+      returns: jsonb
+      arguments: [userId, merchantId, environment, endpointId]
+      required_role: member
+  mutation_routines:
+    common_return: jsonb_discriminated_result
+    common_idempotency_arguments:
+      - normalized_idempotency_key_text
+      - request_hash_text
+    create:
+      name: app.create_dashboard_webhook_endpoint
+      signature: [uuid, uuid, text, text, text, jsonb]
+      arguments: [userId, merchantId, environment, idempotencyKey, requestHash, command]
+      required_role: admin
+    update:
+      name: app.update_dashboard_webhook_endpoint
+      signature: [uuid, uuid, text, uuid, text, text, jsonb]
+      arguments: [userId, merchantId, environment, endpointId, idempotencyKey, requestHash, command]
+      required_role: admin
+    disable:
+      name: app.disable_dashboard_webhook_endpoint
+      signature: [uuid, uuid, text, uuid, text, text, jsonb]
+      required_role: admin
+    enable:
+      name: app.enable_dashboard_webhook_endpoint
+      signature: [uuid, uuid, text, uuid, text, text, jsonb]
+      required_role: admin
+    rotate_secret:
+      name: app.rotate_dashboard_webhook_endpoint_secret
+      signature: [uuid, uuid, text, uuid, text, text, jsonb]
+      required_role: admin
+  command_json:
+    exact_keys_per_operation_required: true
+    unknown_keys: forbidden
+    ciphertext_may_be_input: true
+    plaintext_secret_may_be_input: false
+  database_error_or_result_mapping:
+    forbidden: operation_forbidden
+    not_found: resource_not_found
+    revision_conflict: resource_conflict
+    idempotency_conflict: idempotency_conflict
+    idempotency_in_progress: idempotency_in_progress
+    endpoint_limit: endpoint_limit_reached
+    invalid_command: validation_error
+    other: internal_error
+
+transactional_audit:
+  primitive: app.record_audit_event
+  direct_swiftpay_api_execute: forbidden
+  successful_mutation_exactly_one: true
+  exact_idempotency_replay_additional_event: false
+  actor_kind: user
+  actor_subject: verified_user_uuid
+  source_kind: application_command
+  source_reference: derived_from_request_idempotency_row_identity
+  request_fingerprint: mutation_request_hash
+  actions:
+    create: webhook_endpoint.created
+    update: webhook_endpoint.updated
+    disable: webhook_endpoint.disabled
+    enable: webhook_endpoint.enabled
+    rotate_secret: webhook_endpoint.secret_rotated
+  safe_metadata_allowed:
+    - revision_before
+    - revision_after
+    - secret_version_before
+    - secret_version_after
+    - changed_field_names
+    - status_before
+    - status_after
+  metadata_forbidden:
+    - full_url
+    - url_query
+    - plaintext_secret
+    - ciphertext
+    - wrapping_key_material
+    - authorization_header
+    - access_token
+
+financial_invariants:
+  A7_may_mutate:
+    - webhook_endpoints
+    - webhook_endpoint_secret_versions
+    - request_idempotency_for_A7_operations
+    - audit_events_for_A7_operations
+    - pending_webhook_deliveries_and_paired_jobs_only_during_disable
+  A7_may_not_mutate:
+    - merchants_financial_state
+    - payments
+    - provider_attempts
+    - provider_events
+    - ledger_accounts
+    - ledger_entries
+    - ledger_postings
+    - payouts
+    - refunds
+    - financial_reservations
+    - reconciliation_financial_evidence
+  disable_pending_delivery_transition_is_financial_effect: false
+
+application_runtime:
+  packages_webhooks_new_exports:
+    - generateWebhookSigningSecret
+    - wrapWebhookSigningSecret
+    - unwrapWebhookSigningSecret
+    - parseWebhookWrappingPublicKey
+    - parseWebhookWrappingPrivateKeyring
+  packages_db_new_exports:
+    - createDashboardWebhookEndpointStore
+  apps_api:
+    reuses_A6_dashboard_authorization: true
+    new_management_service: createDashboardWebhookEndpointManagementService
+    new_routes: http_contract
+    machine_route_realm_unchanged: true
+  apps_worker:
+    A4_claim_resolve_routines_preserved: true
+    claim_projection_extends_with:
+      - endpoint.url_from_delivery_snapshot
+      - endpoint.signingSecretCiphertextFormat
+      - endpoint.signingSecretWrappingKeyId
+    supports_secret_formats:
+      - aes-256-gcm-v1
+      - rsa-oaep-sha256-v1
+    adds_signature_version_header: true
+  config:
+    api_adds:
+      - SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID
+      - SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY
+    api_forbidden:
+      - SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY
+      - SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS
+    worker_adds:
+      - SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS
+    worker_retains_legacy:
+      - SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY
+
+logging_redaction:
+  fields:
+    - signingSecret
+    - secretCiphertext
+    - SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS
+    - SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY
+    - authorization
+  never_log_full_management_response_when_secretAvailable_true: true
+  never_log_endpoint_url_on_policy_error: true
+
+public_error_mapping:
+  invalid_session:
+    status: 401
+    code: invalid_dashboard_session
+  authentication_unavailable:
+    status: 503
+    code: dashboard_authentication_unavailable
+  forbidden:
+    status: 403
+    code: operation_forbidden
+  validation_error:
+    status: 400
+    code: validation_error
+  resource_not_found:
+    status: 404
+    code: resource_not_found
+  resource_conflict:
+    status: 409
+    code: resource_conflict
+  idempotency_conflict:
+    status: 409
+    code: idempotency_conflict
+  idempotency_in_progress:
+    status: 409
+    code: idempotency_in_progress
+  endpoint_limit_reached:
+    status: 409
+    code: endpoint_limit_reached
+  internal_error:
+    status: 500
+    code: internal_error
+  secret_or_key_material_in_error: forbidden
+
+red_tests:
+  database:
+    file: supabase/tests/database/038_webhook_endpoint_management.test.sql
+    clean_red_assertions:
+      - revision column absent before A7 implementation
+      - endpoint_url_snapshot column absent before A7 implementation
+      - webhook_endpoint_secret_versions table absent before A7 implementation
+      - A7 trusted routines absent before A7 implementation
+      - no parser/harness failure
+    eventual_behavior_assertions:
+      - secret version backfill current + previous
+      - current and historical usable_until selection
+      - rapid rotations preserve multiple historical rows
+      - delivery URL + secret version snapshot at fanout
+      - URL edit cannot redirect existing delivery
+      - admin mutation/member read hierarchy through K4
+      - foreign endpoint indistinguishable from missing
+      - revision conflict no mutation
+      - idempotency exact replay and changed-request conflict
+      - active endpoint limit
+      - disable terminalizes pending not leased work and never resurrects on enable
+      - exactly one transactional audit per winning mutation
+      - audit/idempotency contain no plaintext/ciphertext
+      - swiftpay_api has only exact A7 routine execute and zero direct table access
+      - swiftpay_worker management execute denied
+      - financial tables invariant
+  application:
+    - file: tests/application/037_a7_webhook_secret_wrapping.contract.test.mjs
+      assertions:
+        - whsec format contains 32 CSPRNG bytes
+        - RSA-OAEP-SHA256 round trip with exact OAEP label
+        - wrong endpoint/version/keyId label fails
+        - malformed/undersized key fails closed
+        - API public-key parser cannot accept private-key authority
+        - plaintext/key material absent from errors
+    - file: tests/application/038_a7_webhook_endpoint_store.contract.test.mjs
+      assertions:
+        - uses only exact A7 trusted routines
+        - maps result/error variants
+        - no direct table SQL
+        - never returns ciphertext fields in public projection
+    - file: tests/application/039_a7_webhook_endpoint_service.contract.test.mjs
+      assertions:
+        - member read/admin mutation role requirements
+        - canonical subscription + URL validation before mutation
+        - canonical request hashing excludes random secret/ciphertext
+        - every mutation requires Idempotency-Key
+        - expected revision required on item mutations
+        - create/rotate plaintext only on winning result
+        - completed replay returns no plaintext and generates no second durable mutation
+        - update active URL rejected
+    - file: tests/application/040_a7_webhook_endpoint_http.contract.test.mjs
+      assertions:
+        - exact dashboard routes/status/error mapping
+        - A6 auth first
+        - no A1 machine fallback
+        - response/log redaction
+        - foreign/missing 404 indistinguishable
+    - file: tests/application/041_a7_webhook_delivery_rotation_compat.contract.test.mjs
+      assertions:
+        - worker accepts legacy AES row and new RSA row
+        - worker uses snapshotted delivery URL
+        - worker emits X-SwiftPay-Signature-Version
+        - expired/missing historical version terminalizes without HTTP
+        - A4 HMAC input/body/retry semantics unchanged
+  real_database_acceptance:
+    file: tests/application/042_a7_webhook_endpoint_management_runtime_acceptance.sh
+    assertions:
+      - isolated Postgres with production-like swiftpay_api/swiftpay_worker identities
+      - real K4 member/admin/owner users
+      - admin create/list/get/update/disable/enable/rotate
+      - member mutation denied
+      - role downgrade/disable effective on next operation
+      - idempotent concurrency produces one endpoint/one rotation/one audit
+      - two rapid rotations retain all referenced versions with bounded usable_until
+      - URL snapshot remains unchanged after endpoint URL change
+      - disable leaves in-flight limitation explicit and terminalizes pending work
+      - financial/Provider/ledger rows unchanged
+      - no real external HTTP; endpoint policy/crypto fixtures injected where appropriate
+
+clean_red_gate:
+  - frozen YAML parses successfully
+  - all pre-A7 application contracts remain green
+  - application typecheck/build remain green
+  - A7 failures are assertion-level missing behavior only
+  - no missing-module/parser/harness failures
+  - K7/A1/A2/A3/A4/A6 real-runtime acceptance remains green before A7 acceptance
+  - existing pgTAP/K5/K6 lanes remain green except deliberate A7 pgTAP assertion failures
+  - no A7 production migration or implementation exists at RED head
+
+green_gate:
+  - all application contracts including A7 green
+  - K7/A1/A2/A3/A4/A6/A7 real-runtime acceptance green
+  - all database pgTAP/K5/K6 lanes green
+  - hosted migration sync to canonical project completed
+  - hosted Security Advisor no new lint
+  - worker capability allowlist remains explicit
+  - API capability allowlist expands only by frozen A7 routines
+  - no private wrapping key or legacy AES key exposed to API
+  - no plaintext signing secret persisted/logged/audited
+  - no financial side effects
