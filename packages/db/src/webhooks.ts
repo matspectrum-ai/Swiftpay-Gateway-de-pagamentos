@@ -83,7 +83,7 @@ select app.resolve_merchant_webhook_delivery(
 ) as resolved
 `;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ERROR_CLASSES = new Set<WebhookErrorClass>([
   'transient',
   'rate_limited',
