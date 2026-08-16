@@ -8,6 +8,7 @@ on:
       - "packages/**"
       - "tests/application/**"
       - "scripts/provision-local-runtime-identities"
+      - "scripts/provision-local-webhook-wrap-keys.mjs"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -60,6 +61,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Provision A7 ephemeral webhook wrapping keys
+        run: node scripts/provision-local-webhook-wrap-keys.mjs >> "$GITHUB_ENV"
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3.0.0
         with:
