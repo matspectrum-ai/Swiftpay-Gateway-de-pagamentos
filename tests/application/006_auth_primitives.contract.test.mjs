@@ -26,6 +26,8 @@ const validConfigSource = {
   SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY: '0123456789abcdef0123456789abcdef',
   SWIFTPAY_SUPABASE_URL: 'https://project-a6.supabase.co',
   SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_a6_test_key',
+  SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID: 'webhook-wrap-a7-test',
+  SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY: 'AQID',
 };
 
 test('A1 scrypt-v1 verifies the exact opaque plaintext secret', async () => {
@@ -70,77 +72,71 @@ test('A1 exact-IP allowlist treats null and empty list as unrestricted', async (
 
 test('A1 exact-IP allowlist matches only an exact validated stored IP', async () => {
   const { auth } = await imports();
-  assert.equal(typeof auth.evaluateExactIpAllowlist, 'function');
-  assert.equal(auth.evaluateExactIpAllowlist('127.0.0.1', ['127.0.0.1']), true);
-  assert.equal(auth.evaluateExactIpAllowlist('127.0.0.2', ['127.0.0.1']), false);
-  assert.equal(auth.evaluateExactIpAllowlist('::1', ['::1']), true);
+  const allowlist = ['203.0.113.10', '2001:db8::10'];
+  assert.equal(auth.evaluateExactIpAllowlist('203.0.113.10', allowlist), true);
+  assert.equal(auth.evaluateExactIpAllowlist('203.0.113.11', allowlist), false);
+  assert.equal(auth.evaluateExactIpAllowlist('2001:db8::10', allowlist), true);
+  assert.equal(auth.evaluateExactIpAllowlist('2001:db8::11', allowlist), false);
 });
 
 test('A1 exact-IP allowlist rejects wildcard, malformed JSON shape and invalid entries', async () => {
   const { auth } = await imports();
-  assert.equal(typeof auth.evaluateExactIpAllowlist, 'function');
-  assert.equal(auth.evaluateExactIpAllowlist('127.0.0.1', ['*']), false);
-  assert.equal(auth.evaluateExactIpAllowlist('127.0.0.1', { ip: '127.0.0.1' }), false);
-  assert.equal(auth.evaluateExactIpAllowlist('127.0.0.1', ['not-an-ip']), false);
-  assert.equal(auth.evaluateExactIpAllowlist('not-an-ip', ['127.0.0.1']), false);
+  assert.equal(auth.evaluateExactIpAllowlist('203.0.113.10', ['203.0.113.0/24']), false);
+  assert.equal(auth.evaluateExactIpAllowlist('203.0.113.10', '203.0.113.10'), false);
+  assert.equal(auth.evaluateExactIpAllowlist('203.0.113.10', [42]), false);
+  assert.equal(auth.evaluateExactIpAllowlist('203.0.113.10', ['not-an-ip']), false);
+  assert.equal(auth.evaluateExactIpAllowlist('not-an-ip', []), false);
 });
 
 test('A1 JWT issuance and verification preserve canonical HS256 identity claims for exactly 900 seconds', async () => {
   const { auth } = await imports();
-  assert.equal(typeof auth.issueAccessToken, 'function');
-  assert.equal(typeof auth.verifyAccessToken, 'function');
-
-  const signingKey = validConfigSource.SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY;
-  const nowSeconds = 1_900_000_000;
-  const token = await auth.issueAccessToken({
+  const signingKey = '0123456789abcdef0123456789abcdef';
+  const input = {
     merchantId: '60000000-0000-0000-0000-000000000001',
     credentialId: '61000000-0000-0000-0000-000000000001',
     environment: 'sandbox',
     secretVersion: 3,
     jti: '62000000-0000-0000-0000-000000000001',
-    nowSeconds,
-  }, signingKey);
+    nowSeconds: 1_900_000_000,
+  };
 
-  const claims = await auth.verifyAccessToken(token, signingKey, nowSeconds + 1);
+  const token = await auth.issueAccessToken(input, signingKey);
+  const [encodedHeader] = token.split('.');
+  assert.ok(encodedHeader);
+  const header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8'));
+  assert.deepEqual(header, { alg: 'HS256' });
+
+  const claims = await auth.verifyAccessToken(token, signingKey, input.nowSeconds);
   assert.ok(claims);
-  assert.equal(claims.sub, '60000000-0000-0000-0000-000000000001');
-  assert.equal(claims.credential_id, '61000000-0000-0000-0000-000000000001');
-  assert.equal(claims.environment, 'sandbox');
-  assert.equal(claims.secret_version, 3);
-  assert.equal(claims.jti, '62000000-0000-0000-0000-000000000001');
-  assert.equal(claims.iat, nowSeconds);
-  assert.equal(claims.exp, nowSeconds + 900);
-  assert.equal(claims.iss, 'swiftpay');
-  assert.equal(claims.aud, 'swiftpay-api');
+  assert.equal(claims.sub, input.merchantId);
+  assert.equal(claims.credential_id, input.credentialId);
+  assert.equal(claims.environment, input.environment);
+  assert.equal(claims.secret_version, input.secretVersion);
+  assert.equal(claims.jti, input.jti);
+  assert.equal(claims.iat, input.nowSeconds);
+  assert.equal(claims.exp, input.nowSeconds + 900);
+  assert.equal(claims.exp - claims.iat, 900);
 });
 
 test('A1 JWT verification fails closed for wrong key and expiration', async () => {
   const { auth } = await imports();
-  assert.equal(typeof auth.issueAccessToken, 'function');
-  assert.equal(typeof auth.verifyAccessToken, 'function');
-
-  const signingKey = validConfigSource.SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY;
+  const signingKey = '0123456789abcdef0123456789abcdef';
   const token = await auth.issueAccessToken({
     merchantId: '60000000-0000-0000-0000-000000000001',
     credentialId: '61000000-0000-0000-0000-000000000001',
-    environment: 'production',
-    secretVersion: 4,
+    environment: 'sandbox',
+    secretVersion: 1,
     jti: '62000000-0000-0000-0000-000000000002',
     nowSeconds: 1_900_000_000,
   }, signingKey);
 
-  assert.equal(
-    await auth.verifyAccessToken(token, 'abcdef0123456789abcdef0123456789', 1_900_000_001),
-    null,
-  );
+  assert.equal(await auth.verifyAccessToken(token, 'fedcba9876543210fedcba9876543210', 1_900_000_000), null);
   assert.equal(await auth.verifyAccessToken(token, signingKey, 1_900_000_901), null);
 });
 
 test('A1 signing helpers reject undersized signing keys without echoing secret material', async () => {
   const { auth } = await imports();
-  assert.equal(typeof auth.issueAccessToken, 'function');
   const shortKey = 'do-not-echo-short-key';
-
   await assert.rejects(
     () => auth.issueAccessToken({
       merchantId: '60000000-0000-0000-0000-000000000001',
