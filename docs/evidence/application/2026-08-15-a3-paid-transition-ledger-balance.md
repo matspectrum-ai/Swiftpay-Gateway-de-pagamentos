@@ -58,11 +58,9 @@ Hosted verification after migration application:
 
 No A3 runtime fixture, emulator provider account, API credential or webhook endpoint was inserted into the canonical hosted project.
 
-## Final database acceptance
+## Accepted behavior CI
 
-Database workflow: `31885388900` — GREEN.
-
-Accepted result:
+Database workflow `31885388900` — GREEN:
 
 - 35 pgTAP files;
 - 1209 database assertions;
@@ -70,29 +68,26 @@ Accepted result:
 - K5 deterministic sandbox fixture lane GREEN;
 - K6 runtime-topology / least-privilege lane GREEN.
 
-The A3 database contracts prove the paid transition, evidence replay semantics, double-entry posting, balance projection, outbox identity and role isolation.
+Application workflow `31885388887` — GREEN:
 
-## Final application/runtime acceptance
+- 104 application tests;
+- 104 pass / 0 fail;
+- K7 real runtime database acceptance GREEN;
+- A1 real runtime acceptance GREEN, quota race `200/429`;
+- A2 real runtime acceptance GREEN, create race `201/202`;
+- A3 paid-evidence race `applied/absorbed`;
+- `SwiftPay A3 real runtime acceptance: OK`.
 
-Application workflow: `31885388887` — GREEN.
+The A3 acceptance uses production-like `swiftpay_api_runtime` and `swiftpay_worker_runtime` identities against one isolated PostgreSQL database. Two independent worker processes race distinct valid paid observations for one Payment; exactly one applies the monetary transition and the other is absorbed. The merchant then observes the paid Payment and balance only through authenticated API calls.
 
-Application contract lane:
+## Post-sync reproducibility gate
 
-- 104 tests;
-- 104 pass;
-- 0 fail.
+After the hosted Supabase migration versions were known, the Git migration files were renamed to the exact hosted versions without changing their SQL blobs. The full clean-database workflows then reran from that aligned commit:
 
-The real runtime database acceptance job passed, in order:
+- Application workflow `31918072209` — GREEN.
+- Database workflow `31918072219` — GREEN.
 
-- `SwiftPay K7 real runtime database acceptance: OK`
-- `SwiftPay A1 real runtime acceptance: OK`
-- A1 quota race: `200/429`
-- A2 create race: `201/202`
-- `SwiftPay A2 real runtime acceptance: OK`
-- A3 paid-evidence race: `applied/absorbed`
-- `SwiftPay A3 real runtime acceptance: OK`
-
-The A3 acceptance uses the production-like `swiftpay_api_runtime` and `swiftpay_worker_runtime` identities against one isolated PostgreSQL database. Two independent worker processes race distinct valid paid observations for one Payment; exactly one applies the monetary transition and the other is absorbed. The merchant then observes the paid Payment and balance only through authenticated API calls.
+These post-sync runs prove that a fresh database built from repository migration history reproduces the same A3 schema/behavior after canonical hosted-version alignment. A3 therefore has no remaining migration-history drift caveat.
 
 ## Atomicity and side-effect proof
 
@@ -120,4 +115,4 @@ Still pending after this slice:
 
 ## Closure
 
-A3 is accepted as DONE. The next critical slice is A4 merchant webhook delivery runtime, consuming the durable `payment.paid` outbox state without weakening the exactly-once financial boundary established here.
+A3 is accepted as DONE with hosted migration synchronization and clean-database post-sync reproducibility proven. The next critical slice is A4 merchant webhook delivery runtime, consuming the durable `payment.paid` outbox state without weakening the exactly-once financial boundary established here.
