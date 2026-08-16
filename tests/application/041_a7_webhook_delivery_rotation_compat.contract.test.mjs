@@ -1,76 +1,78 @@
 import assert from 'node:assert/strict';
-import {
-  createCipheriv,
-  generateKeyPairSync,
-  publicEncrypt,
-  constants,
-} from 'node:crypto';
+import { generateKeyPairSync, publicEncrypt, constants } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const webhooks = await import('../../packages/webhooks/dist/index.js');
+const [webhooks, workerRuntime] = await Promise.all([
+  import('../../packages/webhooks/dist/index.js'),
+  import('../../apps/worker/dist/runtime.js'),
+]);
 
-const ENDPOINT_ID = '70000000-0000-0000-0000-0000000000a7';
-const DELIVERY_ID = '71000000-0000-0000-0000-0000000000a7';
-const EVENT_ID = '72000000-0000-0000-0000-0000000000a7';
-const JOB_ID = '73000000-0000-0000-0000-0000000000a7';
-const LEASE = '74000000-0000-0000-0000-0000000000a7';
-const LEGACY_KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
+const endpointId = 'b5300000-0000-0000-0000-000000000001';
 
-function legacyCiphertext(secret, version = 1) {
-  const nonce = Buffer.alloc(12, 7);
-  const aad = Buffer.from(`swiftpay-webhook-secret-v1\n${ENDPOINT_ID}\n${version}`, 'utf8');
-  const cipher = createCipheriv('aes-256-gcm', LEGACY_KEY, nonce);
-  cipher.setAAD(aad);
-  const encrypted = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
-  return `aes-256-gcm-v1$${nonce.toString('base64url')}$${encrypted.toString('base64url')}$${cipher.getAuthTag().toString('base64url')}`;
-}
-
-function rsaFixture(secret, version = 2, keyId = 'webhook-wrap-a7-v1') {
+function base64UrlKeyFixture() {
   const pair = generateKeyPairSync('rsa', {
     modulusLength: 2048,
     publicKeyEncoding: { type: 'spki', format: 'der' },
     privateKeyEncoding: { type: 'pkcs8', format: 'der' },
   });
-  const label = Buffer.from(`swiftpay-webhook-secret-wrap-v1\n${ENDPOINT_ID}\n${version}\n${keyId}`, 'utf8');
+  return {
+    publicKey: pair.publicKey.toString('base64url'),
+    privateKey: pair.privateKey.toString('base64url'),
+  };
+}
+
+function rsaFixture(secret, version) {
+  const keys = base64UrlKeyFixture();
+  const keyId = 'webhook-wrap-a7-test-v1';
+  const label = Buffer.from(`swiftpay-webhook-secret-wrap-v1\n${endpointId}\n${version}\n${keyId}`, 'utf8');
+  const publicKey = webhooks.parseWebhookWrappingPublicKey(keys.publicKey);
   const encrypted = publicEncrypt({
-    key: pair.publicKey,
-    format: 'der',
-    type: 'spki',
+    key: publicKey,
     padding: constants.RSA_PKCS1_OAEP_PADDING,
     oaepHash: 'sha256',
     oaepLabel: label,
   }, Buffer.from(secret, 'utf8'));
   return {
-    privateKeyring: { [keyId]: pair.privateKey.toString('base64url') },
-    ciphertext: `rsa-oaep-sha256-v1$${encrypted.toString('base64url')}`,
     keyId,
+    ciphertext: `rsa-oaep-sha256-v1$${encrypted.toString('base64url')}`,
+    privateKeyring: { [keyId]: keys.privateKey },
   };
+}
+
+function legacyCiphertext(secret) {
+  return webhooks.encryptWebhookSigningSecret({
+    key: Buffer.from('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f', 'hex').toString('base64url'),
+    endpointId,
+    secretVersion: 1,
+    secret,
+    nonce: Buffer.from('000102030405060708090a0b', 'hex'),
+  });
 }
 
 function claim({ version, ciphertext, format, wrappingKeyId }) {
   return {
-    jobId: JOB_ID,
-    deliveryId: DELIVERY_ID,
-    leaseToken: LEASE,
+    jobId: 'b5000000-0000-0000-0000-000000000001',
+    deliveryId: 'b5100000-0000-0000-0000-000000000001',
+    leaseToken: 'b5200000-0000-0000-0000-000000000001',
     attemptNumber: 1,
     maxAttempts: 8,
-    leaseExpiresAt: '2026-08-16T06:00:30.000Z',
+    leaseExpiresAt: '2030-01-01T00:00:30.000Z',
     endpoint: {
-      id: ENDPOINT_ID,
+      id: endpointId,
       url: 'https://snapshot.merchant.example/webhooks',
       environment: 'sandbox',
       signingSecretVersion: version,
       signingSecretCiphertext: ciphertext,
       signingSecretCiphertextFormat: format,
-      signingSecretWrappingKeyId: wrappingKeyId ?? null,
+      signingSecretWrappingKeyId: wrappingKeyId,
     },
     event: {
-      id: EVENT_ID,
+      id: 'b5400000-0000-0000-0000-000000000001',
       type: 'payment.paid',
-      occurredAt: '2026-08-16T06:00:00.000Z',
+      occurredAt: '2030-01-01T00:00:00.000Z',
       payloadVersion: 'payment-v1',
-      payload: { id: 'payment-a7', status: 'paid' },
+      payload: { id: 'pay_1', status: 'paid' },
     },
   };
 }
@@ -78,22 +80,23 @@ function claim({ version, ciphertext, format, wrappingKeyId }) {
 async function runOne({ deliveryClaim, privateKeyring = {} }) {
   const resolutions = [];
   const requests = [];
-  const service = webhooks.createWebhookDeliveryService({
-    store: {
+  const runtime = workerRuntime.createWorkerRuntime({
+    paidStore: { applyPaidEvidence: async () => ({ kind: 'not_used' }) },
+    webhookStore: {
       claim: async () => [deliveryClaim],
-      resolve: async (input) => { resolutions.push(input); return true; },
+      resolve: async (value) => { resolutions.push(value); return true; },
     },
-    encryptionKey: LEGACY_KEY,
-    privateKeyring,
-    endpointPolicy: {
+    webhookEncryptionKey: Buffer.from('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f', 'hex').toString('base64url'),
+    webhookPrivateKeyring: privateKeyring,
+    webhookEndpointPolicy: {
       resolveAndValidate: async (url) => ({ url, hostname: 'snapshot.merchant.example', port: 443, pinnedAddress: '93.184.216.34' }),
     },
-    transport: {
+    webhookTransport: {
       send: async (request) => { requests.push(request); return { status: 204, headers: {} }; },
     },
-    clock: { nowUnixSeconds: () => 1_900_000_000 },
+    webhookClock: { nowUnixSeconds: () => 2_000_000_000 },
   });
-  const result = await service.runBatch({ workerId: 'worker-a7', limit: 1, leaseSeconds: 30 });
+  const result = await runtime.runWebhookDeliveryBatch({ workerId: 'a7-worker', limit: 1, leaseSeconds: 30 });
   return { result, resolutions, requests };
 }
 
@@ -120,7 +123,7 @@ test('A7 worker decrypts RSA-OAEP-SHA256 historical/current secret rows and emit
 });
 
 test('A7 effective delivery database claim reads endpoint_url_snapshot rather than mutable endpoint url', async () => {
-  const source = await readFile('supabase/migrations/20260816063200_webhook_endpoint_management_behavior_fix.sql', 'utf8');
+  const source = await readFile('supabase/migrations/20260816073604_webhook_endpoint_management_behavior_fix.sql', 'utf8');
   assert.match(source, /endpoint_url_snapshot/);
   assert.doesNotMatch(source, /ep\.url\s+as\s+endpoint_url/i);
 });
