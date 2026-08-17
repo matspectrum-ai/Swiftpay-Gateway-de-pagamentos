@@ -26,30 +26,25 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A8: `DONE` (`A5` remains fixture-only for live-provider authority)
-- A8 Problem Analysis: `docs/design/a8-api-credential-management-problem-analysis.md`
-- A8 frozen spec: `docs/specs/api-credential-management-v0.yaml`
-- A8 evidence: `docs/evidence/application/2026-08-17-a8-api-credential-management.md`
-- A8 final clean GREEN head: `d74624198918aca53a3769334aeb6b8adbba8092`
-- Final A8 Application workflow: `32001023852` — GREEN, **226/226 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8 real-database acceptance
-- Final A8 Database workflow: `32001023848` — GREEN, **39 files / 1288 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
-- Hosted A8 migrations: `20260817061316`, `20260817061346`, `20260817061415`
-- Hosted post-A8 `swiftpay_api`: exact **21** `app` EXECUTE capabilities
-- Hosted post-A8 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
-- Hosted Security Advisor after A8: **0 lints**
-- A9 merchant transaction operations: `TDD_RED`
+- A1-A9: `DONE` (`A5` remains fixture-only for live-provider authority)
 - A9 Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`
 - A9 frozen spec: `docs/specs/merchant-transaction-operations-v0.yaml`
 - A9 contracts: `docs/contracts/merchant-transaction-operations-v0.md`, `docs/contracts/merchant-transaction-operations-database-v0.md`
-- A9 RED evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations-red.md`
-- A9 Application RED workflow `32005108260`: typecheck/build GREEN; **226 prior PASS + 10 A9 expected FAIL**; K7/A1/A2/A3/A4/A6/A7/A8 real-database regression GREEN
-- A9 Database RED workflow `32005108254`: files 001-039 GREEN; **040 failed exactly 4/4 expected A9 structure assertions**; K5 fixtures and K6 topology GREEN
+- A9 final evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`
+- A9 behavioral GREEN head: `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`
+- Final A9 Application workflow: `32009421604` — GREEN, **240/240 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance
+- Final A9 Database workflow: `32009421592` — GREEN, **40 files / 1292 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
+- Hosted A9 migration: `20260817081745_merchant_transaction_operations.sql`
+- Hosted post-A9 `swiftpay_api`: exact **23** `app` EXECUTE capabilities
+- Hosted post-A9 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
+- Hosted Security Advisor after A9: **0 lints**
+- Hosted A9 audit: two read RPCs, three expected Payment feed/filter indexes, zero audited direct protected-table runtime privileges, zero hosted Payment/ProviderAttempt business rows
 - Core architecture/domain/database/platform estimate: ~99%
-- First end-to-end Pix sandbox MVP estimate: ~96%
-- Production-capable Pix V1 estimate: ~58%
-- Weighted V1 engineering estimate: ~73%
+- First end-to-end Pix sandbox MVP estimate: ~97%
+- Production-capable Pix V1 estimate: ~60%
+- Weighted V1 engineering estimate: ~75%
 - Current external critical blocker: current PSP contract/lineage/idempotency/recovery/webhook-auth evidence for AkkadPag and FlevoPay
-- Next permitted internal action: **minimal A9 implementation to turn the frozen RED contracts GREEN**; no hosted A9 migration before local/CI GREEN
+- Next internal action: select and freeze the next V1 slice through `PROBLEM_ANALYSIS`; continue provider evidence acquisition in parallel; no live monetary provider call is authorized
 
 ## Non-negotiable delivery method
 
@@ -337,7 +332,7 @@ Hosted post-deploy audit:
 
 Performance Advisor remains INFO-only with existing unindexed-FK/unused-index candidates. No speculative performance DDL was added as part of A8.
 
-## A9 — merchant transaction operations — `TDD_RED`
+## A9 — merchant transaction operations — `DONE / HOSTED`
 
 Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`.
 Spec: `docs/specs/merchant-transaction-operations-v0.yaml`.
@@ -346,9 +341,9 @@ Contracts:
 - `docs/contracts/merchant-transaction-operations-v0.md`
 - `docs/contracts/merchant-transaction-operations-database-v0.md`
 
-RED evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations-red.md`.
+Evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`.
 
-Frozen V0 boundary:
+Accepted V0 boundary:
 
 - dashboard-only GET list/detail routes;
 - ordinary A6 online session verification + current K4 `member` authority;
@@ -361,22 +356,38 @@ Frozen V0 boundary:
 - exact status, exact `externalId`, inclusive `createdFrom`, exclusive `createdTo` filters only;
 - no fuzzy/free-text/PII/provider search;
 - deterministic keyset pagination by `created_at DESC, id ASC`, no offset or total count;
-- HMAC-SHA256 authenticated `a9v0` cursor bound to merchant/environment and normalized filter digest;
+- HMAC-SHA256 authenticated `a9v0` cursor bound to merchant/environment and normalized filters;
 - dedicated cursor-integrity key, minimum 32 UTF-8 bytes, never persisted/exposed;
-- exactly two trusted read RPCs planned; post-A9 API EXECUTE count 23, worker remains 6;
+- exactly two trusted read RPCs; post-A9 API EXECUTE count 23, worker remains 6;
 - status composite index plus fixed-width `md5(external_id)` expression index with mandatory exact original-text equality;
 - zero Payment/provider/ledger/idempotency/audit/job/webhook/credential side effects.
 
-Clean RED proof:
+Final GREEN proof:
 
-- Application workflow `32005108260` / job `95312863787`: typecheck GREEN, build GREEN, **236 total = 226 prior PASS + 10 A9 expected FAIL**;
-- all ten A9 failures are assertion-level missing exports/service/store/routes, not parser/module/typecheck/harness defects;
-- runtime-database acceptance job `95312863871`: **GREEN** for K7/A1/A2/A3/A4/A6/A7/A8;
-- Database workflow `32005108254` / pgTAP job `95312863819`: files 001-039 GREEN; file 040 fails exactly 4/4 because the two A9 RPCs and two A9 indexes do not exist yet;
-- K5 deterministic fixtures: GREEN;
-- K6 runtime topology: GREEN.
+- behavioral head `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`;
+- Application workflow `32009421604`: typecheck/build GREEN, **240/240 application contracts PASS**, K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance GREEN;
+- Database workflow `32009421592`: **40 files / 1292 pgTAP assertions PASS**, K5 deterministic fixtures GREEN, K6 runtime topology GREEN;
+- A9 real PostgreSQL acceptance proves Sandbox/Production member reads, nonmember and machine/missing-session rejection, deterministic pagination, exact filtering, cursor tamper/scope/filter rejection, privacy projection, normalized Pix detail and absence/foreign/wrong-environment indistinguishability.
 
-No A9 migration exists in the canonical hosted Supabase project. The next permitted step is minimal implementation to satisfy the frozen A9 RED, followed by refactor and isolated real-database acceptance before any hosted deployment.
+Hosted migration:
+
+- `20260817081745_merchant_transaction_operations.sql`
+
+Hosted post-deploy audit:
+
+- both A9 RPCs present as `SECURITY DEFINER` with `search_path=''`;
+- existing `payments_merchant_created_idx` retained;
+- `payments_dashboard_status_created_idx` present;
+- `payments_dashboard_external_id_created_idx` present;
+- `swiftpay_api`: exact **23** `app` EXECUTE capabilities;
+- `swiftpay_worker`: exact **6** `app` EXECUTE capabilities;
+- API can execute both A9 read RPCs; worker cannot;
+- zero audited direct protected-table runtime privileges;
+- hosted `app.payments`: **0 rows**;
+- hosted `app.provider_attempts`: **0 rows**;
+- Security Advisor: **0 lints**.
+
+Performance Advisor remains INFO-only. The two A9 indexes appear as unused because the canonical hosted project has zero Payment rows; no speculative performance cleanup was performed.
 
 Other merchant/admin work:
 
@@ -436,7 +447,7 @@ Parallel internal product path:
   -> A6 dashboard session authentication                 DONE
   -> A7 webhook endpoint management                      DONE / HOSTED
   -> A8 API credential management                       DONE / HOSTED
-  -> A9 merchant transaction operations                 TDD_RED
+  -> A9 merchant transaction operations                 DONE / HOSTED
   -> broader admin/KYC/payout operations                 PENDING
 
 Then:
@@ -445,16 +456,10 @@ Then:
 
 ## Immediate next action
 
-Because A9 now has frozen Problem Analysis, YAML spec, application/database contracts and clean fail-first proof, the next internal action is implementation — no new behavior may be invented outside those artifacts:
+A9 is now fully GREEN and hosted. The next internal behavior must begin again at `PROBLEM_ANALYSIS`; no A10 implementation authority exists yet.
 
-1. implement the A9 query validator, HMAC cursor codec and read-only application service minimally;
-2. implement the DB adapter through exactly the two frozen trusted RPCs;
-3. add the two A9 trusted read routines and exactly the two frozen query-support indexes in local migrations;
-4. wire only the two dashboard GET routes and dedicated cursor-integrity configuration;
-5. drive the 10 application and 4 pgTAP A9 failures to GREEN while preserving all K7/A1-A8 regression checks;
-6. add isolated real-Postgres A9 acceptance for tenant scoping, pagination, filters, privacy, capability counts and state invariance;
-7. only after full GREEN consider applying A9 to canonical hosted Supabase and rerun least-privilege/Security Advisor verification.
-
-In parallel, provider evidence should be upgraded through provider-owned current technical documentation or authenticated non-monetary/current sandbox proof.
-
-**Do not call AkkadPag, AkadPay or FlevoPay monetarily until the applicable current-contract evidence gate is closed.**
+1. choose the next risk-weighted V1 slice from the remaining merchant/admin, checkout/link, hardening or provider-adjacent work;
+2. freeze its Problem Analysis before YAML/specification or tests;
+3. continue provider-owned current technical evidence acquisition in parallel because live Pix production remains dominated by that blocker;
+4. do not convert legacy/inferred provider material into production authority;
+5. do not call AkkadPag, AkadPay or FlevoPay monetarily until the applicable current-contract evidence and live acceptance gates are closed.
