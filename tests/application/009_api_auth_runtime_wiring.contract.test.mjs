@@ -9,6 +9,8 @@ const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
 const CREDENTIAL_ID = '61000000-0000-0000-0000-000000000001';
 const JTI = '62000000-0000-0000-0000-000000000001';
+const CALLER_REQUEST_ID = 'req-a1-runtime-001';
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function verifierFor(secret, salt = Buffer.from('00112233445566778899aabbccddeeff', 'hex')) {
   const key = scryptSync(secret, salt, 32, {
@@ -65,7 +67,7 @@ test('A1 API runtime composition drives the public token route through trusted D
     const response = await app.inject({
       method: 'POST',
       url: '/v1/auth/token',
-      headers: { 'content-type': 'application/json', 'x-request-id': 'req-a1-runtime-001' },
+      headers: { 'content-type': 'application/json', 'x-request-id': CALLER_REQUEST_ID },
       payload: {
         grantType: 'client_credentials',
         publicKey: 'pk_runtime',
@@ -78,7 +80,10 @@ test('A1 API runtime composition drives the public token route through trusted D
     assert.equal(body.tokenType, 'Bearer');
     assert.equal(body.expiresIn, 900);
     assert.equal(body.environment, 'sandbox');
-    assert.equal(response.headers['x-request-id'], 'req-a1-runtime-001');
+    const requestId = response.headers['x-request-id'];
+    assert.equal(typeof requestId, 'string');
+    assert.match(requestId, UUID_V4);
+    assert.notEqual(requestId, CALLER_REQUEST_ID);
 
     const claims = await auth.verifyAccessToken(body.accessToken, SIGNING_KEY, NOW_SECONDS + 1);
     assert.ok(claims);
