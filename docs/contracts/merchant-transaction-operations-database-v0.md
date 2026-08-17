@@ -32,16 +32,16 @@ app.get_dashboard_transaction(
 
 Optional filters/cursor fields are passed as null. `cursor_created_at` and `cursor_payment_id` must either both be null or both be non-null.
 
-## List return contract
+## List return and validation
 
-`app.list_dashboard_transactions` returns one JSON array containing at most `limit + 1` merchant-safe list projections.
+`app.list_dashboard_transactions` returns one JSON array with at most `limit + 1` merchant-safe list projections.
 
 The database validates:
 
 - actor/merchant/environment through K4 `member` authorization;
 - environment is Sandbox or Production;
 - optional status is canonical;
-- optional external ID is non-empty and max 255 characters;
+- optional external ID is non-empty;
 - created range is valid and upper bound is greater than lower bound when both exist;
 - cursor key pair is complete;
 - limit is 1..100.
@@ -52,30 +52,38 @@ Predicates are exact:
 merchant_id = requested merchant
 environment = requested environment
 status null OR collection_status = status
-external_id null OR external_id = external_id
 created_from null OR created_at >= created_from
 created_to null OR created_at < created_to
 cursor null OR created_at < cursor_created_at
              OR (created_at = cursor_created_at AND id > cursor_payment_id)
 ```
 
+When `external_id` is supplied, both predicates are mandatory:
+
+```text
+pg_catalog.md5(payment.external_id) = pg_catalog.md5(requested_external_id)
+payment.external_id = requested_external_id
+```
+
+The digest predicate enables the fixed-width expression index; the exact original-text predicate guarantees collision-safe correctness.
+
 Ordering is exactly `created_at DESC, id ASC`.
 
 The list routine never returns normalized Pix QR/copy-paste payloads.
 
-## Detail return contract
+## Detail return
 
-`app.get_dashboard_transaction` returns the merchant-safe detail JSON projection or SQL/JSON null when no exact merchant/environment/id row exists.
+`app.get_dashboard_transaction` returns the merchant-safe detail JSON projection or null when no exact merchant/environment/id row exists.
 
-Foreign merchant, wrong environment and missing ids therefore share one absence result at the application boundary.
+Foreign merchant, wrong environment and missing IDs therefore share one absence result at the application boundary.
 
-Normalized `pix` may be returned only for a canonical `pending` or `paid` Payment with a complete succeeded ProviderAttempt Pix payload.
+Normalized `pix` may be returned only for canonical `pending` or `paid` Payment with a complete succeeded ProviderAttempt Pix payload.
 
-## Authorization and privilege contract
+## Authorization and privileges
 
-Both routines are `STABLE SECURITY DEFINER` with a fixed search path and independently call the existing dashboard merchant-context authorization boundary using required role `member`.
+Both routines are `STABLE SECURITY DEFINER` with fixed search paths and independently re-check current dashboard merchant context using required role `member`.
 
-Only `swiftpay_api` receives EXECUTE on the two public A9 routines.
+Only `swiftpay_api` receives EXECUTE on the two A9 routines.
 
 PUBLIC, anon, authenticated, service_role and swiftpay_worker receive no A9 EXECUTE capability. Private `_a9_*` helpers are executable by neither runtime role.
 
@@ -88,29 +96,41 @@ swiftpay_worker = 6
 
 Neither runtime receives direct SELECT/INSERT/UPDATE/DELETE on `app.payments` or `app.provider_attempts` as part of A9.
 
-## Projection privacy contract
+## Projection privacy
 
-The database projection must omit customer snapshot, metadata, provider identity/account/payment id, raw provider status, provider cost, routing/pricing/settlement internals, execution tokens, leases and internal provider error fields.
+Database projections omit customer snapshot, metadata, provider identity/account/payment id, raw provider status, provider cost, routing/pricing/settlement internals, execution tokens, leases and internal provider errors.
 
-`status` comes only from Payment `collection_status`; ProviderAttempt state cannot replace it.
-
-`refundedAmount` comes from `refunded_amount_cents` and does not rewrite a paid Payment status.
+`status` comes only from Payment `collection_status`. `refundedAmount` comes from `refunded_amount_cents` and does not rewrite paid collection status.
 
 ## Index contract
 
-A9 preserves `payments_merchant_created_idx` and adds exactly the query-supporting indexes:
+A9 preserves `payments_merchant_created_idx` and adds:
 
 ```text
 payments_dashboard_status_created_idx
-  (merchant_id, environment, collection_status, created_at DESC, id ASC)
+  ON app.payments (
+    merchant_id,
+    environment,
+    collection_status,
+    created_at DESC,
+    id ASC
+  )
 
 payments_dashboard_external_id_created_idx
-  (merchant_id, environment, external_id, created_at DESC, id ASC)
+  ON app.payments (
+    merchant_id,
+    environment,
+    pg_catalog.md5(external_id),
+    created_at DESC,
+    id ASC
+  )
   WHERE external_id IS NOT NULL
 ```
 
+The external-ID expression is deliberately fixed-width because A2 did not freeze a maximum `externalId` length. A9 must not introduce a new write-time failure by indexing arbitrary-length raw text as a composite B-tree key.
+
 No description, customer, metadata or provider search index belongs to A9.
 
-## Transaction/side-effect contract
+## Side effects
 
 Both routines are reads only. They append no audit event and mutate no Payment, provider, ledger, payout/refund, idempotency, job, webhook or credential state.
