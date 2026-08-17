@@ -25,8 +25,9 @@ test('A8 runtime passes the same Supabase project boundary to privileged verific
   assert.doesNotMatch(runtimeSource, /jwt[_-]?secret/i);
 });
 
-test('A8 production bootstrap forwards composed dashboard credential management into Fastify', () => {
-  assert.match(indexSource, /dashboardApiCredentials:\s*services\.dashboardApiCredentials/);
+test('A8 production bootstrap forwards the composed runtime services into Fastify', () => {
+  assert.match(indexSource, /buildApp\(services\)/);
+  assert.match(runtimeSource, /dashboardApiCredentials/);
   assert.match(appSource, /dashboardApiCredentials/);
   assert.match(appSource, /api-credentials/);
 });
