@@ -194,3 +194,7 @@ revoke all on function app._a8_begin_api_credential_command(uuid, text, text, te
     from public, anon, authenticated, service_role, swiftpay_api, swiftpay_worker;
 revoke all on function app._a8_complete_api_credential_command(uuid, uuid, jsonb)
     from public, anon, authenticated, service_role, swiftpay_api, swiftpay_worker;
+revoke all on function app.list_dashboard_api_credentials(uuid, uuid, text)
+    from public, anon, authenticated, service_role, swiftpay_api, swiftpay_worker;
+revoke all on function app.get_dashboard_api_credential(uuid, uuid, text, uuid)
+    from public, anon, authenticated, service_role, swiftpay_api, swiftpay_worker;
