@@ -78,9 +78,14 @@ function queryString(query = {}) {
   return encoded.length === 0 ? '' : `?${encoded}`;
 }
 
-async function list({
-  authorization = 'Bearer member', merchantId = MERCHANT_A, environment = 'sandbox', query = {},
-} = {}) {
+async function list(options = {}) {
+  const merchantId = options.merchantId ?? MERCHANT_A;
+  const environment = options.environment ?? 'sandbox';
+  const query = options.query ?? {};
+  const authorization = Object.prototype.hasOwnProperty.call(options, 'authorization')
+    ? options.authorization
+    : 'Bearer member';
+
   return app.inject({
     method: 'GET',
     url: `/dashboard/v1/merchants/${merchantId}/environments/${environment}/transactions${queryString(query)}`,
