@@ -1,6 +1,6 @@
 # SwiftPay V2 — Canonical Work Ledger
 
-Updated: 2026-08-16
+Updated: 2026-08-17
 
 This is the durable backlog and handoff ledger for the reconstruction. Repository artifacts are the source of truth. Detailed proof lives in specs, migrations, tests and `docs/evidence/**`; Git history preserves checkpoint chronology.
 
@@ -9,7 +9,8 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 ## States
 
 - `PENDING`: known, not started
-- `IN_PROGRESS`: actively being worked
+- `PROBLEM_ANALYSIS`: problem boundary is actively being investigated/frozen; no spec or implementation authority yet
+- `IN_PROGRESS`: actively being worked after the applicable planning boundary exists
 - `EVIDENCE_REQUIRED`: implementation cannot safely advance without stronger current evidence
 - `BLOCKED`: cannot proceed without an external dependency or unresolved contract
 - `DONE`: contract, implementation and required evidence are complete
@@ -24,23 +25,23 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A7: `DONE`
-- A7 Problem Analysis: `docs/design/a7-merchant-webhook-endpoint-management-problem-analysis.md`
-- A7 frozen spec: `docs/specs/merchant-webhook-endpoint-management-v0.yaml`
-- A7 evidence: `docs/evidence/application/2026-08-16-a7-merchant-webhook-endpoint-management.md`
-- A7 final behavior head: `155472ba299f1e75d33dd6cad430ad61b923a043`
-- A7 hosted migration alignment commit: `34e3ee28359b0ea8a96ade40d84323e0094e931d`
-- A7 post-alignment stale-path contract fix: `22e38df402175badfd83c4b01c739c55a73e28c1`
-- Final behavior Application workflow: `31934008876` — GREEN, **209/209 application contracts** + K7/A1/A2/A3/A4/A6/A7 real-database acceptance
-- Final behavior Database workflow: `31934008886` — GREEN, **38 files / 1282 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
-- Hosted Security Advisor after A7: **0 lints**
+- A1-A8: `DONE` (`A5` remains fixture-only for live-provider authority)
+- A8 Problem Analysis: `docs/design/a8-api-credential-management-problem-analysis.md`
+- A8 frozen spec: `docs/specs/api-credential-management-v0.yaml`
+- A8 evidence: `docs/evidence/application/2026-08-17-a8-api-credential-management.md`
+- A8 final clean GREEN head: `d74624198918aca53a3769334aeb6b8adbba8092`
+- Final A8 Application workflow: `32001023852` — GREEN, **226/226 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8 real-database acceptance
+- Final A8 Database workflow: `32001023848` — GREEN, **39 files / 1288 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
+- Hosted A8 migrations: `20260817061316`, `20260817061346`, `20260817061415`
+- Hosted post-A8 `swiftpay_api`: exact **21** `app` EXECUTE capabilities
+- Hosted post-A8 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
+- Hosted Security Advisor after A8: **0 lints**
 - Core architecture/domain/database/platform estimate: ~99%
-- First end-to-end Pix sandbox MVP estimate: ~94%
-- Production-capable Pix V1 estimate: ~57%
-- Weighted V1 engineering estimate: ~71%
+- First end-to-end Pix sandbox MVP estimate: ~96%
+- Production-capable Pix V1 estimate: ~58%
+- Weighted V1 engineering estimate: ~73%
 - Current external critical blocker: current PSP contract/lineage/idempotency/recovery/webhook-auth evidence for AkkadPag and FlevoPay
-- Next unblocked internal candidate: **API credential management** through the A6/K4 dashboard realm while preserving the A1 machine-authentication contract
-- Next candidate after credentials: merchant transaction list/detail/search/status operations
+- Next unblocked internal slice: **A9 merchant transaction operations** — `PROBLEM_ANALYSIS`
 
 ## Non-negotiable delivery method
 
@@ -126,9 +127,7 @@ Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.
 Spec: `docs/specs/api-credential-token-exchange-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authentication.md`.
 
-Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation.
-
-Credential create/list/rotate/revoke administration remains `PENDING` as a separate dashboard product surface.
+Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is now supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation.
 
 ## A2 — authenticated Pix create/get emulator — `DONE`
 
@@ -273,7 +272,7 @@ Hosted migrations:
 
 Hosted post-deploy audit:
 
-- `swiftpay_api`: exact 16-routine EXECUTE allowlist;
+- `swiftpay_api`: exact 16-routine EXECUTE allowlist at A7 checkpoint;
 - `swiftpay_worker`: exact 6-routine EXECUTE allowlist;
 - zero direct runtime table privileges over endpoint/secret/idempotency/audit tables;
 - worker cannot administer A7; API cannot execute worker claim/resolve;
@@ -282,29 +281,75 @@ Hosted post-deploy audit:
 
 No hosted seed/fixture/business acceptance data and no live PSP monetary call were used for A7 deployment.
 
-## API credential management — `PENDING / NEXT UNBLOCKED CANDIDATE`
+## A8 — API credential management — `DONE / HOSTED`
 
-This is the next recommended internal slice.
+Problem Analysis: `docs/design/a8-api-credential-management-problem-analysis.md`.
+Spec: `docs/specs/api-credential-management-v0.yaml`.
+Evidence: `docs/evidence/application/2026-08-17-a8-api-credential-management.md`.
 
-Required design questions before RED:
+Accepted boundary:
 
-- dashboard route realm and minimum K4 role for create/list/rotate/revoke;
-- public-key naming/format and environment scoping;
-- Secret Key generation entropy and one-time plaintext disclosure;
-- verifier-only storage compatible with A1 `scrypt-v1` authentication;
-- exact create/rotation idempotency and replay semantics without storing plaintext;
-- immediate revocation and token revalidation behavior;
-- secret-version increments and invalidation of already-issued A1 tokens when required;
-- exact-IP allowlist management semantics;
-- audit identity and sensitive-data redaction;
-- optimistic concurrency for mutable credential policy;
-- least-privilege operation-specific RPCs with no direct browser mutation.
+- dashboard list/get/create/rotate-secret/revoke routes only;
+- reads use ordinary A6 online session verification and current member authority;
+- mutations require online-validated `aal2` before secret generation or DB mutation;
+- Sandbox mutation authority is current admin/owner; Production is current owner only;
+- CSPRNG public/secret credential material generated in trusted API memory;
+- plaintext Secret Key disclosed only once on winning create/rotation;
+- only A1-compatible `scrypt-v1` verifier persists;
+- completed replay never re-discloses candidate secret;
+- exact-IP allowlist semantics retained and CIDR/wildcard rejected;
+- positive `revision` optimistic concurrency;
+- rotation increments `secret_version`; revocation is terminal;
+- A1 bearer revalidation immediately rejects old secret-version/revoked credentials;
+- transactional maximum 10 active credentials per merchant/environment;
+- durable idempotency and audit exactly once for winning mutations;
+- no direct protected-table runtime authority and no financial side effects.
 
-Mandatory pipeline: Problem Analysis -> frozen YAML spec -> clean RED -> implementation GREEN -> evidence.
+Hosted migrations:
 
-## Merchant transaction operations — `PENDING`
+- `20260817061316_api_credential_management_foundation.sql`
+- `20260817061346_api_credential_management_create.sql`
+- `20260817061415_api_credential_management_behavior.sql`
 
-Dashboard list/detail/search/status over existing canonical A2/A3 Payment data, without financial mutation authority.
+Final clean GREEN:
+
+- head `d74624198918aca53a3769334aeb6b8adbba8092`;
+- Application workflow `32001023852`: **226/226 PASS** + K7/A1/A2/A3/A4/A6/A7/A8 real-database acceptance;
+- Database workflow `32001023848`: **39 files / 1288 pgTAP assertions PASS** + K5 fixtures + K6 topology.
+
+Hosted post-deploy audit:
+
+- `swiftpay_api`: exact **21** `app` EXECUTE capabilities;
+- `swiftpay_worker`: exact **6** `app` EXECUTE capabilities;
+- all five A8 trusted RPCs present;
+- private `_a8_*` helpers unavailable to both runtimes;
+- no direct API/worker access over credential/token-window/idempotency/audit protected tables;
+- zero plaintext-like secret leakage in persisted credential/idempotency/audit surfaces;
+- Security Advisor: **0 lints**.
+
+Performance Advisor remains INFO-only with existing unindexed-FK/unused-index candidates. No speculative performance DDL was added as part of A8.
+
+## A9 — merchant transaction operations — `PROBLEM_ANALYSIS`
+
+Goal: add dashboard read-only list/detail/search/filter/status visibility over canonical A2/A3 Payment state without introducing financial mutation authority, provider-specific leakage or direct browser/Data API access.
+
+Problem Analysis will freeze at minimum:
+
+- dashboard route realm and A6/K4 authorization;
+- member read authority versus any stricter role requirement;
+- exact merchant/environment scoping and foreign-resource indistinguishability;
+- canonical transaction projection derived from Payment, not provider payloads;
+- stable cursor pagination and deterministic ordering;
+- allowed filters/search fields and bounds;
+- mapping of internal collection/provider states to merchant-visible status without fabricating certainty;
+- treatment of `creating`/`execution_unknown` and provider recovery state;
+- customer/metadata privacy and field redaction;
+- amount/fee/net/refund visibility;
+- list/detail consistency under concurrent state transitions;
+- trusted read-only RPC boundary and least-privilege capability impact;
+- zero mutation/audit/job/webhook/provider/ledger side effects from reads.
+
+No YAML spec, test, migration or implementation is authorized until the A9 Problem Analysis is frozen.
 
 Other merchant/admin work:
 
@@ -355,16 +400,16 @@ Foundation contracts / architecture                       DONE
   -> A2 authenticated Pix create/get + emulator          DONE
   -> A3 paid transition + ledger + balance               DONE
   -> A4 merchant webhook delivery runtime                DONE
-  -> A5 provider conformance fixtures                    DONE
+  -> A5 provider conformance fixtures                    DONE / FIXTURE-ONLY
   -> current retained-PSP contract evidence              EVIDENCE_REQUIRED
        -> live provider transport/recovery               BLOCKED
        -> provider webhook ingress                       BLOCKED
 
 Parallel internal product path:
   -> A6 dashboard session authentication                 DONE
-  -> A7 webhook endpoint management                      DONE
-  -> API credential management                           PENDING / NEXT CANDIDATE
-  -> merchant transaction operations                     PENDING
+  -> A7 webhook endpoint management                      DONE / HOSTED
+  -> A8 API credential management                       DONE / HOSTED
+  -> A9 merchant transaction operations                 PROBLEM_ANALYSIS
   -> broader admin/KYC/payout operations                 PENDING
 
 Then:
@@ -373,13 +418,14 @@ Then:
 
 ## Immediate next action
 
-Because live PSP work is correctly blocked on external/current contract evidence, the next internal slice should improve merchant usability without guessing provider behavior:
+Because live PSP work is correctly blocked on external/current contract evidence, the next internal slice improves merchant visibility without guessing provider behavior:
 
-1. write full Problem Analysis for API credential lifecycle administration using A6/K4 as dashboard authority and preserving A1 as the machine-auth contract;
-2. freeze Secret Key generation, verifier-only storage, one-time disclosure, rotation/revocation, token-version invalidation, IP policy, idempotency, optimistic concurrency and audit semantics;
-3. freeze the dashboard credential-management YAML specification and operation-specific trusted DB boundaries;
-4. write clean RED database/application contracts;
-5. implement only after clean RED.
+1. freeze the A9 Problem Analysis for dashboard transaction list/detail/search/filter/status over canonical Payment state;
+2. explicitly freeze pagination, ordering, status semantics, privacy/redaction and `execution_unknown` visibility;
+3. only then create the A9 YAML specification;
+4. only after the spec, freeze TypeScript/store/HTTP contracts;
+5. only after contracts, write clean RED database/application tests;
+6. implement minimally only after clean RED.
 
 In parallel, provider evidence should be upgraded through provider-owned current technical documentation or authenticated non-monetary/current sandbox proof.
 
