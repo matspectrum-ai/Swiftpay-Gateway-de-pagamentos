@@ -1,0 +1,286 @@
+feature: provider-activation-outbound-safety-v0
+status: frozen_for_tdd
+phase: 4
+
+problem:
+  statement: >-
+    A5 adapters are fixture-compatible but current retained-provider contract
+    authority remains incomplete. A10 makes outbound provider authority an
+    executable default-deny decision so a future network transport cannot be
+    attached to a fixture-only operation by accident.
+  primary_risk: >-
+    Adapter capability, provider credentials or a configured base URL could be
+    mistaken for production authorization and allow monetary network traffic
+    before exact lineage/evidence/sandbox gates are closed.
+
+source_of_truth:
+  problem_analysis: docs/design/a10-provider-activation-outbound-safety-problem-analysis.md
+  evidence_refresh: docs/evidence/providers/2026-08-17-current-provider-revalidation.md
+  predecessor:
+    - docs/design/a5-provider-conformance-problem-analysis.md
+    - docs/specs/provider-conformance-v0.yaml
+    - docs/contracts/native-pix-provider-adapter.md
+
+scope:
+  providers:
+    - akkadpag
+    - flevopay
+  environments:
+    - sandbox
+    - production
+  operations:
+    - pix_in_create
+    - pix_in_query
+    - pix_in_recover
+    - pix_out_create
+    - pix_out_query
+    - pix_out_recover
+    - webhook_verify
+  activation_states:
+    - unsupported
+    - fixture_only
+    - current_contract_proven
+    - sandbox_proven
+    - production_enabled
+  network_io_in_a10: forbidden
+  database_changes: none
+  public_http_changes: none
+
+package:
+  owner: packages/providers
+  required_exports:
+    - PROVIDER_ACTIVATION_SCHEMA_VERSION
+    - DEFAULT_PROVIDER_ACTIVATION_REGISTRY
+    - parseProviderActivationRegistry
+    - createProviderOperationAuthorizer
+
+registry:
+  schema_version_literal: a10-provider-activation-v0
+  shape:
+    schemaVersion: string
+    registryVersion: string
+    records: array
+  registry_version:
+    min_length: 1
+    max_length: 64
+    regex: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+  record_shape:
+    provider: provider_enum
+    operation: operation_enum
+    environment: environment_enum
+    contractLineage: nonempty_string_max_128
+    state: activation_state_enum
+    approvedBaseUrl: string_or_null
+    evidenceBundleSha256: lowercase_hex64_or_null
+    reviewedAt: canonical_utc_iso_milliseconds_or_null
+  record_identity:
+    ordered_tuple:
+      - provider
+      - operation
+      - environment
+    duplicate_tuple: registry_invalid
+  unknown_fields: registry_invalid
+  unknown_enum_values: registry_invalid
+  missing_fields: registry_invalid
+  arrays_as_scalar_fields: registry_invalid
+  secrets_allowed: false
+
+record_validation:
+  contract_lineage:
+    trim: false
+    blank_forbidden: true
+    max_length: 128
+  inactive_states:
+    states:
+      - unsupported
+      - fixture_only
+    approvedBaseUrl: null
+    evidenceBundleSha256: null
+    reviewedAt: null
+  evidence_bound_states:
+    states:
+      - current_contract_proven
+      - sandbox_proven
+      - production_enabled
+    approvedBaseUrl: required
+    evidenceBundleSha256: required
+    reviewedAt: required
+  approved_base_url:
+    absolute: true
+    scheme_exact: https
+    username_forbidden: true
+    password_forbidden: true
+    query_forbidden: true
+    fragment_forbidden: true
+    hostname_required: true
+    localhost_forbidden: true
+    localhost_suffix_forbidden: true
+    ip_literal_forbidden: true
+    canonical_trailing_slash: required
+  evidence_bundle_sha256:
+    regex: '^[0-9a-f]{64}$'
+  reviewed_at:
+    format: RFC3339_UTC_milliseconds
+    regex: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
+    valid_calendar_timestamp_required: true
+
+default_registry:
+  registryVersion: '2026-08-17.0'
+  live_authorized_operation_count: 0
+  policy: >-
+    Every current retained provider/environment operation is either fixture_only
+    or unsupported. No checked-in A10 V0 record contains a base URL or evidence
+    digest because no retained live operation is currently authorized.
+  akkadpag:
+    contractLineage: akkadpag-legacy-api-v1
+    sandbox:
+      pix_in_create: fixture_only
+      pix_in_query: fixture_only
+      pix_in_recover: fixture_only
+      pix_out_create: fixture_only
+      pix_out_query: fixture_only
+      pix_out_recover: fixture_only
+      webhook_verify: fixture_only
+    production:
+      pix_in_create: fixture_only
+      pix_in_query: fixture_only
+      pix_in_recover: fixture_only
+      pix_out_create: fixture_only
+      pix_out_query: fixture_only
+      pix_out_recover: fixture_only
+      webhook_verify: fixture_only
+  flevopay:
+    contractLineage: flevopay-legacy-app-api-v1
+    sandbox:
+      pix_in_create: fixture_only
+      pix_in_query: fixture_only
+      pix_in_recover: fixture_only
+      pix_out_create: unsupported
+      pix_out_query: unsupported
+      pix_out_recover: unsupported
+      webhook_verify: fixture_only
+    production:
+      pix_in_create: fixture_only
+      pix_in_query: fixture_only
+      pix_in_recover: fixture_only
+      pix_out_create: unsupported
+      pix_out_query: unsupported
+      pix_out_recover: unsupported
+      webhook_verify: fixture_only
+
+authorization:
+  constructor:
+    input: validated_registry_only
+    malformed_registry_behavior: fail_closed
+  input_shape:
+    provider: provider_enum
+    operation: operation_enum
+    environment: environment_enum
+    contractLineage: exact_string
+  decision:
+    authorized:
+      kind: authorized
+      grant:
+        immutable: true
+        fields:
+          - provider
+          - operation
+          - environment
+          - contractLineage
+          - activationState
+          - approvedBaseUrl
+          - evidenceBundleSha256
+          - reviewedAt
+          - registryVersion
+    denied:
+      kind: denied
+      reasons:
+        - subject_not_registered
+        - lineage_mismatch
+        - activation_state_denied
+  lookup:
+    key:
+      - provider
+      - operation
+      - environment
+    missing_record: subject_not_registered
+    contract_lineage_match: exact_case_sensitive_no_trim
+  state_matrix:
+    sandbox:
+      unsupported: denied
+      fixture_only: denied
+      current_contract_proven: denied
+      sandbox_proven: authorized
+      production_enabled: authorized
+    production:
+      unsupported: denied
+      fixture_only: denied
+      current_contract_proven: denied
+      sandbox_proven: denied
+      production_enabled: authorized
+  grant:
+    approved_base_url_source: registry_only
+    evidence_digest_source: registry_only
+    provider_credentials_in_grant: forbidden
+    customer_or_payment_data_in_grant: forbidden
+    public_api_token_semantics: forbidden
+    persistence: forbidden
+
+lineage:
+  match: exact
+  brand_aliasing: forbidden
+  cross_lineage_evidence_import: forbidden
+  specific_invariant: >-
+    Evidence classified under akadpay-public-2026 cannot authorize an
+    akkadpag-legacy-api-v1 record unless a future reviewed provider-owned
+    lineage/migration artifact explicitly changes the canonical registry.
+
+security:
+  credentials_imply_activation: false
+  base_url_env_var_implies_activation: false
+  generic_enable_live_switch: forbidden
+  adapter_capability_implies_activation: false
+  missing_registry_record_default: deny
+  malformed_registry_default: fail_closed
+  secrets_in_registry: forbidden
+  network_call_before_authorization: forbidden
+
+side_effects:
+  provider_network: none
+  database: none
+  payment: none
+  provider_attempt: none
+  provider_event: none
+  ledger: none
+  payout_refund: none
+  jobs: none
+  merchant_webhooks: none
+  dashboard_webhooks: none
+  api_credentials: none
+  idempotency: none
+  audit: none
+  kyc_customer: none
+
+tdd_vectors:
+  required:
+    - default_registry_parses_and_authorizes_zero_operations
+    - unknown_provider_operation_environment_subject_is_denied
+    - exact_lineage_mismatch_is_denied
+    - fixture_only_is_denied_in_sandbox_and_production
+    - current_contract_proven_is_denied_for_runtime_sandbox_and_production
+    - sandbox_proven_authorizes_only_matching_sandbox_tuple
+    - sandbox_proven_is_denied_in_production
+    - production_enabled_authorizes_only_matching_production_tuple
+    - malformed_duplicate_record_registry_is_rejected
+    - evidence_bound_state_without_digest_review_or_url_is_rejected
+    - inactive_state_with_url_or_digest_is_rejected
+    - non_https_userinfo_query_fragment_localhost_or_ip_base_url_is_rejected
+    - evidence_digest_and_reviewed_at_formats_are_strict
+    - returned_grant_is_immutable_and_contains_no credentials_customer_or_payment_fields
+    - providers_package_contains_no_live_network_implementation_or_fetch_for_a10
+
+acceptance:
+  initial_live_authority: zero
+  readiness_change_on_red_only: none
+  hosted_supabase_change: none
+  live_psp_call: forbidden
