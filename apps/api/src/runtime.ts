@@ -88,7 +88,7 @@ export function createApiRuntimeServices(
   });
   const dashboardTransactionReadService = createDashboardTransactionReadService({
     sessionVerifier: dashboardSessionVerifier,
-    contextStore: dashboardContextStore,
+    contextStore: dashboardContextStore as unknown as Parameters<typeof createDashboardTransactionReadService>[0]['contextStore'],
     store: dashboardTransactionStore,
     cursorCodec: dashboardTransactionCursorCodec,
   });
