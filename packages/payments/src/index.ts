@@ -551,3 +551,5 @@ export function createPixPaymentService(
     },
   };
 }
+
+export * from './a9.js';
