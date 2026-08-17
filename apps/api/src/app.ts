@@ -1,4 +1,5 @@
 import type {
+  DashboardApiCredentialManagementService,
   MachinePrincipal,
   TokenExchangeHandler,
   TokenExchangeRequest,
@@ -84,6 +85,7 @@ export interface BuildAppOptions {
   readonly pixPayments?: PixPaymentsHttpService;
   readonly merchantBalance?: MerchantBalanceHttpService;
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
+  readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
 }
 
 function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
@@ -255,6 +257,64 @@ async function sendDashboardWebhookResult(
     secretAvailable: result.secretAvailable === true,
     replayed: result.replayed === true,
   });
+}
+
+function dashboardApiCredentialError(kind: string, requestId: string): {
+  status: 400 | 401 | 403 | 404 | 409 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'step_up_required':
+      return { status: 403, body: { error: { code: 'step_up_required', message: 'Additional authentication is required.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid API credential request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'API credential was not found.', requestId } } };
+    case 'resource_conflict':
+      return { status: 409, body: { error: { code: 'resource_conflict', message: 'API credential state changed.', requestId } } };
+    case 'idempotency_conflict':
+      return { status: 409, body: { error: { code: 'idempotency_conflict', message: 'Idempotency key conflicts with another request.', requestId } } };
+    case 'idempotency_in_progress':
+      return { status: 409, body: { error: { code: 'idempotency_in_progress', message: 'Idempotent request is still in progress.', requestId } } };
+    case 'credential_limit_reached':
+      return { status: 409, body: { error: { code: 'credential_limit_reached', message: 'API credential limit reached.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'API credential operation failed.', requestId } } };
+  }
+}
+
+async function sendDashboardApiCredentialResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+  successKind: 'list' | 'item' | 'create' | 'mutation',
+) {
+  const kind = resultKind(result);
+  if (kind !== 'ok' && kind !== 'created') {
+    const failure = dashboardApiCredentialError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+  if (successKind === 'list') {
+    return reply.code(200).send({ object: 'list', data: result.credentials ?? [] });
+  }
+  if (successKind === 'item') return reply.code(200).send(result.credential);
+
+  const replayed = result.replayed === true;
+  const body: Record<string, unknown> = {
+    credential: result.credential,
+    replayed,
+  };
+  if ('secretAvailable' in result || 'secretKey' in result) {
+    body.secretAvailable = result.secretAvailable === true;
+    body.secretKey = result.secretKey ?? null;
+  }
+  return reply.code(successKind === 'create' && !replayed ? 201 : 200).send(body);
 }
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
@@ -490,6 +550,77 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.post(`${dashboardWebhookBase}/:endpointId/disable`, (request, reply) => mutationRoute(request, reply, 'disable', 'mutation'));
   app.post(`${dashboardWebhookBase}/:endpointId/enable`, (request, reply) => mutationRoute(request, reply, 'enable', 'mutation'));
   app.post(`${dashboardWebhookBase}/:endpointId/rotate-secret`, (request, reply) => mutationRoute(request, reply, 'rotateSecret', 'rotate'));
+
+  const dashboardCredentialBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/api-credentials';
+
+  app.get(dashboardCredentialBase, async (request, reply) => {
+    const service = options.dashboardApiCredentials?.list;
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({ ...(authorization === undefined ? {} : { authorization }), merchantId, environment });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'list');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    }
+  });
+
+  app.get(`${dashboardCredentialBase}/:credentialId`, async (request, reply) => {
+    const service = options.dashboardApiCredentials?.get;
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    const { merchantId, environment, credentialId } = request.params as { merchantId: string; environment: string; credentialId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({ ...(authorization === undefined ? {} : { authorization }), merchantId, environment, credentialId });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'item');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    }
+  });
+
+  app.post(dashboardCredentialBase, async (request, reply) => {
+    const service = options.dashboardApiCredentials?.create;
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, request: request.body,
+      });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'create');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    }
+  });
+
+  async function credentialMutationRoute(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operation: 'rotateSecret' | 'revoke',
+  ) {
+    const service = options.dashboardApiCredentials?.[operation];
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'mutation');
+    const { merchantId, environment, credentialId } = request.params as { merchantId: string; environment: string; credentialId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, credentialId, request: request.body,
+      });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'mutation');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'mutation');
+    }
+  }
+
+  app.post(`${dashboardCredentialBase}/:credentialId/rotate-secret`, (request, reply) => credentialMutationRoute(request, reply, 'rotateSecret'));
+  app.post(`${dashboardCredentialBase}/:credentialId/revoke`, (request, reply) => credentialMutationRoute(request, reply, 'revoke'));
 
   return app;
 }
