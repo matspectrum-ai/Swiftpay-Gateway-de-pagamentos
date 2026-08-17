@@ -1,0 +1,254 @@
+version: 0
+feature: a12-structured-runtime-logging-correlation
+status: frozen
+frozen_at: 2026-08-17
+
+objective:
+  summary: >-
+    Establish one vendor-neutral, fail-closed structured logging and request-correlation
+    boundary for SwiftPay API and worker without logging request/response payloads,
+    concrete URLs/query values, credentials, PII, provider bodies, SQL details, or
+    arbitrary exception content.
+
+scope:
+  in:
+    - shared safe runtime event serializer/logger
+    - api server-owned request id generation
+    - api x-request-id response correlation
+    - explicit api http completion event
+    - disable fastify automatic per-request logging
+    - worker migration to shared safe logger
+    - deterministic non-disclosure tests
+  out:
+    - prometheus_or_openmetrics_endpoint
+    - opentelemetry
+    - distributed_trace_propagation
+    - log_exporter_or_vendor_sdk
+    - persistent_log_storage
+    - alerts_dashboards_slos
+    - provider_live_telemetry
+    - database_or_supabase_changes
+    - new_public_routes
+
+runtime:
+  node_major: 24
+  fastify_version: 5.11.0
+
+package_boundary:
+  package: '@swiftpay/observability'
+  required_exports:
+    - RuntimeObservabilityError
+    - createSafeRuntimeLogger
+    - serializeRuntimeEvent
+  network_access: forbidden
+  database_access: forbidden
+
+request_identity:
+  api:
+    algorithm: node_crypto_randomUUID_uuidv4
+    authority: swiftpay_server_only
+    caller_x_request_id:
+      accepted_as_authority: false
+      copied_into_request_id: false
+      echoed_as_authority: false
+      logging: forbidden
+    fastify:
+      request_id_header_authority: disabled
+      gen_request_id: swiftpay_uuidv4
+    public_correlation:
+      response_header: x-request-id
+      public_error_field: requestId
+      invariant: both_equal_generated_request_id_when_error_body_contains_requestId
+    uniqueness:
+      requirement: distinct_requests_receive_distinct_ids
+    embedded_business_identity: forbidden
+
+safe_logger:
+  sink:
+    type: injected_stdout_stderr_line_sink
+    info_stream: stdout
+    warn_stream: stdout
+    error_stream: stderr
+    write_failure:
+      affects_domain_behavior: false
+      throws_to_caller: false
+      method_result: false
+  clock:
+    injectable_for_tests: true
+    production: current_utc_time
+  serialization:
+    format: json_lines
+    one_event_per_line: true
+    utf8: true
+    canonical_field_order:
+      - timestamp
+      - level
+      - event
+      - workload
+      - requestId
+      - method
+      - route
+      - statusCode
+      - durationMs
+      - errorCode
+    omit_absent_optional_fields: true
+  input_policy:
+    arbitrary_record_bag: forbidden
+    unknown_fields: validation_error
+    raw_error_object: forbidden
+    raw_exception_message: forbidden
+    stack_trace: forbidden
+  validation_failure:
+    error_name: RuntimeObservabilityError
+    error_code: invalid_event
+    occurs_before_sink_write: true
+
+common_event_fields:
+  timestamp:
+    type: string
+    format: canonical_rfc3339_utc_milliseconds
+  level:
+    enum: [info, warn, error]
+  event:
+    type: string
+    pattern: '^[a-z][a-z0-9_]{0,79}$'
+  workload:
+    enum: [api, worker]
+  requestId:
+    optional: true
+    format: uuid_v4_lowercase
+  errorCode:
+    optional: true
+    pattern: '^[a-z][a-z0-9_]{0,79}$'
+
+http_completion_event:
+  event: http_request_completed
+  level: info
+  workload: api
+  required_fields:
+    - requestId
+    - method
+    - route
+    - statusCode
+    - durationMs
+  method:
+    enum: [GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD]
+  route:
+    source: matched_fastify_route_template_only
+    unmatched_sentinel: '<unmatched>'
+    concrete_url: forbidden
+    query_string: forbidden
+    route_max_utf8_bytes: 256
+  statusCode:
+    integer_min: 100
+    integer_max: 599
+  durationMs:
+    type: integer
+    min: 0
+    max: 86400000
+  exactly_once_per_completed_request: true
+
+api_logging:
+  fastify_automatic_request_logging: disabled
+  request_response_serialization_in_generic_access_logs: forbidden
+  on_request:
+    set_response_x_request_id: generated_request_id
+    start_duration_measurement: true
+    log_event: false
+  on_response:
+    emit_http_completion_event: true
+    cannot_modify_domain_response: true
+  existing_feature_events:
+    preserve_event_names_where_already_stable: true
+    arbitrary_caught_error_payload: forbidden
+  defense_in_depth_redaction:
+    may_remain: true
+    authority_for_safe_fields: false
+
+worker_logging:
+  shared_serializer_required: true
+  existing_events_preserved:
+    - worker_readiness_ok
+    - merchant_webhook_delivery_loop_started
+    - merchant_webhook_delivery_batch_failed
+    - worker_shutdown_sigterm
+    - worker_shutdown_sigint
+    - worker_runtime_boundary_failed
+  caught_exception_content: forbidden
+  process_or_external_request_id_as_authority: forbidden
+
+forbidden_log_content:
+  - request_body
+  - response_body
+  - raw_url
+  - query_values
+  - request_headers
+  - response_headers
+  - cookies
+  - authorization
+  - client_supplied_x_request_id
+  - customer_snapshot
+  - customer_pii
+  - api_public_key
+  - api_secret_key
+  - credential_verifier
+  - merchant_webhook_secret
+  - webhook_ciphertext
+  - wrapping_private_key
+  - provider_credentials
+  - provider_request_body
+  - provider_response_body
+  - database_url
+  - connection_string
+  - sql_text
+  - arbitrary_error_message
+  - arbitrary_error_stack
+
+compatibility:
+  preserve:
+    - all_http_route_status_and_body_semantics
+    - x_request_id_response_header_presence
+    - public_error_requestId_presence
+    - a1_machine_auth_boundary
+    - a6_dashboard_auth_boundary
+    - a7_webhook_admin_boundary
+    - a8_api_credential_boundary
+    - a9_dashboard_transaction_boundary
+    - a10_provider_activation_boundary
+    - a11_provider_transport_boundary
+  intentional_change:
+    - caller_supplied_x_request_id_no_longer_controls_request_id
+  provider_live_authority_change: none
+  financial_side_effects: none
+  database_side_effects: none
+
+acceptance:
+  application_tests_must_prove:
+    - required_observability_exports_exist
+    - safe_event_serialization_exact_and_deterministic_under_injected_clock
+    - unknown_field_and_raw_error_inputs_fail_before_sink_write
+    - sink_write_failure_returns_false_and_does_not_throw
+    - api_supplied_x_request_id_is_ignored
+    - api_generated_request_ids_are_uuidv4_and_unique
+    - api_response_header_matches_generated_request_id
+    - api_public_error_requestId_matches_response_header
+    - fastify_automatic_request_logging_is_disabled
+    - api_completion_log_uses_route_template_not_concrete_url_or_query
+    - secret_header_body_query_canaries_never_appear_in_captured_logs
+    - worker_uses_shared_safe_logger
+    - worker_error_path_never_logs_caught_exception_text
+    - previous_application_contracts_remain_green
+  database_regression:
+    new_migrations: 0
+    existing_pgtap_must_remain_green: true
+    k5_fixture_contracts_must_remain_green: true
+    k6_runtime_topology_must_remain_green: true
+  runtime_regression:
+    k7_and_a1_through_a9_real_database_acceptance_must_remain_green: true
+
+implementation_authority:
+  problem_analysis: frozen
+  specification: frozen
+  contract_document: required_before_tests
+  fail_first_tests: required_before_implementation
+  implementation_allowed_now: false
