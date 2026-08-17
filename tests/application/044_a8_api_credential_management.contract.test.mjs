@@ -36,7 +36,10 @@ function compactJwt(payload) {
   ].join('.');
 }
 
-function buildPrivilegedVerifier({ aal = 'aal2', sub = USER_ID, status = 200 } = {}) {
+function buildPrivilegedVerifier(options = {}) {
+  const aal = Object.prototype.hasOwnProperty.call(options, 'aal') ? options.aal : 'aal2';
+  const sub = options.sub ?? USER_ID;
+  const status = options.status ?? 200;
   const calls = [];
   const factory = auth.createPrivilegedDashboardSessionVerifier;
   if (typeof factory !== 'function') {
