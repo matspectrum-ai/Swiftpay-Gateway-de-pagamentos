@@ -10,7 +10,8 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 
 - `PENDING`: known, not started
 - `PROBLEM_ANALYSIS`: problem boundary is actively being investigated/frozen; no spec or implementation authority yet
-- `IN_PROGRESS`: actively being worked after the applicable planning boundary exists
+- `TDD_RED`: problem/spec/contracts are frozen and fail-first tests prove only the intended behavior/structure is missing; implementation is authorized next
+- `IN_PROGRESS`: actively being implemented after the applicable planning/TDD boundary exists
 - `EVIDENCE_REQUIRED`: implementation cannot safely advance without stronger current evidence
 - `BLOCKED`: cannot proceed without an external dependency or unresolved contract
 - `DONE`: contract, implementation and required evidence are complete
@@ -36,12 +37,19 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - Hosted post-A8 `swiftpay_api`: exact **21** `app` EXECUTE capabilities
 - Hosted post-A8 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
 - Hosted Security Advisor after A8: **0 lints**
+- A9 merchant transaction operations: `TDD_RED`
+- A9 Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`
+- A9 frozen spec: `docs/specs/merchant-transaction-operations-v0.yaml`
+- A9 contracts: `docs/contracts/merchant-transaction-operations-v0.md`, `docs/contracts/merchant-transaction-operations-database-v0.md`
+- A9 RED evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations-red.md`
+- A9 Application RED workflow `32005108260`: typecheck/build GREEN; **226 prior PASS + 10 A9 expected FAIL**; K7/A1/A2/A3/A4/A6/A7/A8 real-database regression GREEN
+- A9 Database RED workflow `32005108254`: files 001-039 GREEN; **040 failed exactly 4/4 expected A9 structure assertions**; K5 fixtures and K6 topology GREEN
 - Core architecture/domain/database/platform estimate: ~99%
 - First end-to-end Pix sandbox MVP estimate: ~96%
 - Production-capable Pix V1 estimate: ~58%
 - Weighted V1 engineering estimate: ~73%
 - Current external critical blocker: current PSP contract/lineage/idempotency/recovery/webhook-auth evidence for AkkadPag and FlevoPay
-- Next unblocked internal slice: **A9 merchant transaction operations** — `PROBLEM_ANALYSIS`
+- Next permitted internal action: **minimal A9 implementation to turn the frozen RED contracts GREEN**; no hosted A9 migration before local/CI GREEN
 
 ## Non-negotiable delivery method
 
@@ -329,27 +337,46 @@ Hosted post-deploy audit:
 
 Performance Advisor remains INFO-only with existing unindexed-FK/unused-index candidates. No speculative performance DDL was added as part of A8.
 
-## A9 — merchant transaction operations — `PROBLEM_ANALYSIS`
+## A9 — merchant transaction operations — `TDD_RED`
 
-Goal: add dashboard read-only list/detail/search/filter/status visibility over canonical A2/A3 Payment state without introducing financial mutation authority, provider-specific leakage or direct browser/Data API access.
+Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`.
+Spec: `docs/specs/merchant-transaction-operations-v0.yaml`.
+Contracts:
 
-Problem Analysis will freeze at minimum:
+- `docs/contracts/merchant-transaction-operations-v0.md`
+- `docs/contracts/merchant-transaction-operations-database-v0.md`
 
-- dashboard route realm and A6/K4 authorization;
-- member read authority versus any stricter role requirement;
-- exact merchant/environment scoping and foreign-resource indistinguishability;
-- canonical transaction projection derived from Payment, not provider payloads;
-- stable cursor pagination and deterministic ordering;
-- allowed filters/search fields and bounds;
-- mapping of internal collection/provider states to merchant-visible status without fabricating certainty;
-- treatment of `creating`/`execution_unknown` and provider recovery state;
-- customer/metadata privacy and field redaction;
-- amount/fee/net/refund visibility;
-- list/detail consistency under concurrent state transitions;
-- trusted read-only RPC boundary and least-privilege capability impact;
-- zero mutation/audit/job/webhook/provider/ledger side effects from reads.
+RED evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations-red.md`.
 
-No YAML spec, test, migration or implementation is authorized until the A9 Problem Analysis is frozen.
+Frozen V0 boundary:
+
+- dashboard-only GET list/detail routes;
+- ordinary A6 online session verification + current K4 `member` authority;
+- no AAL2 and no A1 machine-token fallback;
+- canonical Payment status only: `creating | pending | paid | expired | failed | cancelled`;
+- `execution_unknown` remains visible only through `Payment.status=creating`;
+- refunded amount is separate from canonical paid status;
+- list projection excludes Pix instructions, customer snapshot, metadata and all provider/execution internals;
+- detail adds normalized Pix only for complete canonical pending/paid data;
+- exact status, exact `externalId`, inclusive `createdFrom`, exclusive `createdTo` filters only;
+- no fuzzy/free-text/PII/provider search;
+- deterministic keyset pagination by `created_at DESC, id ASC`, no offset or total count;
+- HMAC-SHA256 authenticated `a9v0` cursor bound to merchant/environment and normalized filter digest;
+- dedicated cursor-integrity key, minimum 32 UTF-8 bytes, never persisted/exposed;
+- exactly two trusted read RPCs planned; post-A9 API EXECUTE count 23, worker remains 6;
+- status composite index plus fixed-width `md5(external_id)` expression index with mandatory exact original-text equality;
+- zero Payment/provider/ledger/idempotency/audit/job/webhook/credential side effects.
+
+Clean RED proof:
+
+- Application workflow `32005108260` / job `95312863787`: typecheck GREEN, build GREEN, **236 total = 226 prior PASS + 10 A9 expected FAIL**;
+- all ten A9 failures are assertion-level missing exports/service/store/routes, not parser/module/typecheck/harness defects;
+- runtime-database acceptance job `95312863871`: **GREEN** for K7/A1/A2/A3/A4/A6/A7/A8;
+- Database workflow `32005108254` / pgTAP job `95312863819`: files 001-039 GREEN; file 040 fails exactly 4/4 because the two A9 RPCs and two A9 indexes do not exist yet;
+- K5 deterministic fixtures: GREEN;
+- K6 runtime topology: GREEN.
+
+No A9 migration exists in the canonical hosted Supabase project. The next permitted step is minimal implementation to satisfy the frozen A9 RED, followed by refactor and isolated real-database acceptance before any hosted deployment.
 
 Other merchant/admin work:
 
@@ -409,7 +436,7 @@ Parallel internal product path:
   -> A6 dashboard session authentication                 DONE
   -> A7 webhook endpoint management                      DONE / HOSTED
   -> A8 API credential management                       DONE / HOSTED
-  -> A9 merchant transaction operations                 PROBLEM_ANALYSIS
+  -> A9 merchant transaction operations                 TDD_RED
   -> broader admin/KYC/payout operations                 PENDING
 
 Then:
@@ -418,14 +445,15 @@ Then:
 
 ## Immediate next action
 
-Because live PSP work is correctly blocked on external/current contract evidence, the next internal slice improves merchant visibility without guessing provider behavior:
+Because A9 now has frozen Problem Analysis, YAML spec, application/database contracts and clean fail-first proof, the next internal action is implementation — no new behavior may be invented outside those artifacts:
 
-1. freeze the A9 Problem Analysis for dashboard transaction list/detail/search/filter/status over canonical Payment state;
-2. explicitly freeze pagination, ordering, status semantics, privacy/redaction and `execution_unknown` visibility;
-3. only then create the A9 YAML specification;
-4. only after the spec, freeze TypeScript/store/HTTP contracts;
-5. only after contracts, write clean RED database/application tests;
-6. implement minimally only after clean RED.
+1. implement the A9 query validator, HMAC cursor codec and read-only application service minimally;
+2. implement the DB adapter through exactly the two frozen trusted RPCs;
+3. add the two A9 trusted read routines and exactly the two frozen query-support indexes in local migrations;
+4. wire only the two dashboard GET routes and dedicated cursor-integrity configuration;
+5. drive the 10 application and 4 pgTAP A9 failures to GREEN while preserving all K7/A1-A8 regression checks;
+6. add isolated real-Postgres A9 acceptance for tenant scoping, pagination, filters, privacy, capability counts and state invariance;
+7. only after full GREEN consider applying A9 to canonical hosted Supabase and rerun least-privilege/Security Advisor verification.
 
 In parallel, provider evidence should be upgraded through provider-owned current technical documentation or authenticated non-monetary/current sandbox proof.
 
