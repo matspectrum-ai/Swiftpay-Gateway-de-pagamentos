@@ -142,7 +142,7 @@ begin
         pg_catalog.jsonb_build_object(
             'revisionAfter', 1,
             'secretVersionAfter', 1,
-            'ipAllowlistCount', pg_catalog.coalesce(pg_catalog.jsonb_array_length(v_ip_allowlist), 0)
+            'ipAllowlistCount', coalesce(pg_catalog.jsonb_array_length(v_ip_allowlist), 0)
         ),
         v_now
     );
