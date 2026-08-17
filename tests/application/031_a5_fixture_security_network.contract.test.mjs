@@ -79,7 +79,7 @@ test('A5 fixture corpus uses reserved synthetic domains and contains no producti
   assert.doesNotMatch(corpus, /"contains_real_pii"\s*:\s*true/i);
 });
 
-test('A5 providers package, when present, contains no live Node network transport or fetch call', async () => {
+test('A5 retained adapters remain network-free while A11 is the only provider-package Node network boundary', async () => {
   const sourceDir = path.join(ROOT, 'packages/providers/src');
   try {
     await access(sourceDir, constants.R_OK);
@@ -87,9 +87,23 @@ test('A5 providers package, when present, contains no live Node network transpor
     return;
   }
   const files = (await walk(sourceDir)).filter((file) => /\.(?:ts|mts|js|mjs)$/.test(file));
-  const source = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n');
-  assert.doesNotMatch(source, /node:(?:http|https|dns|net|tls)/);
-  assert.doesNotMatch(source, /\bfetch\s*\(/);
+  const sources = await Promise.all(files.map(async (file) => ({
+    file,
+    source: await readFile(file, 'utf8'),
+  })));
+  const networkBoundaryFiles = sources
+    .filter(({ source }) => /node:(?:http|https|dns|net|tls)/.test(source) || /\bfetch\s*\(/.test(source))
+    .map(({ file }) => path.relative(sourceDir, file).replaceAll(path.sep, '/'));
+  assert.deepEqual(networkBoundaryFiles, ['http-transport.ts']);
+
+  const retainedAdapterSource = sources
+    .filter(({ file }) => path.basename(file) !== 'http-transport.ts')
+    .map(({ source }) => source)
+    .join('\n');
+  assert.doesNotMatch(retainedAdapterSource, /node:(?:http|https|dns|net|tls)/);
+  assert.doesNotMatch(retainedAdapterSource, /\bfetch\s*\(/);
+
+  const source = sources.map(({ source: value }) => value).join('\n');
   assert.doesNotMatch(source, /\bAKKADPAG_(?:API|SECRET|TOKEN|KEY)/);
   assert.doesNotMatch(source, /\bFLEVOPAY_(?:API|SECRET|TOKEN|KEY)/);
 });
