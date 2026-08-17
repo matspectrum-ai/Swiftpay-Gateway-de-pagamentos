@@ -49,7 +49,7 @@ if ! node tests/application/046_a8_api_credential_management_runtime_driver.mjs;
      select 'idempotency', count(*), coalesce(string_agg(operation || ':' || state, ',' order by operation), '')
        from app.request_idempotency where merchant_id = '${MERCHANT_ID}'::uuid
      union all
-     select 'audit', count(*), coalesce(string_agg(event_type, ',' order by event_type), '')
+     select 'audit', count(*), coalesce(string_agg(action, ',' order by action), '')
        from app.audit_events where merchant_id = '${MERCHANT_ID}'::uuid;" >&2
   exit 1
 fi
