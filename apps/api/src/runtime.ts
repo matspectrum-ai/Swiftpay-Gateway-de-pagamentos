@@ -14,12 +14,15 @@ import {
   createApiCredentialAuthStore,
   createDashboardApiCredentialStore,
   createDashboardMerchantContextStore,
+  createDashboardTransactionStore,
   createDashboardWebhookEndpointStore,
   createMerchantBalanceStore,
   createPixPaymentStore,
   verifyRuntimeBoundary,
 } from '@swiftpay/db';
 import {
+  createDashboardTransactionCursorCodec,
+  createDashboardTransactionReadService,
   createDeterministicPixEmulator,
   createPixPaymentService,
 } from '../../../packages/payments/dist/index.js';
@@ -30,6 +33,7 @@ import {
 } from '../../../packages/webhooks/dist/index.js';
 import type {
   BearerAuthenticator,
+  DashboardTransactionsHttpService,
   DashboardWebhookEndpointsHttpService,
   MerchantBalanceHttpService,
   PixPaymentsHttpService,
@@ -40,6 +44,7 @@ type ApiRuntimePool = Parameters<typeof verifyRuntimeBoundary>[0];
 export interface ApiRuntimeServicesOptions extends TokenExchangeServiceOptions {
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
+  readonly dashboardCursorHmacKey: string;
   readonly webhookSecretWrapKeyId?: string;
   readonly webhookSecretWrapPublicKey?: string;
 }
@@ -51,6 +56,7 @@ export interface ApiRuntimeServices {
   readonly dashboardAuthorization: DashboardAuthorizationService;
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly dashboardApiCredentials: DashboardApiCredentialManagementService;
+  readonly dashboardTransactions: DashboardTransactionsHttpService;
   readonly pixPayments: PixPaymentsHttpService;
   readonly merchantBalance: MerchantBalanceHttpService;
 }
@@ -76,6 +82,20 @@ export function createApiRuntimeServices(
     contextStore: dashboardContextStore,
     store: dashboardApiCredentialStore,
   });
+  const dashboardTransactionStore = createDashboardTransactionStore(pool);
+  const dashboardTransactionCursorCodec = createDashboardTransactionCursorCodec({
+    key: options.dashboardCursorHmacKey,
+  });
+  const dashboardTransactionReadService = createDashboardTransactionReadService({
+    sessionVerifier: dashboardSessionVerifier,
+    contextStore: dashboardContextStore,
+    store: dashboardTransactionStore,
+    cursorCodec: dashboardTransactionCursorCodec,
+  });
+  const dashboardTransactions: DashboardTransactionsHttpService = {
+    list: async (input) => ({ ...(await dashboardTransactionReadService.list(input)) }),
+    get: async (input) => ({ ...(await dashboardTransactionReadService.get(input)) }),
+  };
   const pixStore = createPixPaymentStore(pool);
   const balanceStore = createMerchantBalanceStore(pool);
   const pixService = createPixPaymentService(
@@ -112,6 +132,7 @@ export function createApiRuntimeServices(
     }),
     ...(dashboardWebhookEndpoints === undefined ? {} : { dashboardWebhookEndpoints }),
     dashboardApiCredentials,
+    dashboardTransactions,
     pixPayments: {
       create: (input) => pixService.create(input),
       get: ({ principal, paymentId }) => pixStore.getPayment({
