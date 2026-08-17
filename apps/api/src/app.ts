@@ -4,6 +4,14 @@ import type {
   TokenExchangeHandler,
   TokenExchangeRequest,
 } from '@swiftpay/auth';
+import {
+  createSafeRuntimeLogger,
+  type RuntimeEvent,
+  type RuntimeHttpMethod,
+  type SafeRuntimeLogger,
+} from '@swiftpay/observability';
+import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import Fastify, {
   type FastifyInstance,
   type FastifyReply,
@@ -106,6 +114,23 @@ export interface BuildAppOptions {
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
   readonly dashboardTransactions?: DashboardTransactionsHttpService;
+  readonly runtimeLogger?: SafeRuntimeLogger;
+  readonly monotonicNow?: () => number;
+}
+
+const defaultRuntimeLogger = createSafeRuntimeLogger({
+  sink: {
+    stdout: (line) => process.stdout.write(line),
+    stderr: (line) => process.stderr.write(line),
+  },
+});
+
+function emitRuntime(options: BuildAppOptions, event: RuntimeEvent): void {
+  try {
+    (options.runtimeLogger ?? defaultRuntimeLogger).log(event);
+  } catch {
+    // Observability degradation must never alter HTTP or domain behavior.
+  }
 }
 
 function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
@@ -165,7 +190,12 @@ async function authenticateBearerRequest(
   options: BuildAppOptions,
 ): Promise<MachinePrincipal | null> {
   if (!options.authenticateBearer) {
-    request.log.warn({ event: 'bearer_authentication_unavailable' }, 'SwiftPay Bearer authentication is unavailable');
+    emitRuntime(options, {
+      level: 'warn',
+      event: 'bearer_authentication_unavailable',
+      workload: 'api',
+      requestId: request.id,
+    });
     await reply.code(500).send(paymentInternalError(request.id));
     return null;
   }
@@ -184,7 +214,12 @@ async function authenticateBearerRequest(
     }
     return principal;
   } catch {
-    request.log.error({ event: 'payment_authentication_failed' }, 'SwiftPay payment authentication failed unexpectedly');
+    emitRuntime(options, {
+      level: 'error',
+      event: 'payment_authentication_failed',
+      workload: 'api',
+      requestId: request.id,
+    });
     await reply.code(500).send(paymentInternalError(request.id));
     return null;
   }
@@ -196,7 +231,12 @@ async function authenticatePaymentRequest(
   options: BuildAppOptions,
 ): Promise<MachinePrincipal | null> {
   if (!options.pixPayments) {
-    request.log.warn({ event: 'payment_services_unavailable' }, 'SwiftPay payment services are unavailable');
+    emitRuntime(options, {
+      level: 'warn',
+      event: 'payment_services_unavailable',
+      workload: 'api',
+      requestId: request.id,
+    });
     await reply.code(500).send(paymentInternalError(request.id));
     return null;
   }
@@ -375,33 +415,49 @@ async function sendDashboardTransactionResult(
   return reply.code(200).send(result.transaction);
 }
 
+function readMonotonic(clock: () => number): number {
+  try {
+    const value = clock();
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function boundedDuration(start: number, end: number): number {
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.min(86_400_000, Math.max(0, Math.trunc(end - start)));
+}
+
 export function buildApp(options: BuildAppOptions): FastifyInstance {
+  const monotonicNow = options.monotonicNow ?? (() => performance.now());
+  const requestStarts = new WeakMap<FastifyRequest, number>();
   const app = Fastify({
-    logger: {
-      redact: {
-        paths: [
-          'req.headers.authorization',
-          'req.headers.cookie',
-          'req.body.secretKey',
-          '*.password',
-          '*.secret',
-          '*.secretKey',
-          '*.secret_key',
-          '*.withdrawal_key',
-          '*.database_url',
-          '*.connection_string',
-          '*.signingSecret',
-          '*.secretCiphertext',
-          '*.wrappingPrivateKey',
-        ],
-        censor: '[REDACTED]',
-      },
-    },
-    requestIdHeader: 'x-request-id',
+    logger: false,
+    disableRequestLogging: true,
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
   });
 
   app.addHook('onRequest', async (request, reply) => {
+    requestStarts.set(request, readMonotonic(monotonicNow));
     reply.header('x-request-id', request.id);
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const start = requestStarts.get(request) ?? 0;
+    const end = readMonotonic(monotonicNow);
+    const route = request.routeOptions?.url ?? '<unmatched>';
+    emitRuntime(options, {
+      level: 'info',
+      event: 'http_request_completed',
+      workload: 'api',
+      requestId: request.id,
+      method: request.method as RuntimeHttpMethod,
+      route,
+      statusCode: reply.statusCode,
+      durationMs: boundedDuration(start, end),
+    });
   });
 
   app.get('/health/live', async () => ({ status: 'live' as const }));
@@ -411,14 +467,24 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       await options.readinessProbe();
       return { status: 'ready' as const, workload: 'api' as const };
     } catch {
-      request.log.warn({ event: 'database_readiness_failed' }, 'SwiftPay API is not ready');
+      emitRuntime(options, {
+        level: 'warn',
+        event: 'database_readiness_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(503).send({ status: 'unavailable', workload: 'api' });
     }
   });
 
   app.post('/v1/auth/token', async (request, reply) => {
     if (!options.tokenExchange) {
-      request.log.warn({ event: 'token_exchange_unavailable' }, 'SwiftPay token authentication is unavailable');
+      emitRuntime(options, {
+        level: 'warn',
+        event: 'token_exchange_unavailable',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(500).send({
         error: {
           code: 'internal_error',
@@ -455,7 +521,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         },
       });
     } catch {
-      request.log.error({ event: 'token_exchange_failed' }, 'SwiftPay token authentication failed unexpectedly');
+      emitRuntime(options, {
+        level: 'error',
+        event: 'token_exchange_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(500).send({
         error: {
           code: 'internal_error',
@@ -489,7 +560,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         },
       });
     } catch {
-      request.log.error({ event: 'pix_create_failed' }, 'SwiftPay Pix creation failed unexpectedly');
+      emitRuntime(options, {
+        level: 'error',
+        event: 'pix_create_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(500).send(paymentInternalError(request.id));
     }
   });
@@ -506,7 +582,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       }
       return reply.code(200).send(payment);
     } catch {
-      request.log.error({ event: 'payment_get_failed' }, 'SwiftPay Payment lookup failed unexpectedly');
+      emitRuntime(options, {
+        level: 'error',
+        event: 'payment_get_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(500).send(paymentInternalError(request.id));
     }
   });
@@ -516,7 +597,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     if (principal === null) return reply;
 
     if (!options.merchantBalance) {
-      request.log.warn({ event: 'balance_service_unavailable' }, 'SwiftPay merchant balance service is unavailable');
+      emitRuntime(options, {
+        level: 'warn',
+        event: 'balance_service_unavailable',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(500).send(paymentInternalError(request.id));
     }
 
@@ -524,7 +610,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       const balance = await options.merchantBalance.get({ principal });
       return reply.code(200).send(balance);
     } catch {
-      request.log.error({ event: 'balance_get_failed' }, 'SwiftPay merchant balance lookup failed unexpectedly');
+      emitRuntime(options, {
+        level: 'error',
+        event: 'balance_get_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
       return reply.code(500).send(paymentInternalError(request.id));
     }
   });
