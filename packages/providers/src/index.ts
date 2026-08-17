@@ -494,3 +494,4 @@ export function createFlevoPayAdapter(options: ProviderAdapterOptions) {
 }
 
 export * from './activation.js';
+export * from './http-transport.js';
