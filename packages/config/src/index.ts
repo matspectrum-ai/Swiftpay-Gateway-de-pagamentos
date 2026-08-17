@@ -2,6 +2,8 @@ export type SwiftpayEnvironment = 'sandbox' | 'production';
 
 export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
 export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
+export const DASHBOARD_CURSOR_HMAC_KEY_ENV = 'SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY';
+export const MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES = 32;
 export const WEBHOOK_SECRET_ENCRYPTION_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY';
 export const WEBHOOK_SECRET_WRAP_KEY_ID_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID';
 export const WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY';
@@ -13,6 +15,7 @@ export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
   readonly accessTokenSigningKey: string;
+  readonly dashboardCursorHmacKey: string;
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
   readonly webhookSecretWrapKeyId: string;
@@ -84,6 +87,19 @@ function accessTokenSigningKey(source: EnvironmentSource): string {
   if (Buffer.byteLength(value, 'utf8') < MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES) {
     throw new ConfigurationError(
       `${ACCESS_TOKEN_SIGNING_KEY_ENV} must contain at least ${MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES} UTF-8 bytes`,
+    );
+  }
+  return value;
+}
+
+function dashboardCursorHmacKey(source: EnvironmentSource): string {
+  const value = source[DASHBOARD_CURSOR_HMAC_KEY_ENV];
+  if (value === undefined) {
+    throw new ConfigurationError(`Missing required environment variable: ${DASHBOARD_CURSOR_HMAC_KEY_ENV}`);
+  }
+  if (Buffer.byteLength(value, 'utf8') < MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES) {
+    throw new ConfigurationError(
+      `${DASHBOARD_CURSOR_HMAC_KEY_ENV} must contain at least ${MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES} UTF-8 bytes`,
     );
   }
   return value;
@@ -187,6 +203,7 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     environment: environment(source),
     databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
     accessTokenSigningKey: accessTokenSigningKey(source),
+    dashboardCursorHmacKey: dashboardCursorHmacKey(source),
     supabaseUrl: supabaseUrl(source),
     supabasePublishableKey: supabasePublishableKey(source),
     webhookSecretWrapKeyId: webhookSecretWrapKeyId(source),
