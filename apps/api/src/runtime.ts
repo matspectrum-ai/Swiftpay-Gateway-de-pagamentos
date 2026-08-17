@@ -1,14 +1,18 @@
 import {
   authenticateAccessToken,
+  createDashboardApiCredentialManagementService,
   createDashboardAuthorizationService,
+  createPrivilegedDashboardSessionVerifier,
   createSupabaseDashboardSessionVerifier,
   createTokenExchangeHandler,
+  type DashboardApiCredentialManagementService,
   type DashboardAuthorizationService,
   type TokenExchangeHandler,
   type TokenExchangeServiceOptions,
 } from '@swiftpay/auth';
 import {
   createApiCredentialAuthStore,
+  createDashboardApiCredentialStore,
   createDashboardMerchantContextStore,
   createDashboardWebhookEndpointStore,
   createMerchantBalanceStore,
@@ -46,6 +50,7 @@ export interface ApiRuntimeServices {
   readonly authenticateBearer: BearerAuthenticator;
   readonly dashboardAuthorization: DashboardAuthorizationService;
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
+  readonly dashboardApiCredentials: DashboardApiCredentialManagementService;
   readonly pixPayments: PixPaymentsHttpService;
   readonly merchantBalance: MerchantBalanceHttpService;
 }
@@ -59,6 +64,17 @@ export function createApiRuntimeServices(
   const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({
     projectUrl: options.supabaseUrl,
     publishableKey: options.supabasePublishableKey,
+  });
+  const privilegedDashboardSessionVerifier = createPrivilegedDashboardSessionVerifier({
+    projectUrl: options.supabaseUrl,
+    publishableKey: options.supabasePublishableKey,
+  });
+  const dashboardApiCredentialStore = createDashboardApiCredentialStore(pool);
+  const dashboardApiCredentials = createDashboardApiCredentialManagementService({
+    ordinarySessionVerifier: dashboardSessionVerifier,
+    privilegedSessionVerifier: privilegedDashboardSessionVerifier,
+    contextStore: dashboardContextStore,
+    store: dashboardApiCredentialStore,
   });
   const pixStore = createPixPaymentStore(pool);
   const balanceStore = createMerchantBalanceStore(pool);
@@ -95,6 +111,7 @@ export function createApiRuntimeServices(
       contextStore: dashboardContextStore,
     }),
     ...(dashboardWebhookEndpoints === undefined ? {} : { dashboardWebhookEndpoints }),
+    dashboardApiCredentials,
     pixPayments: {
       create: (input) => pixService.create(input),
       get: ({ principal, paymentId }) => pixStore.getPayment({
