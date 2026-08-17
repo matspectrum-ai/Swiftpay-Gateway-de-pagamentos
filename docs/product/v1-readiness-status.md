@@ -7,25 +7,25 @@ PR: #1 — draft
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness remains:
+Conservative risk/effort-weighted readiness after hosted A9 closure:
 
 - core architecture/domain/database/platform foundation: **~99%**;
-- first end-to-end Pix sandbox MVP: **~96%**;
-- production-capable Pix V1: **~58%**;
-- weighted V1 engineering completion: **~73%**.
+- first end-to-end Pix sandbox MVP: **~97%**;
+- production-capable Pix V1: **~60%**;
+- weighted V1 engineering completion: **~75%**.
 
-These estimates intentionally do not increase for A9 planning/TDD work before implementation is GREEN.
+The movement is deliberately small. A9 closes an important merchant operational surface, but it does not reduce the dominant external risk around current retained-PSP contracts, live transport, provider webhook authority or recovery/reconciliation behavior.
 
 ## Proven executable path
 
-K1-K7 and A1-A8 are DONE. A5 remains fixture-only for live-provider authority.
+K1-K7 and A1-A9 are DONE. A5 remains fixture-only for live-provider authority.
 
 The branch proves:
 
 1. API credential `client_credentials` -> 900-second machine Bearer token;
 2. authenticated/idempotent Pix Payment creation;
 3. deterministic visibly non-payable sandbox emulator;
-4. authenticated Payment retrieval;
+4. authenticated machine Payment retrieval;
 5. worker trusted paid evidence with replay/concurrency absorption;
 6. exactly one `settlement_paid` double-entry posting;
 7. authenticated merchant balance;
@@ -34,61 +34,46 @@ The branch proves:
 10. network-free retained-provider conformance fixtures;
 11. online-verified Supabase dashboard sessions + K4 current membership/role authorization;
 12. hosted webhook endpoint lifecycle administration;
-13. hosted API credential lifecycle administration with AAL2 mutation step-up and immediate A1 token invalidation on rotation/revocation.
+13. hosted API credential lifecycle administration with AAL2 mutation step-up and immediate A1 token invalidation on rotation/revocation;
+14. hosted dashboard transaction list/detail with exact filters, authenticated keyset cursor, tenant/environment isolation and merchant-safe projection.
 
-## A8 hosted baseline
+## A9 hosted checkpoint
 
-A8 final GREEN head: `d74624198918aca53a3769334aeb6b8adbba8092`.
+Evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`.
 
-- Application workflow `32001023852`: **226/226 PASS**, including K7/A1/A2/A3/A4/A6/A7/A8 real-database acceptance.
-- Database workflow `32001023848`: **39 files / 1288 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- Hosted `swiftpay_api`: exact **21** `app` EXECUTE capabilities.
+Behavioral GREEN head: `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`.
+
+- Application workflow `32009421604`: **240/240 PASS**, including K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance.
+- Database workflow `32009421592`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- Hosted migration: `20260817081745_merchant_transaction_operations.sql`.
+- Hosted `swiftpay_api`: exact **23** `app` EXECUTE capabilities.
 - Hosted `swiftpay_worker`: exact **6**.
+- Hosted A9 RPCs: exactly list/detail read operations, both `SECURITY DEFINER` with `search_path=''`.
+- Hosted A9/payment indexes: existing merchant-created feed index plus status and exact-externalId query indexes.
+- Direct protected-table runtime privileges observed in the hosted A9 audit: **0**.
+- Hosted Payment rows after deployment: **0**; ProviderAttempt rows: **0**.
 - Security Advisor: **0 lints**.
+- Performance Advisor: INFO-only observations; no unrelated optimization was performed without measured workload evidence.
 
-Hosted A8 migrations:
+A9 V0 is dashboard-only and read-only. It adds no Payment status mutation, provider recovery command, reconciliation command or monetary capability. `execution_unknown` remains represented by canonical Payment `creating`; refunds remain separate through `refundedAmount`; list responses omit Pix instructions and customer/provider internals; detail exposes only normalized safe Pix instructions when complete canonical pending/paid data exists.
 
-- `20260817061316_api_credential_management_foundation.sql`
-- `20260817061346_api_credential_management_create.sql`
-- `20260817061415_api_credential_management_behavior.sql`
+## What remains for V1
 
-## A9 — merchant transaction operations
+The remaining weighted V1 work is approximately **25%**, but it is risk-heavy rather than a simple quarter of feature count.
 
-Status: **TDD_RED**.
+The largest unresolved block is production PSP authority:
 
-Frozen artifacts:
+- current provider-owned AkkadPag/AkadPay contractual lineage/equivalence;
+- current create/query/idempotency and ambiguous-execution recovery semantics;
+- current FlevoPay technical create/query/recovery semantics;
+- exact provider webhook authentication/replay contracts;
+- live provider transport activation only after those evidence gates close;
+- provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
+- production monetary activation and end-to-end live/sandbox acceptance gates.
 
-- Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`
-- YAML spec: `docs/specs/merchant-transaction-operations-v0.yaml`
-- application/HTTP contract: `docs/contracts/merchant-transaction-operations-v0.md`
-- database contract: `docs/contracts/merchant-transaction-operations-database-v0.md`
-- RED evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations-red.md`
+There are also remaining merchant/product surfaces outside the completed A1-A9 path, including merchant-usable payout/refund operations, additional operational/reporting surfaces and broader product/UI completion. Those do not supersede the PSP evidence gate on the Pix V1 critical path.
 
-A9 V0 is a dashboard-only, read-only transaction list/detail surface over canonical Payment state. It adds no Payment status mutation, provider recovery command or other monetary capability.
-
-Critical frozen properties:
-
-- ordinary A6 online session verification + current K4 member authority;
-- no AAL2 requirement for reads and no machine-token fallback;
-- canonical Payment status only; `execution_unknown` remains `creating`;
-- refunds projected separately through `refundedAmount`;
-- no customer snapshot, metadata or provider/execution internals;
-- exact status/externalId/date filters only;
-- deterministic keyset pagination by `created_at DESC, id ASC`;
-- HMAC-SHA256 authenticated scope/filter-bound cursor;
-- exactly two planned trusted read RPCs;
-- post-A9 target capabilities: API 23, worker unchanged at 6;
-- fixed-width externalId digest-expression index plus mandatory exact original equality, preserving A2 compatibility for arbitrarily long pre-existing external IDs;
-- zero financial/provider/idempotency/audit/job/webhook/credential side effects.
-
-Clean RED:
-
-- Application workflow `32005108260`: typecheck/build GREEN; **226 prior contracts PASS + 10 A9 expected FAIL**.
-- Runtime-database acceptance job `95312863871`: K7/A1/A2/A3/A4/A6/A7/A8 all GREEN.
-- Database workflow `32005108254`: files 001-039 GREEN; file 040 fails exactly **4/4** expected A9 assertions for the two absent RPCs and two absent indexes.
-- K5 fixtures and K6 runtime topology: GREEN.
-
-No A9 migration has been applied to hosted Supabase. Implementation is authorized next by the frozen RED contracts, but hosted deployment remains forbidden until full local/CI GREEN and isolated A9 real-database acceptance.
+For the sandbox MVP specifically, only a small residual hardening/product-integration tail remains; the core executable Pix lifecycle and dashboard operational reads are already proven.
 
 ## External production blocker
 
@@ -100,4 +85,4 @@ Therefore A5 fixture conformance does not authorize live money movement. Live pr
 
 ## Next internal action
 
-Implement only the frozen A9 behavior to turn its RED tests GREEN, then add isolated PostgreSQL acceptance and prove capability/privacy/state invariants. Do not deploy A9 hosted before that verification.
+With A9 DONE/HOSTED, choose the next V1 slice from the canonical ledger while continuing PSP evidence acquisition in parallel. No real monetary PSP call is authorized until the current-contract evidence gates and the applicable live acceptance gates are closed.
