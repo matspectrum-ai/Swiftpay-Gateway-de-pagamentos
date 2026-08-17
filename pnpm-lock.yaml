@@ -26,6 +26,9 @@ importers:
       '@swiftpay/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@swiftpay/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       fastify:
         specifier: 5.11.0
         version: 5.11.0
@@ -38,6 +41,9 @@ importers:
       '@swiftpay/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@swiftpay/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
 
   packages/auth:
     dependencies:
@@ -56,6 +62,8 @@ importers:
       '@types/pg':
         specifier: 8.20.0
         version: 8.20.0
+
+  packages/observability: {}
 
 packages:
 
