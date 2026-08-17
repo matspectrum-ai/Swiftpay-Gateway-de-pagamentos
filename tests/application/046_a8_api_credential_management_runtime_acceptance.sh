@@ -51,6 +51,26 @@ if ! node tests/application/046_a8_api_credential_management_runtime_driver.mjs;
      union all
      select 'audit', count(*), coalesce(string_agg(action, ',' order by action), '')
        from app.audit_events where merchant_id = '${MERCHANT_ID}'::uuid;" >&2
+
+  echo 'A8_DIAG direct runtime RPC with synthetic non-secret material follows' >&2
+  psql "${SWIFTPAY_API_DATABASE_URL}" --set ON_ERROR_STOP=1 >&2 <<'SQL' || true
+begin;
+select pg_catalog.jsonb_build_object(
+  'kind', result ->> 'kind',
+  'replayed', result ->> 'replayed'
+)
+from (
+  select app.create_dashboard_api_credential(
+    '18000000-0000-0000-0000-000000000802'::uuid,
+    '28000000-0000-0000-0000-000000000801'::uuid,
+    'sandbox',
+    'a8-diagnostic-create',
+    'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+    '{"credentialId":"39000000-0000-0000-0000-000000000801","name":"Diagnostic synthetic","publicKey":"pk_sandbox_AAAAAAAAAAAAAAAAAAAAAAAA","secretVerifier":"scrypt-v1$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","ipAllowlist":null}'::jsonb
+  ) as result
+) diagnostic;
+rollback;
+SQL
   exit 1
 fi
 after_financial="$(financial_counts)"
