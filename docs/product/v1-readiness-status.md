@@ -7,18 +7,18 @@ PR: #1 — draft
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A11 closure remains:
+Conservative risk/effort-weighted readiness after A12 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10/A11 deliberately do not increase these estimates. They materially reduce accidental provider-activation and outbound-network risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, or close provider webhook/recovery/live monetary gates.
+A10-A12 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network and unsafe-runtime-logging risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A11 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable and A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters.
+K1-K7 and A1-A12 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, and A12 provides safe server-owned runtime correlation plus closed-schema structured logging.
 
 The branch proves:
 
@@ -37,7 +37,24 @@ The branch proves:
 13. hosted API credential lifecycle administration with AAL2 mutation step-up and immediate A1 token invalidation on rotation/revocation;
 14. hosted dashboard transaction list/detail with exact filters, authenticated keyset cursor, tenant/environment isolation and merchant-safe projection;
 15. provider activation registry/authorizer that denies every checked-in retained-provider operation and binds any future grant to exact provider/operation/environment/contract lineage plus reviewed evidence metadata;
-16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification.
+16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification;
+17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging.
+
+## A12 checkpoint — structured runtime logging & correlation
+
+Evidence: `docs/evidence/application/2026-08-17-a12-structured-runtime-logging-correlation.md`.
+
+Final behavioral GREEN head: `bce20e1bbfdc41c53d913043dff55d1cb14ca797`.
+
+- Application workflow `32019551464`: **276/276 PASS**, including **11/11 A12** contracts and K7/A1-A9 real-database regression acceptance.
+- Database workflow `32019551475`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- A12 Supabase migrations: **none**.
+- A12 retained-provider network calls: **0**.
+- Provider/financial authority changes: **none**.
+
+A12 adds the dependency-free `@swiftpay/observability` package, moves API request identity to SwiftPay-owned UUIDv4 generation, ignores caller `x-request-id` as authority, correlates response headers/public errors with the generated ID, disables Fastify generic request logging, emits one safe route-template completion event and moves the worker to the same closed-schema serializer. Metrics, distributed tracing, exporters, alerts, dashboards and SLOs remain outside A12.
+
+Known compatibility debt is explicit: Fastify 5.11 emits `FSTDEP023` for the top-level `disableRequestLogging` option. The behavior remains GREEN; migrate to `logController` before a Fastify 6 upgrade in a dedicated compatibility slice.
 
 ## A11 checkpoint — strict provider HTTP transport
 
@@ -86,7 +103,7 @@ A9 V0 is dashboard-only and read-only. It adds no Payment status mutation, provi
 
 ## What remains for V1
 
-The remaining weighted V1 work is approximately **25%**, but it is risk-heavy rather than a simple quarter of feature count.
+The remaining weighted V1 engineering work is approximately **25%**, but it is risk-heavy rather than a simple quarter of feature count. Separately, the production-capable Pix V1 measure is only about **60% complete**, so roughly **40% of production launch capability remains**.
 
 The largest unresolved block is production PSP authority:
 
@@ -99,7 +116,23 @@ The largest unresolved block is production PSP authority:
 - provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
 - deliberate `production_enabled` transition only after production acceptance gates.
 
-There are also remaining merchant/product surfaces outside the completed A1-A11 path, including merchant-usable payout/refund operations, additional operational/reporting surfaces, KYC/compliance UX, checkout/links and broader product/UI completion. Those do not supersede the PSP evidence gate on the Pix V1 critical path.
+There are also remaining merchant/product surfaces outside the completed A1-A12 path:
+
+- dashboard login/session UX and Supabase Auth product configuration;
+- merchant-usable payout/refund operations;
+- KYC/compliance operations UX;
+- hosted Pix checkout;
+- payment links;
+- conversion/analytics and broader operational/reporting surfaces.
+
+Production hardening still includes:
+
+- metrics, traces, exporters, alerts, dashboards and SLOs beyond A12 logging/correlation;
+- secret/key rotation architecture, dependency/security review, least-privilege audit and abuse/rate-limit review;
+- measured performance cleanup;
+- deployment/cutover/rollback, backup/recovery, provider credential bootstrap and launch runbook.
+
+These remaining items do not supersede the PSP evidence gate on the live Pix critical path.
 
 ## External production blocker
 
@@ -115,8 +148,8 @@ Therefore A5 fixture conformance + A10 activation safety + A11 strict transport 
 
 ## Next internal action
 
-A11 is DONE / GREEN and remains unbound from retained PSP adapters. Do **not** create the provider bridge merely because the transport now exists.
+A12 is DONE / GREEN. Continue provider-owned current technical evidence/authenticated sandbox acquisition in parallel, but do not bridge retained adapters merely because A11 transport exists.
 
-Continue acquiring exact provider-owned current contract evidence/authenticated current sandbox proof in parallel. Internally, select the next risk-weighted V1 slice from merchant/product/observability/security/cutover work and restart it at Problem Analysis unless sufficient provider evidence first closes an activation prerequisite.
+The next internal production-hardening behavior should restart at Problem Analysis. Highest-value candidates are operational metrics/health signals, abuse/rate-limit hardening or a merchant-operational surface. Choose one bounded slice, preserve current provider authority at zero, and keep metrics/security/product work independent of the external PSP evidence gate.
 
 No real monetary PSP call is authorized until the exact current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
