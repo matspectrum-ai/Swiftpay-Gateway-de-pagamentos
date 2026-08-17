@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const REQUEST_ID = 'req-a2-http-001';
+const CALLER_REQUEST_ID = 'req-a2-http-001';
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TOKEN = 'signed-a2-access-token';
 const PAYMENT_ID = '70000000-0000-0000-0000-000000000001';
 
@@ -64,7 +65,7 @@ function authHeaders(extra = {}) {
   return {
     authorization: `Bearer ${TOKEN}`,
     'content-type': 'application/json',
-    'x-request-id': REQUEST_ID,
+    'x-request-id': CALLER_REQUEST_ID,
     ...extra,
   };
 }
@@ -84,19 +85,22 @@ async function getRequest(app, options = {}) {
     url: `/v1/transactions/${options.paymentId ?? PAYMENT_ID}`,
     headers: options.headers ?? {
       authorization: `Bearer ${TOKEN}`,
-      'x-request-id': REQUEST_ID,
+      'x-request-id': CALLER_REQUEST_ID,
     },
   });
 }
 
-function invalidAccessTokenBody() {
-  return {
-    error: {
-      code: 'invalid_access_token',
-      message: 'Invalid access token.',
-      requestId: REQUEST_ID,
-    },
-  };
+function assertServerRequestId(response) {
+  const requestId = response.headers['x-request-id'];
+  assert.equal(typeof requestId, 'string');
+  assert.match(requestId, UUID_V4);
+  assert.notEqual(requestId, CALLER_REQUEST_ID);
+  return requestId;
+}
+
+function assertErrorCorrelation(response, code, message) {
+  const requestId = assertServerRequestId(response);
+  assert.deepEqual(response.json(), { error: { code, message, requestId } });
 }
 
 test('A2 protected Pix routes reject missing malformed and invalid Bearer credentials indistinguishably', async () => {
@@ -115,16 +119,15 @@ test('A2 protected Pix routes reject missing malformed and invalid Bearer creden
 
   try {
     const cases = [
-      await createRequest(app, { headers: { 'content-type': 'application/json', 'x-request-id': REQUEST_ID, 'idempotency-key': 'idem' } }),
-      await createRequest(app, { headers: { authorization: 'Basic abc', 'content-type': 'application/json', 'x-request-id': REQUEST_ID, 'idempotency-key': 'idem' } }),
-      await createRequest(app, { headers: { authorization: 'Bearer wrong-token', 'content-type': 'application/json', 'x-request-id': REQUEST_ID, 'idempotency-key': 'idem' } }),
-      await getRequest(app, { headers: { 'x-request-id': REQUEST_ID } }),
+      await createRequest(app, { headers: { 'content-type': 'application/json', 'x-request-id': CALLER_REQUEST_ID, 'idempotency-key': 'idem' } }),
+      await createRequest(app, { headers: { authorization: 'Basic abc', 'content-type': 'application/json', 'x-request-id': CALLER_REQUEST_ID, 'idempotency-key': 'idem' } }),
+      await createRequest(app, { headers: { authorization: 'Bearer wrong-token', 'content-type': 'application/json', 'x-request-id': CALLER_REQUEST_ID, 'idempotency-key': 'idem' } }),
+      await getRequest(app, { headers: { 'x-request-id': CALLER_REQUEST_ID } }),
     ];
 
     for (const response of cases) {
       assert.equal(response.statusCode, 401);
-      assert.deepEqual(response.json(), invalidAccessTokenBody());
-      assert.equal(response.headers['x-request-id'], REQUEST_ID);
+      assertErrorCorrelation(response, 'invalid_access_token', 'Invalid access token.');
     }
     assert.equal(authCalls, 1);
     assert.equal(paymentCalls, 0);
@@ -160,7 +163,7 @@ test('A2 POST authenticates first and forwards principal Idempotency-Key and exa
       idempotencyKey: 'idem-a2-http-001',
       request: requestBody,
     });
-    assert.equal(response.headers['x-request-id'], REQUEST_ID);
+    assertServerRequestId(response);
   } finally {
     await app.close();
   }
@@ -202,7 +205,7 @@ test('A2 POST maps domain validation forbidden conflict and classified internal 
     try {
       const response = await createRequest(app);
       assert.equal(response.statusCode, status);
-      assert.deepEqual(response.json(), { error: { code, message, requestId: REQUEST_ID } });
+      assertErrorCorrelation(response, code, message);
     } finally {
       await app.close();
     }
@@ -239,13 +242,7 @@ test('A2 GET maps foreign missing or wrong-environment Payment to the same 404 r
   try {
     const response = await getRequest(app);
     assert.equal(response.statusCode, 404);
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'resource_not_found',
-        message: 'Payment was not found.',
-        requestId: REQUEST_ID,
-      },
-    });
+    assertErrorCorrelation(response, 'resource_not_found', 'Payment was not found.');
   } finally {
     await app.close();
   }
@@ -258,9 +255,7 @@ test('A2 protected Pix routes sanitize authentication and payment-service except
   try {
     const response = await createRequest(authFailure);
     assert.equal(response.statusCode, 500);
-    assert.deepEqual(response.json(), {
-      error: { code: 'internal_error', message: 'Payment operation failed.', requestId: REQUEST_ID },
-    });
+    assertErrorCorrelation(response, 'internal_error', 'Payment operation failed.');
     assert.doesNotMatch(response.body, /secret-auth-db|postgresql/i);
   } finally {
     await authFailure.close();
@@ -277,9 +272,7 @@ test('A2 protected Pix routes sanitize authentication and payment-service except
     const getResponse = await getRequest(paymentFailure);
     for (const response of [createResponse, getResponse]) {
       assert.equal(response.statusCode, 500);
-      assert.deepEqual(response.json(), {
-        error: { code: 'internal_error', message: 'Payment operation failed.', requestId: REQUEST_ID },
-      });
+      assertErrorCorrelation(response, 'internal_error', 'Payment operation failed.');
       assert.doesNotMatch(response.body, /provider secret|SWIFTPAY_EMULATOR_COPY_private/i);
     }
   } finally {
@@ -298,7 +291,7 @@ test('A2 protected Pix routes fail closed when Bearer or payment application ser
     const response = await createRequest(withoutAuth);
     assert.equal(response.statusCode, 500);
     assert.equal(response.json().error.code, 'internal_error');
-    assert.equal(response.json().error.requestId, REQUEST_ID);
+    assert.equal(response.json().error.requestId, assertServerRequestId(response));
   } finally {
     await withoutAuth.close();
   }
@@ -311,7 +304,7 @@ test('A2 protected Pix routes fail closed when Bearer or payment application ser
     const response = await getRequest(withoutPayments);
     assert.equal(response.statusCode, 500);
     assert.equal(response.json().error.code, 'internal_error');
-    assert.equal(response.json().error.requestId, REQUEST_ID);
+    assert.equal(response.json().error.requestId, assertServerRequestId(response));
   } finally {
     await withoutPayments.close();
   }
