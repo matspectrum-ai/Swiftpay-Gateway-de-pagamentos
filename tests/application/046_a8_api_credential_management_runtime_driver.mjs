@@ -9,12 +9,10 @@ const IDS = {
   admin: '18000000-0000-0000-0000-000000000802',
   owner: '18000000-0000-0000-0000-000000000803',
 };
-const CREDENTIAL_IDS = [
-  '38000000-0000-0000-0000-000000000801',
-  '38000000-0000-0000-0000-000000000802',
-  '38000000-0000-0000-0000-000000000803',
-  '38000000-0000-0000-0000-000000000804',
-];
+const CREDENTIAL_IDS = Array.from(
+  { length: 24 },
+  (_, index) => `38000000-0000-0000-0000-${String(801 + index).padStart(12, '0')}`,
+);
 
 function fail(message) {
   process.stderr.write(`A8_ACCEPTANCE_FAIL ${message}\n`);
@@ -167,6 +165,27 @@ try {
   check(production.credential?.environment === 'production', 'production_environment');
   const productionReplay = await service.create(productionInput);
   check(productionReplay.kind === 'created' && productionReplay.replayed === true && productionReplay.secretKey === null, 'production_replay');
+
+  const concurrentCreates = await Promise.all(
+    Array.from({ length: 11 }, (_, index) => service.create({
+      authorization: 'Bearer admin-aal2',
+      merchantId: MERCHANT_ID,
+      environment: 'sandbox',
+      idempotencyKey: `sandbox-limit-${index + 1}`,
+      request: { name: `Sandbox limit ${index + 1}` },
+    })),
+  );
+  const createdAtLimit = concurrentCreates.filter((result) => result.kind === 'created' && result.replayed === false);
+  const rejectedAtLimit = concurrentCreates.filter((result) => result.kind === 'credential_limit_reached');
+  check(createdAtLimit.length === 10, `concurrent_limit_created_${createdAtLimit.length}`);
+  check(rejectedAtLimit.length === 1, `concurrent_limit_rejected_${rejectedAtLimit.length}`);
+  const sandboxAfterLimit = await service.list({ authorization: 'Bearer member', merchantId: MERCHANT_ID, environment: 'sandbox' });
+  check(
+    sandboxAfterLimit.kind === 'ok'
+      && sandboxAfterLimit.credentials.filter((credential) => credential.status === 'active').length === 10
+      && sandboxAfterLimit.credentials.filter((credential) => credential.status === 'revoked').length === 1,
+    'transactional_active_credential_limit',
+  );
 
   process.stdout.write('A8_ACCEPTANCE_OK credential management behavior\n');
 } finally {
