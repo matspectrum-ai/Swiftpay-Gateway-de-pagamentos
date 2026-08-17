@@ -94,3 +94,5 @@ jobs:
         run: bash tests/application/036_a6_dashboard_authorization_runtime_acceptance.sh
       - name: Run A7 webhook endpoint management real-database acceptance
         run: bash tests/application/042_a7_webhook_endpoint_management_runtime_acceptance.sh
+      - name: Run A8 API credential management real-database acceptance
+        run: bash tests/application/046_a8_api_credential_management_runtime_acceptance.sh
