@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
+const CURSOR_KEY = 'a9-dashboard-cursor-test-key-0123456789abcdef';
 const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
 const CREDENTIAL_ID = '61000000-0000-0000-0000-000000000001';
@@ -116,6 +117,7 @@ test('A2 API runtime composes A1 Bearer revalidation with trusted Pix store serv
 
   const services = runtime.createApiRuntimeServices(pool, {
     signingKey: SIGNING_KEY,
+    dashboardCursorHmacKey: CURSOR_KEY,
     nowSeconds: () => NOW_SECONDS + 1,
     jti: () => JTI,
   });
