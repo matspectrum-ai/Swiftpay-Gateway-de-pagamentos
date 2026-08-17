@@ -18,8 +18,8 @@ test('A8 API runtime composes ordinary and privileged dashboard auth with the cr
 });
 
 test('A8 runtime passes the same Supabase project boundary to privileged verification without service-role authority', () => {
-  assert.match(runtimeSource, /projectUrl:\s*config\.dashboard\.projectUrl/);
-  assert.match(runtimeSource, /publishableKey:\s*config\.dashboard\.publishableKey/);
+  assert.match(runtimeSource, /projectUrl:\s*options\.supabaseUrl/);
+  assert.match(runtimeSource, /publishableKey:\s*options\.supabasePublishableKey/);
   assert.doesNotMatch(runtimeSource, /service[_-]?role/i);
   assert.doesNotMatch(runtimeSource, /sb_secret_/i);
   assert.doesNotMatch(runtimeSource, /jwt[_-]?secret/i);
