@@ -78,6 +78,25 @@ export interface DashboardWebhookEndpointsHttpService {
   rotateSecret?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
 }
 
+interface DashboardTransactionListInput {
+  readonly authorization?: string;
+  readonly merchantId: string;
+  readonly environment: string;
+  readonly query: unknown;
+}
+
+interface DashboardTransactionItemInput {
+  readonly authorization?: string;
+  readonly merchantId: string;
+  readonly environment: string;
+  readonly transactionId: string;
+}
+
+export interface DashboardTransactionsHttpService {
+  list?(input: DashboardTransactionListInput): Promise<Record<string, unknown>>;
+  get?(input: DashboardTransactionItemInput): Promise<Record<string, unknown>>;
+}
+
 export interface BuildAppOptions {
   readonly readinessProbe: ReadinessProbe;
   readonly tokenExchange?: TokenExchangeHandler;
@@ -86,6 +105,7 @@ export interface BuildAppOptions {
   readonly merchantBalance?: MerchantBalanceHttpService;
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
+  readonly dashboardTransactions?: DashboardTransactionsHttpService;
 }
 
 function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
@@ -315,6 +335,44 @@ async function sendDashboardApiCredentialResult(
     body.secretKey = result.secretKey ?? null;
   }
   return reply.code(successKind === 'create' && !replayed ? 201 : 200).send(body);
+}
+
+function dashboardTransactionError(kind: string, requestId: string): {
+  status: 400 | 401 | 403 | 404 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid transaction request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'Transaction was not found.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Transaction operation failed.', requestId } } };
+  }
+}
+
+async function sendDashboardTransactionResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+  successKind: 'list' | 'item',
+) {
+  reply.header('cache-control', 'private, no-store');
+  const kind = resultKind(result);
+  if (kind !== 'ok') {
+    const failure = dashboardTransactionError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+  if (successKind === 'list') {
+    return reply.code(200).send({ items: result.items ?? [], nextCursor: result.nextCursor ?? null });
+  }
+  return reply.code(200).send(result.transaction);
 }
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
@@ -621,6 +679,44 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
   app.post(`${dashboardCredentialBase}/:credentialId/rotate-secret`, (request, reply) => credentialMutationRoute(request, reply, 'rotateSecret'));
   app.post(`${dashboardCredentialBase}/:credentialId/revoke`, (request, reply) => credentialMutationRoute(request, reply, 'revoke'));
+
+  const dashboardTransactionBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/transactions';
+
+  app.get(dashboardTransactionBase, async (request, reply) => {
+    const service = options.dashboardTransactions?.list;
+    if (!service) return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        merchantId,
+        environment,
+        query: request.query,
+      });
+      return sendDashboardTransactionResult(reply, request.id, result, 'list');
+    } catch {
+      return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    }
+  });
+
+  app.get(`${dashboardTransactionBase}/:transactionId`, async (request, reply) => {
+    const service = options.dashboardTransactions?.get;
+    if (!service) return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    const { merchantId, environment, transactionId } = request.params as { merchantId: string; environment: string; transactionId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        merchantId,
+        environment,
+        transactionId,
+      });
+      return sendDashboardTransactionResult(reply, request.id, result, 'item');
+    } catch {
+      return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    }
+  });
 
   return app;
 }
