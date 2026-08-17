@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CALLER_REQUEST_ID = 'req-a1-http-001';
+
 async function buildWith(handler) {
   const api = await import('../../apps/api/dist/app.js');
   return api.buildApp({
@@ -21,7 +24,7 @@ async function injectToken(app, options = {}) {
     url: '/v1/auth/token',
     headers: {
       'content-type': 'application/json',
-      'x-request-id': 'req-a1-http-001',
+      'x-request-id': CALLER_REQUEST_ID,
       ...(options.headers ?? {}),
     },
     payload: options.payload ?? requestBody,
@@ -37,6 +40,26 @@ function errorResult(code, message = 'request failed', retryAfterSeconds) {
       ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
     },
   };
+}
+
+function assertServerRequestId(response) {
+  const requestId = response.headers['x-request-id'];
+  assert.equal(typeof requestId, 'string');
+  assert.match(requestId, UUID_V4);
+  assert.notEqual(requestId, CALLER_REQUEST_ID);
+  return requestId;
+}
+
+function assertErrorCorrelation(response, expectedCode, expectedMessage) {
+  const requestId = assertServerRequestId(response);
+  assert.deepEqual(response.json(), {
+    error: {
+      code: expectedCode,
+      message: expectedMessage,
+      requestId,
+    },
+  });
+  return requestId;
 }
 
 test('A1 token endpoint maps successful token exchange to direct 200 response', async () => {
@@ -66,10 +89,10 @@ test('A1 token endpoint maps successful token exchange to direct 200 response', 
       environment: 'sandbox',
     });
     assert.deepEqual(receivedRequest, requestBody);
-    assert.equal(receivedContext.requestId, 'req-a1-http-001');
+    const requestId = assertServerRequestId(response);
+    assert.equal(receivedContext.requestId, requestId);
     assert.equal(typeof receivedContext.clientIp, 'string');
     assert.notEqual(receivedContext.clientIp.length, 0);
-    assert.equal(response.headers['x-request-id'], 'req-a1-http-001');
   } finally {
     await app.close();
   }
@@ -80,14 +103,7 @@ test('A1 validation failure maps to deterministic 400 public error', async () =>
   try {
     const response = await injectToken(app);
     assert.equal(response.statusCode, 400);
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'validation_error',
-        message: 'Invalid token request.',
-        requestId: 'req-a1-http-001',
-      },
-    });
-    assert.equal(response.headers['x-request-id'], 'req-a1-http-001');
+    assertErrorCorrelation(response, 'validation_error', 'Invalid token request.');
   } finally {
     await app.close();
   }
@@ -98,13 +114,7 @@ test('A1 invalid credential failure maps to indistinguishable 401', async () => 
   try {
     const response = await injectToken(app);
     assert.equal(response.statusCode, 401);
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'invalid_credentials',
-        message: 'Invalid credentials.',
-        requestId: 'req-a1-http-001',
-      },
-    });
+    assertErrorCorrelation(response, 'invalid_credentials', 'Invalid credentials.');
   } finally {
     await app.close();
   }
@@ -115,8 +125,7 @@ test('A1 IP policy failure maps to 403', async () => {
   try {
     const response = await injectToken(app);
     assert.equal(response.statusCode, 403);
-    assert.equal(response.json().error.code, 'ip_not_allowed');
-    assert.equal(response.json().error.requestId, 'req-a1-http-001');
+    assertErrorCorrelation(response, 'ip_not_allowed', 'IP address is not allowed.');
   } finally {
     await app.close();
   }
@@ -128,13 +137,7 @@ test('A1 token issuance quota failure maps to 429 and Retry-After', async () => 
     const response = await injectToken(app);
     assert.equal(response.statusCode, 429);
     assert.equal(response.headers['retry-after'], '173');
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'auth_rate_limit_exceeded',
-        message: 'Token issuance rate limit exceeded.',
-        requestId: 'req-a1-http-001',
-      },
-    });
+    assertErrorCorrelation(response, 'auth_rate_limit_exceeded', 'Token issuance rate limit exceeded.');
   } finally {
     await app.close();
   }
@@ -145,13 +148,7 @@ test('A1 classified internal failure maps to sanitized 500', async () => {
   try {
     const response = await injectToken(app);
     assert.equal(response.statusCode, 500);
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'internal_error',
-        message: 'Authentication is unavailable.',
-        requestId: 'req-a1-http-001',
-      },
-    });
+    assertErrorCorrelation(response, 'internal_error', 'Authentication is unavailable.');
   } finally {
     await app.close();
   }
@@ -164,13 +161,7 @@ test('A1 unexpected handler exception is sanitized and never leaks secret text',
   try {
     const response = await injectToken(app);
     assert.equal(response.statusCode, 500);
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'internal_error',
-        message: 'Authentication is unavailable.',
-        requestId: 'req-a1-http-001',
-      },
-    });
+    assertErrorCorrelation(response, 'internal_error', 'Authentication is unavailable.');
     assert.doesNotMatch(response.body, /plaintext-secret-must-never-leak/);
   } finally {
     await app.close();
@@ -183,13 +174,7 @@ test('A1 endpoint fails closed when no token exchange service is wired', async (
   try {
     const response = await injectToken(app);
     assert.equal(response.statusCode, 500);
-    assert.deepEqual(response.json(), {
-      error: {
-        code: 'internal_error',
-        message: 'Authentication is unavailable.',
-        requestId: 'req-a1-http-001',
-      },
-    });
+    assertErrorCorrelation(response, 'internal_error', 'Authentication is unavailable.');
   } finally {
     await app.close();
   }
