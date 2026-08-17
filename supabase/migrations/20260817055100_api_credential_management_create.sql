@@ -150,3 +150,6 @@ begin
     return pg_catalog.jsonb_build_object('kind', 'created', 'replayed', false, 'credential', v_result);
 end;
 $$;
+
+revoke all on function app.create_dashboard_api_credential(uuid, uuid, text, text, text, jsonb)
+    from public, anon, authenticated, service_role, swiftpay_api, swiftpay_worker;
