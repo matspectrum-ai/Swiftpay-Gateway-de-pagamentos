@@ -448,3 +448,5 @@ export type {
   DashboardSessionVerifierOptions,
   DashboardUserPrincipal,
 } from './dashboard.js';
+
+export * from './a8.js';
