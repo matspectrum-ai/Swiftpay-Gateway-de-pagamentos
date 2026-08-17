@@ -47,6 +47,11 @@ Database workflow `32009421592`: **GREEN**.
 - K5 deterministic sandbox fixtures: PASS;
 - K6 runtime topology: PASS.
 
+After the hosted migration timestamp was aligned in the repository, head `216adac75c8f2a728f8fb8f739bd0a3b44553d78` also re-ran both complete workflows successfully:
+
+- Application workflow `32009797079`: **GREEN**;
+- Database workflow `32009797060`: **GREEN**.
+
 The final A9 acceptance includes member Sandbox/Production reads, nonmember rejection, missing/machine dashboard-session rejection, deterministic pagination, insertion between pages without duplication, exact externalId case/whitespace semantics, 5000-character externalId lookup, time bounds, cursor tamper/filter/scope rejection, privacy projection checks, normalized Pix detail, refund projection, `creating` ambiguity preservation and indistinguishable absent/foreign/wrong-environment detail.
 
 ## Hosted Supabase deployment
