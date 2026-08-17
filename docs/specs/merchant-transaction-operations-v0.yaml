@@ -1,0 +1,634 @@
+feature: merchant-transaction-operations-v0
+status: frozen_for_tdd
+phase: 5
+date: 2026-08-17
+
+problem:
+  statement: >-
+    A2/A3 establish Payment as the canonical merchant-facing collection resource,
+    while A6/K4 establish online-verified dashboard identity and current
+    merchant/environment/member authorization. SwiftPay still has no dashboard
+    transaction feed or detail read surface. A9 must expose canonical Payment truth
+    without creating a second status model, leaking customer/provider internals,
+    granting browser/Data API table access, or introducing any financial mutation.
+
+source_of_truth:
+  problem_analysis:
+    - docs/design/a9-merchant-transaction-operations-problem-analysis.md
+  canonical_domain:
+    - docs/contracts/payment-and-provider-attempt.md
+    - docs/contracts/public-api.md
+  predecessors:
+    - docs/specs/pix-create-get-emulator-v0.yaml
+    - docs/specs/paid-transition-ledger-balance-v0.yaml
+    - docs/specs/dashboard-session-authentication-v0.yaml
+    - docs/specs/trusted-runtime-database-boundary-v0.yaml
+  existing_schema:
+    - supabase/migrations/20260814010000_payment_idempotency_and_provider_events.sql
+    - supabase/migrations/20260815101609_pix_create_get_emulator_behavior.sql
+    - supabase/migrations/20260816004620_paid_transition_ledger_balance_behavior.sql
+    - supabase/migrations/20260815032700_trusted_runtime_database_boundary_behavior.sql
+
+precedence:
+  - Payment.collection_status remains the only canonical collection-status authority.
+  - ProviderAttempt state is internal execution/recovery truth and never becomes an A9 public status.
+  - A6 remains authoritative for ordinary dashboard session verification.
+  - K4 remains authoritative for current merchant/environment/member authorization.
+  - Existing A2 machine GET /v1/transactions/{id} remains unchanged.
+  - A9 is read-only and grants no monetary or provider execution authority.
+
+objectives:
+  - Add dashboard transaction list and detail routes.
+  - Require ordinary A6 online session verification and current K4 member authority.
+  - Support Sandbox and Production historical reads without AAL2.
+  - Expose only merchant-safe canonical Payment fields and normalized Pix detail.
+  - Preserve creating for ambiguous execution instead of fabricating failure.
+  - Support exact status, externalId and created-time filters.
+  - Use deterministic keyset pagination with no offset or total-count query.
+  - Cryptographically authenticate cursors and bind them to scope and normalized filters.
+  - Add index coverage for the frozen status and externalId query surfaces.
+  - Add exactly two trusted read RPCs and no direct table SELECT authority.
+  - Preserve zero mutations to financial, provider, idempotency, audit, job, webhook or credential state.
+
+non_objectives:
+  - Any Payment status-changing command.
+  - Transaction create changes.
+  - Cancellation, expiration, mark-paid or simulation commands.
+  - Provider retry, recovery, fallback or execution_unknown resolution.
+  - Refund or payout commands.
+  - Free-text, fuzzy, prefix, suffix, regex or ILIKE search.
+  - Customer PII display or search.
+  - Metadata or provider-reference search.
+  - CSV/export/report generation.
+  - Aggregate analytics, charts or total counts.
+  - Dashboard frontend implementation.
+  - Live PSP activation.
+
+route_realm:
+  prefix: /dashboard/v1
+  base_path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/transactions
+  machine_bearer_fallback: forbidden
+  machine_routes_changed: false
+  merchantId:
+    type: uuid
+  environment:
+    allowed: [sandbox, production]
+
+authorization:
+  session_boundary: A6_dashboard_session
+  online_supabase_auth_validation: required
+  minimum_role: member
+  aal2_required: false
+  kyc_read_gate: false
+  merchant_lifecycle_read_gate: false
+  database_role_recheck: required
+  forbidden_authority_sources:
+    - A1_machine_bearer
+    - JWT_merchant_metadata
+    - JWT_role_metadata
+    - service_role
+    - direct_browser_table_access
+
+canonical_status:
+  field: status
+  source: app.payments.collection_status
+  allowed:
+    - creating
+    - pending
+    - paid
+    - expired
+    - failed
+    - cancelled
+  execution_unknown_projection: creating
+  refund_projection:
+    collection_status_rewritten: false
+    refunded_amount_field: refundedAmount
+  provider_status_raw_authority: forbidden
+
+transaction_list_projection:
+  fields:
+    id: uuid
+    externalId: string | null
+    method: pix
+    source: api | checkout | payment_link | quick_pix
+    amount: integer_centavos
+    fee: integer_centavos
+    netAmount: integer_centavos
+    refundedAmount: integer_centavos
+    currency: BRL
+    status: creating | pending | paid | expired | failed | cancelled
+    description: string | null
+    environment: sandbox | production
+    expiresAt: utc_rfc3339 | null
+    paidAt: utc_rfc3339 | null
+    createdAt: utc_rfc3339
+    updatedAt: utc_rfc3339
+  pix: forbidden
+  forbidden:
+    - merchantId
+    - customerSnapshot
+    - metadata
+    - sourceResourceId
+    - provider
+    - providerId
+    - providerAccountId
+    - providerPaymentId
+    - providerStatusRaw
+    - providerCost
+    - providerCostCents
+    - pricingVersion
+    - routingPolicyVersion
+    - settlementPolicyVersion
+    - feeMode
+    - feeFixedCents
+    - feeBasisPoints
+    - feePercentageComponentCents
+    - executionToken
+    - leaseExpiresAt
+    - lastErrorClass
+    - lastErrorCode
+    - credentials
+
+transaction_detail_projection:
+  base: transaction_list_projection
+  pix:
+    type: object | null
+    non_null_when:
+      payment_status: [pending, paid]
+      succeeded_attempt_with_normalized_pix_payload: required
+    fields:
+      txId: string
+      qrCode: string
+      copyAndPaste: string
+      expiresAt: utc_rfc3339
+    provider_identity: forbidden
+  customer_snapshot: forbidden
+  metadata: forbidden
+
+list_query:
+  strict_unknown_parameters: true
+  status:
+    required: false
+    allowed: canonical_status.allowed
+    multiplicity: exactly_one_if_present
+  externalId:
+    required: false
+    type: string
+    exact_equality: true
+    trim: false
+    case_fold: false
+    empty: forbidden
+    maximum_length: 255
+    note: A9_v0_bound_for_query_and_cursor_safety
+  createdFrom:
+    required: false
+    type: RFC3339_timestamp_with_explicit_offset
+    normalization: UTC_ISO_milliseconds
+    comparison: inclusive
+  createdTo:
+    required: false
+    type: RFC3339_timestamp_with_explicit_offset
+    normalization: UTC_ISO_milliseconds
+    comparison: exclusive
+  date_relation:
+    when_both_present: createdTo_strictly_greater_than_createdFrom
+  cursor:
+    required: false
+    type: A9_cursor_token
+  limit:
+    required: false
+    type: integer
+    default: 25
+    minimum: 1
+    maximum: 100
+  excluded:
+    - offset
+    - page
+    - q
+    - description
+    - customerName
+    - customerDocument
+    - customerEmail
+    - customerPhone
+    - metadata
+    - providerReference
+    - total
+
+filter_canonicalization:
+  version: a9-filter-v0
+  ordered_vector:
+    - status_or_null
+    - externalId_exact_or_null
+    - createdFrom_canonical_or_null
+    - createdTo_canonical_or_null
+  serialization: JSON.stringify_ordered_vector
+  digest:
+    algorithm: SHA256
+    input: literal_prefix_a9-filter-v0_newline_plus_serialization
+    encoding: lowercase_hex
+  limit_in_filter_digest: false
+
+cursor_contract:
+  version: a9v0
+  format: a9v0.<payload_base64url_no_padding>.<signature_base64url_no_padding>
+  payload:
+    encoding: base64url_no_padding_of_UTF8_JSON
+    ordered_vector:
+      - merchantId
+      - environment
+      - filterDigest
+      - cursorCreatedAt_canonical_UTC_ISO_milliseconds
+      - cursorPaymentId
+    secret_data: none
+  signature:
+    algorithm: HMAC-SHA256
+    input: ASCII_bytes_of_a9v0_dot_payload
+    output: base64url_no_padding
+    comparison: constant_time
+  key:
+    runtime_environment_name: SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY
+    minimum_utf8_bytes: 32
+    dedicated_to_cursor_integrity: true
+    logged: forbidden
+    response_exposure: forbidden
+    database_exposure: forbidden
+    test_injection: required
+  decode_validation_order:
+    - exact_three_segment_format_and_version
+    - strict_base64url_payload_and_signature
+    - signature_verification
+    - exact_payload_shape
+    - merchantId_uuid_and_environment_validation
+    - filterDigest_lowercase_sha256_validation
+    - cursorCreatedAt_canonical_timestamp_validation
+    - cursorPaymentId_uuid_validation
+    - route_scope_exact_match
+    - normalized_filter_digest_exact_match
+  invalid_or_tampered_result: validation_error
+  authorization_authority: none
+  limit_bound_to_cursor: false
+
+pagination:
+  strategy: keyset
+  ordering:
+    - created_at DESC
+    - id ASC
+  cursor_after_predicate: >-
+    payment.created_at < cursorCreatedAt OR
+    (payment.created_at = cursorCreatedAt AND payment.id > cursorPaymentId)
+  database_fetch_rows: requested_limit_plus_one
+  maximum_database_fetch_rows: 101
+  response_items: first_requested_limit_rows
+  next_cursor:
+    when_extra_row_exists: encode_last_returned_item_key
+    otherwise: null
+  offset_pagination: forbidden
+  total_count: forbidden
+  snapshot_consistency: not_promised
+  immutable_pagination_keys: [created_at, id]
+
+http_contract:
+  list:
+    method: GET
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/transactions
+    authentication: A6_dashboard_session
+    minimum_role: member
+    success_status: 200
+    cache_control: private, no-store
+    query: list_query
+    body:
+      items: transaction_list_projection[]
+      nextCursor: string | null
+    forbidden_body_fields: [total, totalPages, page, offset]
+  detail:
+    method: GET
+    path: /dashboard/v1/merchants/{merchantId}/environments/{environment}/transactions/{transactionId}
+    authentication: A6_dashboard_session
+    minimum_role: member
+    success_status: 200
+    cache_control: private, no-store
+    transactionId: uuid
+    body: transaction_detail_projection
+    absent_foreign_or_wrong_environment:
+      status: 404
+      code: resource_not_found
+      indistinguishable: true
+  unsupported_methods:
+    POST: route_not_found
+    PATCH: route_not_found
+    DELETE: route_not_found
+
+http_errors:
+  validation_error: {status: 400}
+  invalid_session: {status: 401}
+  forbidden: {status: 403}
+  resource_not_found: {status: 404}
+  authentication_unavailable: {status: 503}
+  internal_error: {status: 500}
+  error_envelope:
+    required:
+      error:
+        code: string
+        message: string
+        requestId: string
+    forbidden:
+      - raw_SQL
+      - stack_trace
+      - supabase_response_body
+      - provider_response_body
+      - authorization_header
+      - cursor_hmac_key
+
+search_semantics:
+  status:
+    source: Payment.collection_status
+    exact: true
+  externalId:
+    source: Payment.external_id
+    exact: true
+    preserved_bytes_after_HTTP_decoding: true
+    trim_or_case_fold: forbidden
+  createdFrom:
+    predicate: created_at >= value
+  createdTo:
+    predicate: created_at < value
+  combined_filters: allowed
+  fuzzy_or_PII_search: forbidden
+
+database_contract:
+  trusted_api_functions:
+    list:
+      name: app.list_dashboard_transactions
+      signature:
+        - uuid
+        - uuid
+        - text
+        - text
+        - text
+        - timestamptz
+        - timestamptz
+        - timestamptz
+        - uuid
+        - integer
+      argument_order:
+        - actor_user_id
+        - merchant_id
+        - environment
+        - status_or_null
+        - external_id_or_null
+        - created_from_or_null
+        - created_to_or_null
+        - cursor_created_at_or_null
+        - cursor_payment_id_or_null
+        - limit
+      return: jsonb_array_of_list_projection_rows_up_to_limit_plus_one
+      volatility: STABLE
+    get:
+      name: app.get_dashboard_transaction
+      signature: [uuid, uuid, text, uuid]
+      argument_order: [actor_user_id, merchant_id, environment, transaction_id]
+      return: jsonb_detail_projection_or_null
+      volatility: STABLE
+  role_recheck:
+    both_routines: member
+  fixed_search_path: required
+  security_definer: true
+  direct_table_access:
+    swiftpay_api:
+      payments: forbidden
+      provider_attempts: forbidden
+    swiftpay_worker:
+      payments: forbidden
+      provider_attempts: forbidden
+  private_helpers:
+    prefix: _a9_
+    executable_by_swiftpay_api: false
+    executable_by_swiftpay_worker: false
+  runtime_execute_capabilities_after_A9:
+    swiftpay_api: 23
+    swiftpay_worker: 6
+  prohibited_grants:
+    - PUBLIC_execute_on_A9_routines
+    - anon_execute_on_A9_routines
+    - authenticated_execute_on_A9_routines
+    - service_role_execute_on_A9_routines
+    - swiftpay_worker_execute_on_A9_routines
+
+index_contract:
+  preserve_existing:
+    - payments_merchant_created_idx
+  add:
+    - name: payments_dashboard_status_created_idx
+      table: app.payments
+      method: btree
+      columns:
+        - merchant_id ASC
+        - environment ASC
+        - collection_status ASC
+        - created_at DESC
+        - id ASC
+    - name: payments_dashboard_external_id_created_idx
+      table: app.payments
+      method: btree
+      columns:
+        - merchant_id ASC
+        - environment ASC
+        - external_id ASC
+        - created_at DESC
+        - id ASC
+      predicate: external_id IS NOT NULL
+  out_of_scope_indexes:
+    - description
+    - customer_snapshot
+    - metadata
+    - provider_fields
+
+application_contracts:
+  package: packages/payments
+  exports:
+    - validateDashboardTransactionListQuery
+    - createDashboardTransactionCursorCodec
+    - createDashboardTransactionReadService
+  db_package_export:
+    - createDashboardTransactionStore
+  cursor_codec:
+    encode_input:
+      - merchantId
+      - environment
+      - normalizedFilters
+      - createdAt
+      - paymentId
+    decode_input:
+      - token
+      - merchantId
+      - environment
+      - normalizedFilters
+    key_dependency_injection: required
+  transaction_store:
+    direct_table_sql: forbidden
+    methods: [list, get]
+  read_service:
+    list_sequence:
+      - validate route/query
+      - ordinary A6 session verification
+      - K4 current member authorization
+      - decode/validate cursor when present
+      - trusted database list read
+      - trim extra row and encode next cursor
+    get_sequence:
+      - validate route transaction id
+      - ordinary A6 session verification
+      - K4 current member authorization
+      - trusted database detail read
+    aal2: never_required
+    mutation_methods: none
+  runtime:
+    session_verifier: reuse_A6
+    context_store: reuse_K4
+    cursor_key: dedicated_A9_configuration
+    machine_auth_fallback: forbidden
+
+privacy:
+  customer_snapshot_exposed: false
+  metadata_exposed: false
+  provider_internal_exposed: false
+  raw_provider_status_exposed: false
+  provider_cost_exposed: false
+  cursor_key_exposed: false
+  list_pix_payload_exposed: false
+
+side_effect_invariance:
+  no_mutation_of:
+    - payments
+    - provider_attempts
+    - provider_events
+    - request_idempotency
+    - audit_events
+    - accounts
+    - ledger_transactions
+    - ledger_entries
+    - payouts
+    - payout_attempts
+    - refunds
+    - refund_attempts
+    - refund_provider_evidence
+    - jobs
+    - webhook_events
+    - webhook_deliveries
+    - webhook_endpoints
+    - webhook_signing_secrets
+    - api_credentials
+    - api_credential_token_windows
+  audit_on_read: false
+
+requirements:
+  - id: A9-R1
+    statement: List/detail exist only in the dashboard realm and require online A6 session verification plus current K4 member authority.
+  - id: A9-R2
+    statement: A9 is read-only; it defines no Payment status-changing or monetary command.
+  - id: A9-R3
+    statement: Public status is exactly canonical Payment.collection_status and execution_unknown is visible only as creating.
+  - id: A9-R4
+    statement: Refund visibility uses refundedAmount without rewriting canonical paid collection status.
+  - id: A9-R5
+    statement: List/detail expose no customer snapshot, metadata, provider identity, raw provider status, provider cost or execution internals.
+  - id: A9-R6
+    statement: List supports only exact status/externalId and bounded created-time filters with strict validation.
+  - id: A9-R7
+    statement: Pagination is deterministic keyset pagination ordered created_at DESC then id ASC with no offset or total count.
+  - id: A9-R8
+    statement: Every cursor is HMAC-SHA256 authenticated and bound to merchant, environment and normalized filter digest.
+  - id: A9-R9
+    statement: Cursor tampering, malformed payload, scope mismatch or filter mismatch fails closed as validation_error before database read.
+  - id: A9-R10
+    statement: List returns no Pix instructions; detail returns normalized Pix only for canonical pending/paid state with a succeeded Pix attempt.
+  - id: A9-R11
+    statement: Foreign, missing and wrong-environment detail IDs are indistinguishable resource_not_found results.
+  - id: A9-R12
+    statement: A9 adds exactly two trusted API read routines, API execute count becomes 23, worker remains 6, and neither runtime receives direct protected-table SELECT.
+  - id: A9-R13
+    statement: Status and externalId query surfaces receive additive contract-specific B-tree indexes while existing indexes are preserved.
+  - id: A9-R14
+    statement: A9 reads append no audit/idempotency records and have zero financial/provider/job/webhook/credential side effects.
+  - id: A9-R15
+    statement: Existing A2 machine transaction routes and authentication contracts remain unchanged.
+
+acceptance_criteria:
+  - Current member can list/get Sandbox and Production transactions through the dashboard realm.
+  - Invalid session is 401, Auth outage is 503, and insufficient current membership is 403 without data disclosure.
+  - A1 machine Bearer never authenticates an A9 dashboard route.
+  - List returns only exact route merchant/environment rows.
+  - Base ordering is createdAt DESC then id ASC.
+  - Sequential keyset pages contain no duplicate payment IDs.
+  - A newly inserted newer Payment does not appear after an already-issued older cursor.
+  - Limit defaults to 25, is bounded 1..100 and causes at most limit+1 database rows to be fetched.
+  - Status filtering matches only canonical Payment collection status.
+  - externalId filtering is exact and preserves case/whitespace semantics; empty values are invalid.
+  - createdFrom is inclusive and createdTo is exclusive; invalid or reversed ranges fail validation.
+  - Cursor signature tampering, malformed content, route-scope mismatch and filter mismatch all return validation_error without database access.
+  - Refunded paid Payment remains status=paid and exposes refundedAmount separately.
+  - Underlying execution_unknown attempt is not exposed and its Payment remains status=creating.
+  - List never contains qrCode/copyAndPaste; detail exposes normalized Pix only when permitted.
+  - Customer snapshot, metadata and provider/internal fields are absent from list/detail.
+  - Missing, foreign and wrong-environment detail IDs return indistinguishable 404 resource_not_found.
+  - A9 success responses include Cache-Control private, no-store.
+  - API runtime has exactly 23 trusted app execute capabilities with no direct payments/provider_attempts SELECT; worker remains exactly 6.
+  - Payment/provider/ledger/idempotency/audit/job/webhook/credential state remains invariant across A9 reads.
+
+edge_cases:
+  - Multiple Payments share the same created_at timestamp.
+  - Cursor payment id is the last item among identical created_at values.
+  - Page limit changes between requests while filters/scope remain unchanged.
+  - Cursor is reused with a different status, externalId or date range.
+  - Cursor HMAC signature is one-byte modified.
+  - Cursor payload is valid JSON but contains an unknown extra element or wrong vector length.
+  - createdFrom or createdTo uses a timestamp without explicit timezone offset.
+  - createdTo equals createdFrom.
+  - externalId contains leading/trailing whitespace that is part of the stored merchant reference.
+  - externalId differs only by case.
+  - Payment changes status between page requests.
+  - Paid Payment gains refunded_amount after first list page.
+  - Pending/paid Payment has malformed or absent succeeded Pix attempt data.
+  - Foreign merchant chooses a real transaction UUID.
+  - Current membership is removed between Supabase session validation and database RPC.
+  - HMAC key configuration is missing or shorter than 32 UTF-8 bytes.
+
+clean_red:
+  prerequisite_baseline:
+    application_contracts: 226
+    pgTAP_files: 39
+    pgTAP_assertions: 1288
+    runtime_acceptance: [K7, A1, A2, A3, A4, A6, A7, A8]
+  new_A9_failures_must_be:
+    - assertion_level_missing_behavior
+    - assertion_level_missing_structure
+  forbidden_red_causes:
+    - parser_error
+    - typecheck_error
+    - module_resolution_error
+    - broken_test_harness
+  hosted_supabase_migration_before_local_green: forbidden
+
+verification:
+  - typecheck application workspace
+  - build application workspace
+  - run all application contracts
+  - run full database pgTAP suite
+  - run K5 deterministic sandbox fixtures
+  - run K6 runtime topology
+  - run K7/A1/A2/A3/A4/A6/A7/A8 real-database regression acceptance
+  - run A9 application contract acceptance
+  - run A9 isolated PostgreSQL read-model acceptance before hosted deployment
+  - verify exact API/worker execute allowlists
+  - verify zero direct runtime SELECT over payments/provider_attempts
+  - verify HMAC cursor tamper/scope/filter rejection
+  - verify financial and async state invariance
+  - run Supabase Security Advisor after hosted migration
+  - review Performance Advisor separately without removing contract-required indexes from an empty database
+  - update evidence, readiness and work ledger only after GREEN
+
+next_slice_after_green:
+  name: dashboard-login-session-ux-or-kyc-operations
+  selection_rule: >-
+    Choose the next internal merchant/admin usability slice based on remaining
+    launch-critical risk while retained PSP live transport remains externally gated.
