@@ -9,6 +9,7 @@ const services = createApiRuntimeServices(pool, {
   signingKey: config.accessTokenSigningKey,
   supabaseUrl: config.supabaseUrl,
   supabasePublishableKey: config.supabasePublishableKey,
+  dashboardCursorHmacKey: config.dashboardCursorHmacKey,
   webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
   webhookSecretWrapPublicKey: config.webhookSecretWrapPublicKey,
 });
