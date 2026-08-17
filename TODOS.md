@@ -26,25 +26,28 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A9: `DONE` (`A5` remains fixture-only for live-provider authority)
-- A9 Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`
-- A9 frozen spec: `docs/specs/merchant-transaction-operations-v0.yaml`
-- A9 contracts: `docs/contracts/merchant-transaction-operations-v0.md`, `docs/contracts/merchant-transaction-operations-database-v0.md`
-- A9 final evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`
-- A9 behavioral GREEN head: `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`
-- Final A9 Application workflow: `32009421604` — GREEN, **240/240 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance
-- Final A9 Database workflow: `32009421592` — GREEN, **40 files / 1292 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
-- Hosted A9 migration: `20260817081745_merchant_transaction_operations.sql`
+- A1-A10: `DONE` (`A5` remains fixture-only for live-provider authority; A10 makes that authority default-deny and executable)
+- A10 Problem Analysis: `docs/design/a10-provider-activation-outbound-safety-problem-analysis.md`
+- A10 frozen spec: `docs/specs/provider-activation-outbound-safety-v0.yaml`
+- A10 contract: `docs/contracts/provider-activation-outbound-safety-v0.md`
+- A10 current-provider evidence refresh: `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`
+- A10 RED evidence: `docs/evidence/application/2026-08-17-a10-provider-activation-outbound-safety-red.md`
+- A10 final evidence: `docs/evidence/application/2026-08-17-a10-provider-activation-outbound-safety.md`
+- A10 GREEN head: `0308844c4aedb1d359068becfd29d1f4a234b064`
+- Final A10 Application workflow: `32011311478` — GREEN, **250/250 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance
+- Final A10 Database workflow: `32011311485` — GREEN, **40 files / 1292 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
+- A10 hosted migrations: **none**
+- A10 live/network provider calls: **none**
+- A10 default authorized provider runtime operations: **0**
 - Hosted post-A9 `swiftpay_api`: exact **23** `app` EXECUTE capabilities
 - Hosted post-A9 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
 - Hosted Security Advisor after A9: **0 lints**
-- Hosted A9 audit: two read RPCs, three expected Payment feed/filter indexes, zero audited direct protected-table runtime privileges, zero hosted Payment/ProviderAttempt business rows
 - Core architecture/domain/database/platform estimate: ~99%
 - First end-to-end Pix sandbox MVP estimate: ~97%
 - Production-capable Pix V1 estimate: ~60%
 - Weighted V1 engineering estimate: ~75%
-- Current external critical blocker: current PSP contract/lineage/idempotency/recovery/webhook-auth evidence for AkkadPag and FlevoPay
-- Next internal action: select and freeze the next V1 slice through `PROBLEM_ANALYSIS`; continue provider evidence acquisition in parallel; no live monetary provider call is authorized
+- Current external critical blocker: exact current PSP contract/lineage/idempotency/recovery/webhook-auth evidence for the retained provider contracts
+- Next internal action: begin a new Problem Analysis for a strict live HTTP transport foundation that can consume only an A10 authorization grant; provider evidence acquisition continues in parallel; no live monetary provider call is authorized
 
 ## Non-negotiable delivery method
 
@@ -58,7 +61,7 @@ Every new behavior follows this order:
 6. Refactor without behavior drift
 7. Evidence + handoff update
 
-No live PSP integration may bypass deterministic emulator and provider-conformance gates. No merchant/browser surface receives direct financial authority. Ambiguous monetary execution remains explicit `execution_unknown`/recovery state; it is never converted into fabricated definitive failure.
+No live PSP integration may bypass deterministic emulator, provider-conformance and A10 activation gates. No merchant/browser surface receives direct financial authority. Ambiguous monetary execution remains explicit `execution_unknown`/recovery state; it is never converted into fabricated definitive failure.
 
 ---
 
@@ -130,7 +133,7 @@ Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.
 Spec: `docs/specs/api-credential-token-exchange-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authentication.md`.
 
-Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is now supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation.
+Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation.
 
 ## A2 — authenticated Pix create/get emulator — `DONE`
 
@@ -177,7 +180,7 @@ Accepted boundary:
 
 - exactly AkkadPag and FlevoPay retained;
 - evidence classified `proven_current | proven_legacy | inferred_non_authoritative | unknown`;
-- only `proven_current` may independently unlock production;
+- only authoritative current evidence may advance the applicable live-provider gate;
 - 23 sanitized deterministic provider fixture artifacts;
 - integer-cent money and stable client/provider identifier separation;
 - no synthetic customer identity/contact data;
@@ -185,35 +188,75 @@ Accepted boundary:
 - monetary transport executes at most once;
 - timeout/reset/malformed 2xx/unproven 4xx/ambiguous 5xx -> `execution_unknown`;
 - unknown statuses fail closed;
-- FlevoPay Pix-out remains unsupported;
+- FlevoPay Pix-out remains unsupported in the retained adapter;
 - refunds remain unsupported for both;
 - provider webhook authority remains unavailable without exact current verification/replay evidence;
-- provider package contains no live network transport.
+- provider package originally contained no live network transport.
+
+## A10 — provider activation & outbound safety — `DONE / GREEN / NETWORK-FREE`
+
+Problem Analysis: `docs/design/a10-provider-activation-outbound-safety-problem-analysis.md`.
+Spec: `docs/specs/provider-activation-outbound-safety-v0.yaml`.
+Contract: `docs/contracts/provider-activation-outbound-safety-v0.md`.
+Provider evidence refresh: `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`.
+RED evidence: `docs/evidence/application/2026-08-17-a10-provider-activation-outbound-safety-red.md`.
+Final evidence: `docs/evidence/application/2026-08-17-a10-provider-activation-outbound-safety.md`.
+
+Accepted boundary:
+
+- exact activation subject is provider + operation + environment + contract lineage;
+- activation states reuse the A5 vocabulary: `unsupported | fixture_only | current_contract_proven | sandbox_proven | production_enabled`;
+- registry is repository-versioned and malformed configuration fails closed;
+- evidence-bearing activation states require an exact HTTPS provider origin, lowercase SHA-256 evidence bundle digest and canonical reviewed timestamp;
+- exact lineage matching prevents AkadPay-branded material from silently authorizing the retained AkkadPag legacy contract;
+- adapter capability, provider credentials, configured URL or a generic environment switch never imply activation;
+- `current_contract_proven` alone does not authorize provider runtime traffic;
+- Sandbox requires an exact Sandbox record at `sandbox_proven` or `production_enabled`;
+- Production requires an exact Production record at `production_enabled`;
+- query/recovery/webhook verification authority is operation-specific and not implied by create authority;
+- successful authorization returns an immutable in-memory grant with approved origin/evidence context and no credentials/customer/Payment data;
+- default registry version `2026-08-17.0` authorizes zero runtime provider operations;
+- no Fetch/Undici/HTTP/DNS/socket implementation, provider call, route, database migration or monetary side effect was introduced.
+
+Final GREEN proof:
+
+- head `0308844c4aedb1d359068becfd29d1f4a234b064`;
+- Application workflow `32011311478`: typecheck/build GREEN, **250/250 application contracts PASS**, including **10/10 A10** plus K7/A1-A9 real-database regression acceptance;
+- Database workflow `32011311485`: **40 files / 1292 pgTAP assertions PASS**, K5 deterministic fixtures GREEN and K6 runtime topology GREEN;
+- hosted Supabase changes: none;
+- live PSP calls: none.
+
+A10 closes an internal safety gap; it does **not** close provider contract authority. Readiness therefore remains conservatively unchanged at 99/97/60/75.
 
 ## Current-provider contract evidence gate — `EVIDENCE_REQUIRED`
 
-### AkkadPag
+Canonical refresh: `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`.
 
-Legacy evidence proves `api.akkadpag.com/v1`, Basic Auth and `transactions`/`transfers`. Current public AkadPay material uses materially different host/routes/credential placement. No accepted evidence proves contractual equivalence or migration lineage.
+### AkkadPag / AkadPay
 
-Required before live activation:
+Legacy retained evidence proves `api.akkadpag.com/v1`, Basic Auth and `transactions`/`transfers`.
 
-- provider-owned current hostname/environment contract;
-- explicit AkkadPag/AkadPay lineage/equivalence if applicable;
-- current create/query correlation and idempotency/recovery semantics;
-- current Pix-out replay/recovery semantics;
+Current public AkadPay technical material now documents a materially different API under `painel.akadpay.com.br/api/...` and useful Pix-out idempotency/replay behavior. No accepted provider-owned artifact proves that AkadPay is the migration/current contractual lineage of the retained AkkadPag API, that credentials/contracts are interchangeable, or that the AkadPay public contract may authorize `akkadpag-legacy-api-v1`. Exact trusted webhook verification also remains unavailable.
+
+Required before retained live activation:
+
+- provider-owned lineage/equivalence or a deliberate provider replacement decision;
+- exact current create/query correlation and idempotency/recovery semantics for the selected lineage;
 - exact webhook authentication/replay identity;
-- current status vocabulary/rate limits.
+- current status vocabulary/rate limits;
+- authenticated sandbox proof before `sandbox_proven`.
 
 ### FlevoPay
 
-Legacy evidence proves historical `app.flevopay.com.br/api/v1`, `X-API-Key`, Pix create/query and no Pix-out adapter. Current public material remains insufficient to freeze current technical semantics.
+Legacy retained evidence proves historical `app.flevopay.com.br/api/v1`, `X-API-Key`, Pix create/query and no Pix-out adapter.
 
-Required before live activation:
+Current provider-owned public material exposes `api.flevopay.com/v1` and advertises Pix/API-key capabilities, but still does not expose the exact executable create/query/recovery/webhook contract needed to activate the retained integration or prove compatibility with the historical host.
 
-- current provider-owned create/query technical contract or authenticated sandbox proof;
-- authoritative recovery identifier/order;
-- current webhook authentication/replay identity;
+Required before retained live activation:
+
+- current provider-owned create/query technical contract or authenticated current sandbox proof;
+- authoritative recovery identifier/order and idempotency semantics;
+- exact webhook authentication/replay identity;
 - current status vocabulary/rate limits;
 - exact Pix-out contract before capability reconsideration.
 
@@ -225,7 +268,7 @@ Required before live activation:
 
 ## Provider recovery/reconciliation runtime — `BLOCKED ON CURRENT EVIDENCE`
 
-**A5 being GREEN does not authorize real monetary transport.**
+**A5 + A10 authorize zero real monetary provider operations.**
 
 ---
 
@@ -233,7 +276,6 @@ Required before live activation:
 
 ## A6 — dashboard session authentication — `DONE`
 
-Pre-analysis prerequisite: `docs/design/webhook-endpoint-management-preanalysis.md`.
 Problem Analysis: `docs/design/a6-dashboard-session-authentication-problem-analysis.md`.
 Spec: `docs/specs/dashboard-session-authentication-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-16-a6-dashboard-session-authentication.md`.
@@ -246,26 +288,7 @@ Problem Analysis: `docs/design/a7-merchant-webhook-endpoint-management-problem-a
 Spec: `docs/specs/merchant-webhook-endpoint-management-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-16-a7-merchant-webhook-endpoint-management.md`.
 
-Accepted boundary:
-
-- dashboard-only routes;
-- member read / admin mutation authority;
-- create/list/get/update/disable/enable/rotate-secret;
-- no DELETE in V0;
-- URL mutation only while disabled;
-- exactly `payment.paid` subscription in V0;
-- positive optimistic `revision` fencing;
-- durable request idempotency with completed replay evaluated before stale-revision rejection;
-- append-only audit exactly once per winning successful mutation;
-- one-time `whsec_...` plaintext on winning create/rotation only;
-- plaintext never stored in DB/idempotency/audit/jobs/logs and never re-disclosed on replay;
-- RSA-OAEP-SHA256 wrapping: API public-key encrypt authority only, worker private-keyring decrypt authority only;
-- A4 AES legacy delivery compatibility;
-- durable multi-version secret history with bounded overlap;
-- immutable delivery URL and signing-secret-version snapshots;
-- `X-SwiftPay-Signature-Version` from immutable delivery state;
-- disabling terminalizes pending not-yet-leased work without HTTP;
-- financial table counts invariant across the real A7 lifecycle acceptance.
+Accepted boundary includes dashboard-only member/admin authority, create/list/get/update/disable/enable/rotate-secret, optimistic revision fencing, idempotency/audit, one-time secret disclosure, RSA-OAEP-SHA256 wrapping, immutable delivery snapshots and zero financial authority.
 
 Hosted migrations:
 
@@ -273,40 +296,13 @@ Hosted migrations:
 - `20260816073500_webhook_endpoint_management_behavior.sql`
 - `20260816073604_webhook_endpoint_management_behavior_fix.sql`
 
-Hosted post-deploy audit:
-
-- `swiftpay_api`: exact 16-routine EXECUTE allowlist at A7 checkpoint;
-- `swiftpay_worker`: exact 6-routine EXECUTE allowlist;
-- zero direct runtime table privileges over endpoint/secret/idempotency/audit tables;
-- worker cannot administer A7; API cannot execute worker claim/resolve;
-- private `_a7_*` helpers unavailable to runtime roles;
-- Security Advisor: zero lints.
-
-No hosted seed/fixture/business acceptance data and no live PSP monetary call were used for A7 deployment.
-
 ## A8 — API credential management — `DONE / HOSTED`
 
 Problem Analysis: `docs/design/a8-api-credential-management-problem-analysis.md`.
 Spec: `docs/specs/api-credential-management-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-17-a8-api-credential-management.md`.
 
-Accepted boundary:
-
-- dashboard list/get/create/rotate-secret/revoke routes only;
-- reads use ordinary A6 online session verification and current member authority;
-- mutations require online-validated `aal2` before secret generation or DB mutation;
-- Sandbox mutation authority is current admin/owner; Production is current owner only;
-- CSPRNG public/secret credential material generated in trusted API memory;
-- plaintext Secret Key disclosed only once on winning create/rotation;
-- only A1-compatible `scrypt-v1` verifier persists;
-- completed replay never re-discloses candidate secret;
-- exact-IP allowlist semantics retained and CIDR/wildcard rejected;
-- positive `revision` optimistic concurrency;
-- rotation increments `secret_version`; revocation is terminal;
-- A1 bearer revalidation immediately rejects old secret-version/revoked credentials;
-- transactional maximum 10 active credentials per merchant/environment;
-- durable idempotency and audit exactly once for winning mutations;
-- no direct protected-table runtime authority and no financial side effects.
+Accepted boundary includes dashboard read/create/rotate/revoke, AAL2 mutation gate, role-sensitive Sandbox/Production authority, CSPRNG credential material, one-time secret disclosure, A1-compatible scrypt verifier, exact-IP policy, optimistic revision, immediate token invalidation, active-credential cap, idempotency/audit and zero direct protected-table authority.
 
 Hosted migrations:
 
@@ -314,80 +310,26 @@ Hosted migrations:
 - `20260817061346_api_credential_management_create.sql`
 - `20260817061415_api_credential_management_behavior.sql`
 
-Final clean GREEN:
-
-- head `d74624198918aca53a3769334aeb6b8adbba8092`;
-- Application workflow `32001023852`: **226/226 PASS** + K7/A1/A2/A3/A4/A6/A7/A8 real-database acceptance;
-- Database workflow `32001023848`: **39 files / 1288 pgTAP assertions PASS** + K5 fixtures + K6 topology.
-
-Hosted post-deploy audit:
-
-- `swiftpay_api`: exact **21** `app` EXECUTE capabilities;
-- `swiftpay_worker`: exact **6** `app` EXECUTE capabilities;
-- all five A8 trusted RPCs present;
-- private `_a8_*` helpers unavailable to both runtimes;
-- no direct API/worker access over credential/token-window/idempotency/audit protected tables;
-- zero plaintext-like secret leakage in persisted credential/idempotency/audit surfaces;
-- Security Advisor: **0 lints**.
-
-Performance Advisor remains INFO-only with existing unindexed-FK/unused-index candidates. No speculative performance DDL was added as part of A8.
-
 ## A9 — merchant transaction operations — `DONE / HOSTED`
 
 Problem Analysis: `docs/design/a9-merchant-transaction-operations-problem-analysis.md`.
 Spec: `docs/specs/merchant-transaction-operations-v0.yaml`.
-Contracts:
-
-- `docs/contracts/merchant-transaction-operations-v0.md`
-- `docs/contracts/merchant-transaction-operations-database-v0.md`
-
+Contracts: `docs/contracts/merchant-transaction-operations-v0.md`, `docs/contracts/merchant-transaction-operations-database-v0.md`.
 Evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`.
 
-Accepted V0 boundary:
-
-- dashboard-only GET list/detail routes;
-- ordinary A6 online session verification + current K4 `member` authority;
-- no AAL2 and no A1 machine-token fallback;
-- canonical Payment status only: `creating | pending | paid | expired | failed | cancelled`;
-- `execution_unknown` remains visible only through `Payment.status=creating`;
-- refunded amount is separate from canonical paid status;
-- list projection excludes Pix instructions, customer snapshot, metadata and all provider/execution internals;
-- detail adds normalized Pix only for complete canonical pending/paid data;
-- exact status, exact `externalId`, inclusive `createdFrom`, exclusive `createdTo` filters only;
-- no fuzzy/free-text/PII/provider search;
-- deterministic keyset pagination by `created_at DESC, id ASC`, no offset or total count;
-- HMAC-SHA256 authenticated `a9v0` cursor bound to merchant/environment and normalized filters;
-- dedicated cursor-integrity key, minimum 32 UTF-8 bytes, never persisted/exposed;
-- exactly two trusted read RPCs; post-A9 API EXECUTE count 23, worker remains 6;
-- status composite index plus fixed-width `md5(external_id)` expression index with mandatory exact original-text equality;
-- zero Payment/provider/ledger/idempotency/audit/job/webhook/credential side effects.
+Accepted boundary includes dashboard-only read list/detail, current member authority, canonical Payment statuses, exact filters, HMAC-authenticated keyset cursor, merchant-safe list/detail projections, two trusted read RPCs and zero financial/provider/idempotency/audit/job/webhook/credential side effects.
 
 Final GREEN proof:
 
 - behavioral head `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`;
-- Application workflow `32009421604`: typecheck/build GREEN, **240/240 application contracts PASS**, K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance GREEN;
-- Database workflow `32009421592`: **40 files / 1292 pgTAP assertions PASS**, K5 deterministic fixtures GREEN, K6 runtime topology GREEN;
-- A9 real PostgreSQL acceptance proves Sandbox/Production member reads, nonmember and machine/missing-session rejection, deterministic pagination, exact filtering, cursor tamper/scope/filter rejection, privacy projection, normalized Pix detail and absence/foreign/wrong-environment indistinguishability.
+- Application workflow `32009421604`: **240/240 application contracts PASS** + K7/A1-A9 real-database acceptance;
+- Database workflow `32009421592`: **40 files / 1292 pgTAP assertions PASS** + K5/K6.
 
 Hosted migration:
 
 - `20260817081745_merchant_transaction_operations.sql`
 
-Hosted post-deploy audit:
-
-- both A9 RPCs present as `SECURITY DEFINER` with `search_path=''`;
-- existing `payments_merchant_created_idx` retained;
-- `payments_dashboard_status_created_idx` present;
-- `payments_dashboard_external_id_created_idx` present;
-- `swiftpay_api`: exact **23** `app` EXECUTE capabilities;
-- `swiftpay_worker`: exact **6** `app` EXECUTE capabilities;
-- API can execute both A9 read RPCs; worker cannot;
-- zero audited direct protected-table runtime privileges;
-- hosted `app.payments`: **0 rows**;
-- hosted `app.provider_attempts`: **0 rows**;
-- Security Advisor: **0 lints**.
-
-Performance Advisor remains INFO-only. The two A9 indexes appear as unused because the canonical hosted project has zero Payment rows; no speculative performance cleanup was performed.
+Hosted post-deploy audit keeps `swiftpay_api` at 23 execute capabilities, worker at 6, zero audited direct protected-table runtime privileges, zero hosted Payment/ProviderAttempt business rows and Security Advisor at zero lints.
 
 Other merchant/admin work:
 
@@ -439,15 +381,19 @@ Foundation contracts / architecture                       DONE
   -> A3 paid transition + ledger + balance               DONE
   -> A4 merchant webhook delivery runtime                DONE
   -> A5 provider conformance fixtures                    DONE / FIXTURE-ONLY
+  -> A10 provider activation/outbound safety             DONE / NETWORK-FREE
   -> current retained-PSP contract evidence              EVIDENCE_REQUIRED
-       -> live provider transport/recovery               BLOCKED
+       -> strict live HTTP transport                     NEXT PROBLEM ANALYSIS
+       -> authenticated sandbox proof                    BLOCKED ON EVIDENCE/TRANSPORT
+       -> live provider activation                       BLOCKED
        -> provider webhook ingress                       BLOCKED
+       -> provider recovery/reconciliation               BLOCKED
 
 Parallel internal product path:
   -> A6 dashboard session authentication                 DONE
   -> A7 webhook endpoint management                      DONE / HOSTED
-  -> A8 API credential management                       DONE / HOSTED
-  -> A9 merchant transaction operations                 DONE / HOSTED
+  -> A8 API credential management                        DONE / HOSTED
+  -> A9 merchant transaction operations                  DONE / HOSTED
   -> broader admin/KYC/payout operations                 PENDING
 
 Then:
@@ -456,10 +402,11 @@ Then:
 
 ## Immediate next action
 
-A9 is now fully GREEN and hosted. The next internal behavior must begin again at `PROBLEM_ANALYSIS`; no A10 implementation authority exists yet.
+A10 is fully GREEN and deliberately network-free. The next internal production-oriented behavior must begin at `PROBLEM_ANALYSIS`; no live transport implementation authority exists yet.
 
-1. choose the next risk-weighted V1 slice from the remaining merchant/admin, checkout/link, hardening or provider-adjacent work;
-2. freeze its Problem Analysis before YAML/specification or tests;
-3. continue provider-owned current technical evidence acquisition in parallel because live Pix production remains dominated by that blocker;
-4. do not convert legacy/inferred provider material into production authority;
-5. do not call AkkadPag, AkadPay or FlevoPay monetarily until the applicable current-contract evidence and live acceptance gates are closed.
+1. define a strict HTTP transport foundation whose only provider-origin authority comes from an immutable A10 grant;
+2. preserve no-transparent-retry semantics for monetary POSTs and explicit `execution_unknown` behavior after ambiguous transmission;
+3. keep current default registry at zero outbound authority, so the transport remains unusable for real retained-provider traffic until evidence is deliberately upgraded;
+4. continue provider-owned current technical evidence acquisition in parallel;
+5. require authenticated current sandbox proof before any applicable transition to `sandbox_proven`;
+6. do not call AkkadPag, AkadPay or FlevoPay monetarily until the exact current-contract, sandbox and activation gates are closed.
