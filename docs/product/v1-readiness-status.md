@@ -7,18 +7,18 @@ PR: #1 — draft
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A10 closure remains:
+Conservative risk/effort-weighted readiness after A11 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10 deliberately does not increase these estimates. It materially reduces the chance of accidental premature PSP activation, but it does not prove a current retained-provider contract, perform authenticated provider sandbox traffic, or close recovery/webhook/live monetary gates.
+A10/A11 deliberately do not increase these estimates. They materially reduce accidental provider-activation and outbound-network risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, or close provider webhook/recovery/live monetary gates.
 
 ## Proven executable path
 
-K1-K7 and A1-A10 are DONE. A5 remains fixture-only for live-provider authority; A10 now makes that default-deny state executable.
+K1-K7 and A1-A11 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable and A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters.
 
 The branch proves:
 
@@ -31,12 +31,29 @@ The branch proves:
 7. authenticated merchant balance;
 8. transactional `payment.paid` outbox;
 9. signed/fenced/retried merchant webhook delivery;
-10. network-free retained-provider conformance fixtures;
+10. fixture-only retained-provider conformance contracts;
 11. online-verified Supabase dashboard sessions + K4 current membership/role authorization;
 12. hosted webhook endpoint lifecycle administration;
 13. hosted API credential lifecycle administration with AAL2 mutation step-up and immediate A1 token invalidation on rotation/revocation;
 14. hosted dashboard transaction list/detail with exact filters, authenticated keyset cursor, tenant/environment isolation and merchant-safe projection;
-15. network-free provider activation registry/authorizer that denies every checked-in retained-provider operation and binds any future grant to exact provider/operation/environment/contract lineage plus reviewed evidence metadata.
+15. provider activation registry/authorizer that denies every checked-in retained-provider operation and binds any future grant to exact provider/operation/environment/contract lineage plus reviewed evidence metadata;
+16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification.
+
+## A11 checkpoint — strict provider HTTP transport
+
+Evidence: `docs/evidence/application/2026-08-17-a11-strict-provider-http-transport.md`.
+
+Behavioral GREEN head: `7f3b373fe0bdfe32ae9f1924e9e461071abeea6d`.
+
+- Application workflow `32014646148`: **265/265 PASS**, including 15/15 A11 contracts and K7/A1-A9 real-database regression acceptance.
+- Database workflow `32014646143`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- A11 Supabase migrations: **none**.
+- A11 retained-provider network calls in tests/CI: **0**.
+- Default A10 runtime-authorized provider operations after A11: **0**.
+
+A11 adds the single approved Node network boundary in `packages/providers/src/http-transport.ts`. A5 retained adapters remain network-free and are not wired to A11. Destination authority cannot come from caller-supplied URLs or grant-shaped objects: the transport consumes a runtime-validated A10 registry and authorizes the exact subject internally before DNS/network execution.
+
+The transport uses fresh all-address DNS resolution per send, rejects empty/private/reserved/mixed answers, pins the first validated public address, preserves approved hostname for TLS SNI and Host, requires certificate verification/TLS >=1.2, applies fixed size/time ceilings, performs at most one HTTPS execution, follows no redirect and performs no automatic retry. Post-attempt uncertainty remains explicit `transmission_unknown` rather than fabricated failure/success.
 
 ## A10 checkpoint — provider activation & outbound safety
 
@@ -51,8 +68,6 @@ GREEN implementation head: `0308844c4aedb1d359068becfd29d1f4a234b064`.
 - Default A10 runtime-authorized provider operations: **0**.
 
 A10 V0 introduces a strict versioned registry and immutable in-memory authorization grant boundary in `packages/providers`. `unsupported`, `fixture_only` and `current_contract_proven` do not authorize runtime provider traffic. Sandbox requires an exact `sandbox_proven`/`production_enabled` Sandbox record; Production requires an exact `production_enabled` Production record. Evidence is contract-lineage specific: similarly named AkadPay material cannot silently authorize the retained AkkadPag legacy lineage.
-
-A10 does not add HTTP transport, credentials, public routes, database state, provider webhook ingress, monetary execution, recovery or reconciliation behavior.
 
 ## A9 hosted checkpoint
 
@@ -79,12 +94,12 @@ The largest unresolved block is production PSP authority:
 - current create/query/idempotency and ambiguous-execution recovery semantics for the selected retained contract;
 - current FlevoPay technical create/query/recovery semantics;
 - exact provider webhook authentication/replay contracts;
-- strict live HTTP transport that can execute only with an A10 authorization grant;
 - authenticated current sandbox acceptance before any registry transition to `sandbox_proven`;
+- a deliberately specified adapter-to-A11 bridge only after the applicable evidence gate closes;
 - provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
 - deliberate `production_enabled` transition only after production acceptance gates.
 
-There are also remaining merchant/product surfaces outside the completed A1-A10 path, including merchant-usable payout/refund operations, additional operational/reporting surfaces and broader product/UI completion. Those do not supersede the PSP evidence gate on the Pix V1 critical path.
+There are also remaining merchant/product surfaces outside the completed A1-A11 path, including merchant-usable payout/refund operations, additional operational/reporting surfaces, KYC/compliance UX, checkout/links and broader product/UI completion. Those do not supersede the PSP evidence gate on the Pix V1 critical path.
 
 ## External production blocker
 
@@ -92,14 +107,16 @@ The critical production blocker remains current provider-owned contract evidence
 
 The 2026-08-17 evidence refresh is recorded at `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`.
 
-Current AkadPay public technical material now documents useful Pix-out idempotency/replay details, but no accepted provider-owned evidence proves that the public AkadPay contract is the authoritative/current lineage of the retained AkkadPag legacy adapter. Exact trusted webhook verification also remains unproven.
+Current AkadPay public technical material documents useful Pix-out idempotency/replay details, but no accepted provider-owned evidence proves that the public AkadPay contract is the authoritative/current lineage of the retained AkkadPag legacy adapter. Exact trusted webhook verification also remains unproven.
 
 Current FlevoPay public material exposes a current API host and high-level Pix capabilities but still does not provide the exact executable create/query/recovery/webhook contract required to activate the retained integration.
 
-Therefore A5 fixture conformance plus A10 outbound safety still authorize **zero live retained-provider runtime operations**.
+Therefore A5 fixture conformance + A10 activation safety + A11 strict transport still authorize **zero live retained-provider runtime operations**.
 
 ## Next internal action
 
-A10 is DONE / GREEN / NETWORK-FREE. The next production-oriented slice must restart at Problem Analysis and should define the strict live HTTP transport foundation that can only consume an A10 authorization grant, while provider-owned contract evidence acquisition continues in parallel.
+A11 is DONE / GREEN and remains unbound from retained PSP adapters. Do **not** create the provider bridge merely because the transport now exists.
 
-No real monetary PSP call is authorized until the current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
+Continue acquiring exact provider-owned current contract evidence/authenticated current sandbox proof in parallel. Internally, select the next risk-weighted V1 slice from merchant/product/observability/security/cutover work and restart it at Problem Analysis unless sufficient provider evidence first closes an activation prerequisite.
+
+No real monetary PSP call is authorized until the exact current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
