@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const REQUEST_ID = 'req-a3-balance-http-001';
+const CALLER_REQUEST_ID = 'req-a3-balance-http-001';
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TOKEN = 'signed-a3-access-token';
 
 const sandboxPrincipal = {
@@ -58,19 +59,22 @@ async function buildWith(overrides = {}) {
 }
 
 async function balanceRequest(app, authorization = `Bearer ${TOKEN}`) {
-  const headers = { 'x-request-id': REQUEST_ID };
+  const headers = { 'x-request-id': CALLER_REQUEST_ID };
   if (authorization !== null) headers.authorization = authorization;
   return app.inject({ method: 'GET', url: '/v1/balance', headers });
 }
 
-function invalidAccessTokenBody() {
-  return {
-    error: {
-      code: 'invalid_access_token',
-      message: 'Invalid access token.',
-      requestId: REQUEST_ID,
-    },
-  };
+function assertServerRequestId(response) {
+  const requestId = response.headers['x-request-id'];
+  assert.equal(typeof requestId, 'string');
+  assert.match(requestId, UUID_V4);
+  assert.notEqual(requestId, CALLER_REQUEST_ID);
+  return requestId;
+}
+
+function assertErrorCorrelation(response, code, message) {
+  const requestId = assertServerRequestId(response);
+  assert.deepEqual(response.json(), { error: { code, message, requestId } });
 }
 
 test('A3 balance rejects missing malformed and invalid Bearer credentials before balance lookup', async () => {
@@ -94,8 +98,7 @@ test('A3 balance rejects missing malformed and invalid Bearer credentials before
     ];
     for (const response of responses) {
       assert.equal(response.statusCode, 401);
-      assert.deepEqual(response.json(), invalidAccessTokenBody());
-      assert.equal(response.headers['x-request-id'], REQUEST_ID);
+      assertErrorCorrelation(response, 'invalid_access_token', 'Invalid access token.');
     }
     assert.equal(authCalls, 1);
     assert.equal(balanceCalls, 0);
@@ -123,7 +126,7 @@ test('A3 balance derives Sandbox merchant scope only from authenticated principa
     assert.deepEqual(response.json(), sandboxBalance);
     assert.equal(receivedToken, TOKEN);
     assert.deepEqual(receivedInput, { principal: sandboxPrincipal });
-    assert.equal(response.headers['x-request-id'], REQUEST_ID);
+    assertServerRequestId(response);
   } finally {
     await app.close();
   }
@@ -159,7 +162,7 @@ test('A3 balance sanitizes authentication and database-service failures as inter
       assert.equal(response.statusCode, 500);
       const body = response.json();
       assert.equal(body?.error?.code, 'internal_error');
-      assert.equal(body?.error?.requestId, REQUEST_ID);
+      assert.equal(body?.error?.requestId, assertServerRequestId(response));
       assert.doesNotMatch(JSON.stringify(body), /secret|postgresql|password|app\.accounts/i);
     } finally {
       await app.close();
@@ -174,7 +177,7 @@ test('A3 balance fails closed when the balance service is not wired', async () =
     assert.equal(response.statusCode, 500);
     const body = response.json();
     assert.equal(body?.error?.code, 'internal_error');
-    assert.equal(body?.error?.requestId, REQUEST_ID);
+    assert.equal(body?.error?.requestId, assertServerRequestId(response));
   } finally {
     await app.close();
   }
