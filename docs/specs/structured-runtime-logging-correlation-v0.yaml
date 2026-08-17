@@ -151,12 +151,23 @@ http_completion_event:
 api_logging:
   fastify_automatic_request_logging: disabled
   request_response_serialization_in_generic_access_logs: forbidden
+  build_app_internal_options:
+    safe_runtime_logger:
+      optional_injection_for_tests: true
+      production_default: node_stdout_stderr_safe_logger
+    monotonic_now:
+      optional_injection_for_tests: true
+      production_default: performance_now
+      return_type: finite_number_milliseconds
   on_request:
     set_response_x_request_id: generated_request_id
     start_duration_measurement: true
     log_event: false
   on_response:
     emit_http_completion_event: true
+    duration_rounding: nearest_integer
+    duration_clamp_min: 0
+    duration_clamp_max: 86400000
     cannot_modify_domain_response: true
   existing_feature_events:
     preserve_event_names_where_already_stable: true
@@ -249,6 +260,6 @@ acceptance:
 implementation_authority:
   problem_analysis: frozen
   specification: frozen
-  contract_document: required_before_tests
+  contract_document: frozen
   fail_first_tests: required_before_implementation
   implementation_allowed_now: false
