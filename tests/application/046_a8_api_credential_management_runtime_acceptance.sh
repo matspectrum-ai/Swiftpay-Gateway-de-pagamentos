@@ -48,9 +48,14 @@ psql "${ADMIN_DB_URL}" --set ON_ERROR_STOP=1 <<'SQL'
 do $$
 declare
   v_merchant uuid := '28000000-0000-0000-0000-000000000801'::uuid;
+  v_api_execute_count bigint;
+  v_worker_execute_count bigint;
 begin
-  if (select count(*) from app.api_credentials where merchant_id = v_merchant) <> 2 then
+  if (select count(*) from app.api_credentials where merchant_id = v_merchant) <> 12 then
     raise exception 'A8 credential count drift';
+  end if;
+  if (select count(*) from app.api_credentials where merchant_id = v_merchant and environment = 'sandbox' and status = 'active') <> 10 then
+    raise exception 'A8 transactional active credential limit drift';
   end if;
   if (select count(*) from app.api_credentials where merchant_id = v_merchant and environment = 'sandbox' and status = 'revoked') <> 1 then
     raise exception 'A8 sandbox revoke state drift';
@@ -83,21 +88,52 @@ begin
   ) then
     raise exception 'A8 secret material leaked into audit metadata';
   end if;
-  if (select count(*) from app.audit_events where merchant_id = v_merchant and resource_type = 'api_credential') <> 4 then
+  if (select count(*) from app.audit_events where merchant_id = v_merchant and resource_type = 'api_credential') <> 14 then
     raise exception 'A8 audit exactly-once count drift';
   end if;
 
   if has_table_privilege('swiftpay_api', 'app.api_credentials', 'SELECT')
      or has_table_privilege('swiftpay_api', 'app.api_credentials', 'INSERT')
      or has_table_privilege('swiftpay_api', 'app.api_credentials', 'UPDATE')
-     or has_table_privilege('swiftpay_api', 'app.api_credentials', 'DELETE') then
-    raise exception 'A8 swiftpay_api direct credential table authority widened';
+     or has_table_privilege('swiftpay_api', 'app.api_credentials', 'DELETE')
+     or has_table_privilege('swiftpay_api', 'app.api_credential_token_windows', 'SELECT')
+     or has_table_privilege('swiftpay_api', 'app.request_idempotency', 'SELECT')
+     or has_table_privilege('swiftpay_api', 'app.audit_events', 'SELECT') then
+    raise exception 'A8 swiftpay_api direct protected-table authority widened';
   end if;
   if has_table_privilege('swiftpay_worker', 'app.api_credentials', 'SELECT')
      or has_table_privilege('swiftpay_worker', 'app.api_credentials', 'INSERT')
      or has_table_privilege('swiftpay_worker', 'app.api_credentials', 'UPDATE')
-     or has_table_privilege('swiftpay_worker', 'app.api_credentials', 'DELETE') then
-    raise exception 'A8 swiftpay_worker direct credential table authority widened';
+     or has_table_privilege('swiftpay_worker', 'app.api_credentials', 'DELETE')
+     or has_table_privilege('swiftpay_worker', 'app.api_credential_token_windows', 'SELECT')
+     or has_table_privilege('swiftpay_worker', 'app.request_idempotency', 'SELECT')
+     or has_table_privilege('swiftpay_worker', 'app.audit_events', 'SELECT') then
+    raise exception 'A8 swiftpay_worker direct protected-table authority widened';
+  end if;
+
+  if has_function_privilege('swiftpay_api', 'app._a8_begin_api_credential_command(uuid,text,text,text,text)', 'EXECUTE')
+     or has_function_privilege('swiftpay_api', 'app._a8_complete_api_credential_command(uuid,uuid,jsonb)', 'EXECUTE')
+     or has_function_privilege('swiftpay_worker', 'app._a8_begin_api_credential_command(uuid,text,text,text,text)', 'EXECUTE')
+     or has_function_privilege('swiftpay_worker', 'app._a8_complete_api_credential_command(uuid,uuid,jsonb)', 'EXECUTE') then
+    raise exception 'A8 private helper execution leaked to runtime role';
+  end if;
+
+  select count(*) into v_api_execute_count
+    from information_schema.routine_privileges
+   where routine_schema = 'app'
+     and grantee = 'swiftpay_api'
+     and privilege_type = 'EXECUTE';
+  select count(*) into v_worker_execute_count
+    from information_schema.routine_privileges
+   where routine_schema = 'app'
+     and grantee = 'swiftpay_worker'
+     and privilege_type = 'EXECUTE';
+
+  if v_api_execute_count <> 21 then
+    raise exception 'A8 swiftpay_api capability count drift: %', v_api_execute_count;
+  end if;
+  if v_worker_execute_count <> 6 then
+    raise exception 'A8 swiftpay_worker capability count drift: %', v_worker_execute_count;
   end if;
 end;
 $$;
