@@ -91,6 +91,32 @@ assert.equal(body.environment, 'sandbox');
 NODE
 }
 
+assert_error_response() {
+  local body_file="$1"
+  local headers_file="$2"
+  local caller_request_id="$3"
+  local expected_code="$4"
+  local expected_message="$5"
+  node --input-type=module - "${body_file}" "${headers_file}" "${caller_request_id}" "${expected_code}" "${expected_message}" <<'NODE'
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const [bodyPath, headersPath, callerRequestId, expectedCode, expectedMessage] = process.argv.slice(2);
+const body = JSON.parse(await readFile(bodyPath, 'utf8'));
+const headers = await readFile(headersPath, 'utf8');
+const requestId = headers
+  .split(/\r?\n/)
+  .map((line) => line.match(/^x-request-id:\s*(.+)$/i)?.[1]?.trim())
+  .find(Boolean);
+const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+assert.equal(body.error?.code, expectedCode);
+assert.equal(body.error?.message, expectedMessage);
+assert.equal(typeof requestId, 'string');
+assert.match(requestId, uuidV4);
+assert.notEqual(requestId, callerRequestId);
+assert.equal(body.error?.requestId, requestId);
+NODE
+}
+
 assert_rate_limited_response() {
   local body_file="$1"
   local headers_file="$2"
@@ -137,14 +163,24 @@ readonly API_ONE="http://127.0.0.1:${API_ONE_PORT}"
 readonly API_TWO="http://127.0.0.1:${API_TWO_PORT}"
 
 stage='indistinguishable-invalid-credentials'
-wrong_status="$(token_request "${API_ONE}" 'pk_a1_runtime_active' "${A1_SECRET}x" 'req-a1-invalid-same' /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-wrong.headers)"
-unknown_status="$(token_request "${API_ONE}" 'pk_a1_runtime_missing' "${A1_SECRET}" 'req-a1-invalid-same' /tmp/swiftpay-a1-unknown.json /tmp/swiftpay-a1-unknown.headers)"
+wrong_status="$(token_request "${API_ONE}" 'pk_a1_runtime_active' "${A1_SECRET}x" 'req-a1-invalid-wrong' /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-wrong.headers)"
+unknown_status="$(token_request "${API_ONE}" 'pk_a1_runtime_missing' "${A1_SECRET}" 'req-a1-invalid-unknown' /tmp/swiftpay-a1-unknown.json /tmp/swiftpay-a1-unknown.headers)"
 echo "A1 invalid credential statuses: ${wrong_status}/${unknown_status}"
 [[ "${wrong_status}" == '401' ]]
 [[ "${unknown_status}" == '401' ]]
-cmp --silent /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-unknown.json
-grep -q '"code":"invalid_credentials"' /tmp/swiftpay-a1-wrong.json
-grep -q '"message":"Invalid credentials\."' /tmp/swiftpay-a1-wrong.json
+assert_error_response /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-wrong.headers 'req-a1-invalid-wrong' 'invalid_credentials' 'Invalid credentials.'
+assert_error_response /tmp/swiftpay-a1-unknown.json /tmp/swiftpay-a1-unknown.headers 'req-a1-invalid-unknown' 'invalid_credentials' 'Invalid credentials.'
+node --input-type=module - /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-unknown.json <<'NODE'
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const left = JSON.parse(await readFile(process.argv[2], 'utf8'));
+const right = JSON.parse(await readFile(process.argv[3], 'utf8'));
+assert.deepEqual(
+  { code: left.error?.code, message: left.error?.message },
+  { code: right.error?.code, message: right.error?.message },
+);
+assert.notEqual(left.error?.requestId, right.error?.requestId);
+NODE
 
 stage='credential-ip-policy'
 revoked_status="$(token_request "${API_ONE}" 'pk_a1_runtime_revoked' "${A1_SECRET}" 'req-a1-revoked' /tmp/swiftpay-a1-revoked.json /tmp/swiftpay-a1-revoked.headers)"
@@ -154,7 +190,7 @@ echo "A1 policy statuses: revoked=${revoked_status} inactive=${inactive_status} 
 [[ "${revoked_status}" == '401' ]]
 [[ "${inactive_status}" == '401' ]]
 [[ "${ip_status}" == '403' ]]
-grep -q '"code":"ip_not_allowed"' /tmp/swiftpay-a1-ip.json
+assert_error_response /tmp/swiftpay-a1-ip.json /tmp/swiftpay-a1-ip.headers 'req-a1-ip-denied' 'ip_not_allowed' 'IP address is not allowed.'
 [[ "$(psql "${ADMIN_DB_URL}" --tuples-only --no-align --command "select count(*) from app.api_credential_token_windows;")" == '0' ]]
 
 stage='shared-quota-first-nine'
