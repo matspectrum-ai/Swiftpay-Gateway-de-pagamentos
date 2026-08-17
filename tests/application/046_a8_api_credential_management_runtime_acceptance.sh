@@ -40,7 +40,19 @@ financial_counts() {
 }
 
 before_financial="$(financial_counts)"
-node tests/application/046_a8_api_credential_management_runtime_driver.mjs
+if ! node tests/application/046_a8_api_credential_management_runtime_driver.mjs; then
+  echo 'A8_DIAG sanitized create failure state follows' >&2
+  psql "${ADMIN_DB_URL}" --tuples-only --no-align --field-separator='|' --command \
+    "select 'credential', count(*), coalesce(string_agg(status || ':' || revision::text || ':' || secret_version::text, ',' order by id), '')
+       from app.api_credentials where merchant_id = '${MERCHANT_ID}'::uuid
+     union all
+     select 'idempotency', count(*), coalesce(string_agg(operation || ':' || state, ',' order by operation), '')
+       from app.request_idempotency where merchant_id = '${MERCHANT_ID}'::uuid
+     union all
+     select 'audit', count(*), coalesce(string_agg(event_type, ',' order by event_type), '')
+       from app.audit_events where merchant_id = '${MERCHANT_ID}'::uuid;" >&2
+  exit 1
+fi
 after_financial="$(financial_counts)"
 [[ "${after_financial}" == "${before_financial}" ]]
 
