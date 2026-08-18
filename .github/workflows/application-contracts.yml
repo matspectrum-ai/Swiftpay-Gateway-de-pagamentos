@@ -53,6 +53,7 @@ jobs:
       SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
       SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY: 0123456789abcdef0123456789abcdef
       SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY: a9-dashboard-cursor-ci-key-0123456789abcdef
+      SWIFTPAY_ABUSE_HMAC_KEY: a14-abuse-ci-key-0123456789abcdef0123456789abcdef
       SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
       SWIFTPAY_SUPABASE_URL: https://project-a6.supabase.co
       SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: sb_publishable_a6_ci_key
