@@ -3,6 +3,7 @@ import { scryptSync } from 'node:crypto';
 import test from 'node:test';
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
+const SIGNING_KEY_ID = 'machine-a1-service';
 const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
 const CREDENTIAL_ID = '61000000-0000-0000-0000-000000000001';
@@ -53,9 +54,16 @@ async function authModule() {
   return import('../../packages/auth/dist/index.js');
 }
 
-function handlerOptions() {
+function signingAuthority(auth) {
+  return auth.createAccessTokenSigningAuthority({
+    activeKeyId: SIGNING_KEY_ID,
+    keys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
+  });
+}
+
+function handlerOptions(auth) {
   return {
-    signingKey: SIGNING_KEY,
+    signingAuthority: signingAuthority(auth),
     nowSeconds: () => NOW_SECONDS,
     jti: () => JTI,
   };
@@ -74,7 +82,7 @@ test('A1 token exchange validates the compatibility request before credential lo
       throw new Error('quota must not run for invalid requests');
     },
   };
-  const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+  const handler = auth.createTokenExchangeHandler(store, handlerOptions(auth));
 
   for (const invalidRequest of [
     request({ grantType: 'password' }),
@@ -107,7 +115,7 @@ test('A1 token exchange trims publicKey but preserves secretKey as opaque plaint
       return { allowed: true, remaining: 9, retryAfterSeconds: 0 };
     },
   };
-  const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+  const handler = auth.createTokenExchangeHandler(store, handlerOptions(auth));
 
   const result = await handler(
     request({ publicKey: '  pk_test_merchant  ', secretKey: opaqueSecret }),
@@ -140,7 +148,7 @@ test('A1 unknown key, wrong secret, malformed verifier, revoked credential and i
         return { allowed: true, remaining: 9, retryAfterSeconds: 0 };
       },
     };
-    const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+    const handler = auth.createTokenExchangeHandler(store, handlerOptions(auth));
     const result = await handler(request({ secretKey: scenario.secretKey }), context());
 
     assert.deepEqual(result, {
@@ -163,7 +171,7 @@ test('A1 exact-IP policy is evaluated before quota consumption', async () => {
       return { allowed: true, remaining: 9, retryAfterSeconds: 0 };
     },
   };
-  const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+  const handler = auth.createTokenExchangeHandler(store, handlerOptions(auth));
 
   assert.deepEqual(await handler(request(), context({ clientIp: '192.0.2.11' })), {
     ok: false,
@@ -182,7 +190,7 @@ test('A1 issuance quota denial returns deterministic retry metadata and issues n
       return { allowed: false, remaining: 0, retryAfterSeconds: 173 };
     },
   };
-  const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+  const handler = auth.createTokenExchangeHandler(store, handlerOptions(auth));
 
   assert.deepEqual(await handler(request(), context()), {
     ok: false,
@@ -196,6 +204,7 @@ test('A1 issuance quota denial returns deterministic retry metadata and issues n
 
 test('A1 successful exchange issues the canonical 900-second machine token', async () => {
   const auth = await authModule();
+  const authority = signingAuthority(auth);
   const store = {
     async lookupCredentialForToken() {
       return activeCredential();
@@ -204,7 +213,11 @@ test('A1 successful exchange issues the canonical 900-second machine token', asy
       return { allowed: true, remaining: 4, retryAfterSeconds: 0 };
     },
   };
-  const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+  const handler = auth.createTokenExchangeHandler(store, {
+    signingAuthority: authority,
+    nowSeconds: () => NOW_SECONDS,
+    jti: () => JTI,
+  });
 
   const result = await handler(request(), context());
   assert.equal(result.ok, true);
@@ -212,7 +225,7 @@ test('A1 successful exchange issues the canonical 900-second machine token', asy
   assert.equal(result.value.expiresIn, 900);
   assert.equal(result.value.environment, 'sandbox');
 
-  const claims = await auth.verifyAccessToken(result.value.accessToken, SIGNING_KEY, NOW_SECONDS + 1);
+  const claims = await auth.verifyAccessToken(result.value.accessToken, authority, NOW_SECONDS + 1);
   assert.ok(claims);
   assert.equal(claims.sub, MERCHANT_ID);
   assert.equal(claims.credential_id, CREDENTIAL_ID);
@@ -234,7 +247,7 @@ test('A1 unexpected store failure returns sanitized internal_error without leaki
       throw new Error('unreachable');
     },
   };
-  const handler = auth.createTokenExchangeHandler(store, handlerOptions());
+  const handler = auth.createTokenExchangeHandler(store, handlerOptions(auth));
 
   const result = await handler(request({ secretKey: secret }), context());
   assert.deepEqual(result, {
