@@ -17,7 +17,11 @@ const services = {
       : { accessTokenLegacyNoKidKey: config.accessTokenLegacyNoKidKey }),
     supabaseUrl: config.supabaseUrl,
     supabasePublishableKey: config.supabasePublishableKey,
-    dashboardCursorHmacKey: config.dashboardCursorHmacKey,
+    dashboardCursorActiveKeyId: config.dashboardCursorActiveKeyId,
+    dashboardCursorHmacKeys: config.dashboardCursorHmacKeys,
+    ...(config.dashboardCursorLegacyV0Key === undefined
+      ? {}
+      : { dashboardCursorLegacyV0Key: config.dashboardCursorLegacyV0Key }),
     trustedProxyIps: config.trustedProxyIps,
     abuseHmacKey: config.abuseHmacKey,
     webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
