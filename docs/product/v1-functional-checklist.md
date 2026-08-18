@@ -174,6 +174,8 @@ Current public-evidence refresh: `docs/evidence/providers/2026-08-18-current-pro
 - [x] Keyset pagination
 - [x] HMAC-authenticated cursor
 - [x] Cursor bound to merchant/environment/filters
+- [x] `a9v1` key-ID-aware cursor HMAC rotation through A16
+- [x] Explicit verify-only legacy `a9v0` migration compatibility through A16
 - [x] No offset pagination
 - [x] Customer/private provider data excluded from merchant projection
 - [x] Dashboard transaction namespace remains read-only
@@ -308,7 +310,39 @@ Current state: **DONE / GREEN / APPLICATION-ONLY**. Final evidence: `docs/eviden
 - [x] No A15 database migration, provider bridge or financial authority introduced
 - [x] Final A15 evidence committed
 
-A15 intentionally excludes A9 cursor HMAC rotation, A14 abuse HMAC rotation, webhook cryptographic authorities, API credential secrets and provider credentials.
+A15 intentionally excluded A9 cursor HMAC rotation from its own authority boundary. That independent rotation was later completed as A16. A14 abuse HMAC, webhook cryptographic authorities, API credential secrets and provider credentials remain outside A15/A16.
+
+## Dashboard transaction cursor HMAC rotation — A16
+
+Current state: **DONE / GREEN / APPLICATION-ONLY**. Final evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation.md`.
+
+- [x] Problem Analysis frozen
+- [x] Specification frozen
+- [x] Contract frozen
+- [x] Fail-first tests committed
+- [x] CLEAN RED Application run `32123937524`: 336 total, **323 pass / 13 fail**, with all 322 pre-A16 contracts GREEN and one A16 isolation contract already GREEN
+- [x] K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database regression acceptance GREEN on RED head
+- [x] RED Database run `32123937574`: K5/K6 + **41 files / 1298 assertions** GREEN
+- [x] Required active cursor `kid` + bounded 1..4 current keyring implemented
+- [x] Current key IDs and secrets are unique and configuration fails closed when malformed
+- [x] Cursor authority is snapshotted against caller mutation
+- [x] New cursors emit exact `a9v1.<kid>.<payload>.<signature>`
+- [x] New issuance uses only the active cursor HMAC key
+- [x] Known non-active v1 `kid` verifies using exactly that retained key during rotation overlap
+- [x] Unknown/malformed/retired v1 `kid` fails closed without trial-all fallback
+- [x] Removing a retired v1 key invalidates only cursors carrying that key ID
+- [x] Explicit verify-only legacy `a9v0` migration slot implemented
+- [x] Legacy v0 tokens never fall back to current v1 keyring authority
+- [x] Retired single-key `SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY` has no implicit fallback authority
+- [x] Exact A9 merchant/environment/filter/createdAt/paymentId binding preserved
+- [x] Existing generic `invalid_cursor` public failure surface preserved
+- [x] Final Application workflow `32130004275`: **336/336** contracts GREEN, including **14/14 A16**
+- [x] Final real-database runtime acceptance K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 GREEN after isolated rerun of the runtime job; no A8/A16 code change was made for the transient A8 concurrency acceptance race
+- [x] Final Database workflow `32130004397`: K5/K6 + **41 files / 1298 assertions** GREEN
+- [x] No A16 database migration, hosted Supabase change, provider bridge or financial authority introduced
+- [x] Final A16 evidence committed
+
+A16 intentionally excludes A14 abuse HMAC rotation, A15 access-token signing changes, webhook cryptographic authorities, API credential secrets and provider credentials.
 
 ## Existing domain/database foundations not yet full product workflows
 
