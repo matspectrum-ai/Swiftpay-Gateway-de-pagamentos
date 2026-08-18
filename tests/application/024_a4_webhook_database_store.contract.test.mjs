@@ -15,7 +15,9 @@ const claimProjection = {
     url: 'https://merchant.example/webhook',
     environment: 'sandbox',
     signingSecretVersion: 3,
-    signingSecretCiphertext: 'aes-256-gcm-v1$nonce$cipher$tag',
+    signingSecretCiphertext: 'rsa-oaep-sha256-v1$QUJD',
+    signingSecretCiphertextFormat: 'rsa-oaep-sha256-v1',
+    signingSecretWrappingKeyId: 'webhook-wrap-a4-v1',
   },
   event: {
     id: 'b5400000-0000-0000-0000-000000000001',
@@ -103,7 +105,7 @@ test('A4 webhook DB adapter validates claim and resolve inputs before PostgreSQL
 test('A4 webhook DB adapter sanitizes privileged database errors and never leaks ciphertext or SQL', async () => {
   const { createMerchantWebhookDeliveryStore, RuntimeWebhookDeliveryStoreError } = await db();
   const store = createMerchantWebhookDeliveryStore(fakePool(async () => {
-    throw new Error('select secret_ciphertext from app.webhook_endpoints where secret_ciphertext=aes-256-gcm-v1$TOPSECRET');
+    throw new Error('select secret_ciphertext from app.webhook_endpoints where secret_ciphertext=rsa-oaep-sha256-v1$TOPSECRET');
   }));
   await assert.rejects(
     () => store.claim({ workerId: 'worker-a4-1', limit: 10, leaseSeconds: 30 }),
