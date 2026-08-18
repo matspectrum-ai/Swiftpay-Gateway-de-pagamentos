@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
+const SIGNING_KEY_ID = 'machine-a1-bearer';
 const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
 const CREDENTIAL_ID = '61000000-0000-0000-0000-000000000001';
@@ -11,7 +12,14 @@ async function authModule() {
   return import('../../packages/auth/dist/index.js');
 }
 
-async function token(auth, overrides = {}) {
+function authority(auth, secret = SIGNING_KEY) {
+  return auth.createAccessTokenSigningAuthority({
+    activeKeyId: SIGNING_KEY_ID,
+    keys: [{ id: SIGNING_KEY_ID, secret }],
+  });
+}
+
+async function token(auth, signingAuthority, overrides = {}) {
   return auth.issueAccessToken({
     merchantId: MERCHANT_ID,
     credentialId: CREDENTIAL_ID,
@@ -20,7 +28,7 @@ async function token(auth, overrides = {}) {
     jti: JTI,
     nowSeconds: NOW_SECONDS,
     ...overrides,
-  }, SIGNING_KEY);
+  }, signingAuthority);
 }
 
 function activeState(overrides = {}) {
@@ -38,7 +46,8 @@ function activeState(overrides = {}) {
 test('A1 bearer authentication returns a canonical machine principal only after DB revalidation', async () => {
   const auth = await authModule();
   assert.equal(typeof auth.authenticateAccessToken, 'function');
-  const accessToken = await token(auth);
+  const signingAuthority = authority(auth);
+  const accessToken = await token(auth, signingAuthority);
   let lookedUpCredentialId;
   const store = {
     async getCredentialAuthState(credentialId) {
@@ -48,7 +57,7 @@ test('A1 bearer authentication returns a canonical machine principal only after 
   };
 
   assert.deepEqual(
-    await auth.authenticateAccessToken(accessToken, SIGNING_KEY, store, NOW_SECONDS + 1),
+    await auth.authenticateAccessToken(accessToken, signingAuthority, store, NOW_SECONDS + 1),
     {
       merchantId: MERCHANT_ID,
       credentialId: CREDENTIAL_ID,
@@ -62,7 +71,8 @@ test('A1 bearer authentication returns a canonical machine principal only after 
 
 test('A1 bearer revalidation rejects revocation, merchant suspension and identity/version drift immediately', async () => {
   const auth = await authModule();
-  const accessToken = await token(auth);
+  const signingAuthority = authority(auth);
+  const accessToken = await token(auth, signingAuthority);
   const invalidStates = [
     null,
     activeState({ credentialStatus: 'revoked' }),
@@ -76,7 +86,7 @@ test('A1 bearer revalidation rejects revocation, merchant suspension and identit
   for (const state of invalidStates) {
     const store = { async getCredentialAuthState() { return state; } };
     assert.equal(
-      await auth.authenticateAccessToken(accessToken, SIGNING_KEY, store, NOW_SECONDS + 1),
+      await auth.authenticateAccessToken(accessToken, signingAuthority, store, NOW_SECONDS + 1),
       null,
     );
   }
@@ -84,7 +94,8 @@ test('A1 bearer revalidation rejects revocation, merchant suspension and identit
 
 test('A1 bearer authentication rejects invalid or expired JWT before touching PostgreSQL', async () => {
   const auth = await authModule();
-  const accessToken = await token(auth);
+  const signingAuthority = authority(auth);
+  const accessToken = await token(auth, signingAuthority);
   let stateLookups = 0;
   const store = {
     async getCredentialAuthState() {
@@ -96,14 +107,14 @@ test('A1 bearer authentication rejects invalid or expired JWT before touching Po
   assert.equal(
     await auth.authenticateAccessToken(
       accessToken,
-      'abcdef0123456789abcdef0123456789',
+      authority(auth, 'abcdef0123456789abcdef0123456789'),
       store,
       NOW_SECONDS + 1,
     ),
     null,
   );
   assert.equal(
-    await auth.authenticateAccessToken(accessToken, SIGNING_KEY, store, NOW_SECONDS + 901),
+    await auth.authenticateAccessToken(accessToken, signingAuthority, store, NOW_SECONDS + 901),
     null,
   );
   assert.equal(stateLookups, 0);
@@ -111,7 +122,8 @@ test('A1 bearer authentication rejects invalid or expired JWT before touching Po
 
 test('A1 bearer DB failure remains distinguishable from an invalid credential and is not swallowed', async () => {
   const auth = await authModule();
-  const accessToken = await token(auth);
+  const signingAuthority = authority(auth);
+  const accessToken = await token(auth, signingAuthority);
   const databaseFailure = new Error('sanitized-runtime-auth-store-failure');
   const store = {
     async getCredentialAuthState() {
@@ -120,7 +132,7 @@ test('A1 bearer DB failure remains distinguishable from an invalid credential an
   };
 
   await assert.rejects(
-    () => auth.authenticateAccessToken(accessToken, SIGNING_KEY, store, NOW_SECONDS + 1),
+    () => auth.authenticateAccessToken(accessToken, signingAuthority, store, NOW_SECONDS + 1),
     (error) => error === databaseFailure,
   );
 });
