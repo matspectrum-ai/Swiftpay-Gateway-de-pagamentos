@@ -59,9 +59,12 @@ function recordReadiness(outcome: 'ok' | 'failed'): void {
   }
 }
 
-function recordWorkerBatch(outcome: WorkerBatchOutcome): void {
+function recordWorkerBatch(input: {
+  readonly batch: 'merchant_webhook_delivery';
+  readonly outcome: WorkerBatchOutcome;
+}): void {
   try {
-    metrics.recordWorkerBatch({ batch: 'merchant_webhook_delivery', outcome });
+    metrics.recordWorkerBatch(input);
   } catch {
     // Metrics degradation must never change worker retry or loop behavior.
   }
@@ -117,9 +120,9 @@ async function runWebhookLoop(controller: {
         limit: CLAIM_LIMIT,
         leaseSeconds: LEASE_SECONDS,
       });
-      recordWorkerBatch('success');
+      recordWorkerBatch({ batch: 'merchant_webhook_delivery', outcome: 'success' });
     } catch {
-      recordWorkerBatch('failure');
+      recordWorkerBatch({ batch: 'merchant_webhook_delivery', outcome: 'failure' });
       emit('error', 'merchant_webhook_delivery_batch_failed');
     }
 
