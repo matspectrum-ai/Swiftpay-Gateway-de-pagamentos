@@ -1,5 +1,7 @@
 import { loadApiConfig } from '@swiftpay/config';
 import { createRuntimePool } from '@swiftpay/db';
+import { createMetricsRequestHandler, createOperationalMetricsRegistry } from '@swiftpay/metrics';
+import { createServer, type Server } from 'node:http';
 import { buildApp } from './app.js';
 import { createApiRuntimeServices } from './runtime.js';
 
@@ -13,13 +15,26 @@ const services = createApiRuntimeServices(pool, {
   webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
   webhookSecretWrapPublicKey: config.webhookSecretWrapPublicKey,
 });
-const app = buildApp(services);
+const metrics = createOperationalMetricsRegistry({ workload: 'api' });
+const app = buildApp({ ...services, metrics });
+
+let metricsServer: Server | undefined;
+if (config.metricsPort !== undefined) {
+  try {
+    metricsServer = createServer(createMetricsRequestHandler({ registry: metrics }));
+    metricsServer.on('error', () => undefined);
+    metricsServer.listen(config.metricsPort, '127.0.0.1');
+  } catch {
+    metricsServer = undefined;
+  }
+}
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   app.log.info({ signal }, 'SwiftPay API shutdown requested');
+  if (metricsServer !== undefined) metricsServer.close();
   await app.close();
   await pool.end();
 }
@@ -36,6 +51,7 @@ try {
   await app.listen({ host: config.host, port: config.port });
 } catch {
   app.log.error({ event: 'startup_failed' }, 'SwiftPay API failed to start');
+  if (metricsServer !== undefined) metricsServer.close();
   await pool.end().catch(() => undefined);
   process.exitCode = 1;
 }
