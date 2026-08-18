@@ -283,7 +283,7 @@ Current state: **DONE / GREEN / HOSTED**. Final evidence: `docs/evidence/applica
 
 ## Machine access-token signing-key rotation — A15
 
-Current state: **TDD_RED / IMPLEMENTATION AUTHORIZED**. RED evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation-red.md`.
+Current state: **DONE / GREEN / APPLICATION-ONLY**. Final evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation.md`.
 
 - [x] Problem Analysis frozen
 - [x] Specification frozen
@@ -292,20 +292,21 @@ Current state: **TDD_RED / IMPLEMENTATION AUTHORIZED**. RED evidence: `docs/evid
 - [x] CLEAN RED Application run `32107998211`: 322 total, **307 pass / 15 fail**, with all 306 pre-A15 contracts GREEN
 - [x] K7/A1-A9/A14 real-database regression acceptance GREEN on RED head
 - [x] Database run `32107998170`: K5/K6 + **41 files / 1298 assertions** GREEN
-- [ ] Validated branded signing authority implemented
-- [ ] Required active `kid` + bounded 1..4 keyring config implemented
-- [ ] New tokens emit exact HS256 + active `kid`
-- [ ] Known `kid` verifies using exactly one selected key
-- [ ] Unknown/malformed `kid` fails closed without fallback/trial-all
-- [ ] Explicit verify-only legacy no-`kid` migration slot implemented
-- [ ] No-`kid` tokens fail after legacy slot removal
-- [ ] HS256/issuer/audience/900s/zero-tolerance/A1 claims preserved
-- [ ] A1 database bearer revalidation and A8 revocation semantics preserved
-- [ ] Old single-key runtime variable has no implicit fallback
-- [ ] Final 322/322 application contracts GREEN
-- [ ] Final K7/A1-A9/A14 real-database acceptance GREEN
-- [ ] Final K5/K6/41 files/1298 assertions GREEN
-- [ ] Final A15 evidence committed
+- [x] Validated branded signing authority implemented
+- [x] Required active `kid` + bounded 1..4 keyring config implemented
+- [x] New tokens emit exact HS256 + active `kid`
+- [x] Known `kid` verifies using exactly one selected key
+- [x] Unknown/malformed `kid` fails closed without fallback/trial-all
+- [x] Explicit verify-only legacy no-`kid` migration slot implemented
+- [x] No-`kid` tokens fail after legacy slot removal
+- [x] HS256/issuer/audience/900s/zero-tolerance/A1 claims preserved
+- [x] A1 database bearer revalidation and A8 revocation semantics preserved
+- [x] Old single-key runtime variable has no implicit fallback
+- [x] Final application workflow `32116297016`: **322/322** contracts GREEN
+- [x] Final K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance GREEN
+- [x] Final database workflow `32116297019`: K5/K6 + **41 files / 1298 assertions** GREEN
+- [x] No A15 database migration, provider bridge or financial authority introduced
+- [x] Final A15 evidence committed
 
 A15 intentionally excludes A9 cursor HMAC rotation, A14 abuse HMAC rotation, webhook cryptographic authorities, API credential secrets and provider credentials.
 
