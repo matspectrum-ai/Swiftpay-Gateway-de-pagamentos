@@ -115,8 +115,8 @@ test('A7 worker decrypts RSA-OAEP-SHA256 historical/current secret rows and emit
 });
 
 test('A7/A17 old and new retained RSA keys are selected only by exact persisted key ID', async () => {
-  const oldRsa = rsaFixture('whsec_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC', 2, 'webhook-wrap-a7-old');
-  const newRsa = rsaFixture('whsec_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD', 3, 'webhook-wrap-a7-new');
+  const oldRsa = rsaFixture('whsec_Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0M', 2, 'webhook-wrap-a7-old');
+  const newRsa = rsaFixture('whsec_REREREREREREREREREREREREREREREREREREREREREQ', 3, 'webhook-wrap-a7-new');
   const retained = { ...oldRsa.privateKeyring, ...newRsa.privateKeyring };
 
   const oldOutcome = await runOne({
@@ -146,8 +146,8 @@ test('A7 effective delivery database claim reads endpoint_url_snapshot rather th
 });
 
 test('A7 RSA unwrap failure remains terminal before HTTP and never trial-decrypts another retained key', async () => {
-  const rsa = rsaFixture('whsec_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', 2);
-  const unrelated = rsaFixture('whsec_EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE', 2, 'webhook-wrap-a7-other');
+  const rsa = rsaFixture('whsec_QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI', 2);
+  const unrelated = rsaFixture('whsec_RUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU', 2, 'webhook-wrap-a7-other');
   const outcome = await runOne({
     deliveryClaim: claim({ version: 2, ciphertext: rsa.ciphertext, format: 'rsa-oaep-sha256-v1', wrappingKeyId: rsa.keyId }),
     privateKeyring: unrelated.privateKeyring,
