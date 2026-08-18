@@ -10,6 +10,8 @@ export const WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_
 export const WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS';
 export const SUPABASE_URL_ENV = 'SWIFTPAY_SUPABASE_URL';
 export const SUPABASE_PUBLISHABLE_KEY_ENV = 'SWIFTPAY_SUPABASE_PUBLISHABLE_KEY';
+export const API_METRICS_PORT_ENV = 'SWIFTPAY_API_METRICS_PORT';
+export const WORKER_METRICS_PORT_ENV = 'SWIFTPAY_WORKER_METRICS_PORT';
 
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
@@ -22,6 +24,7 @@ export interface ApiConfig {
   readonly webhookSecretWrapPublicKey: string;
   readonly host: string;
   readonly port: number;
+  readonly metricsPort?: number;
 }
 
 export interface WorkerConfig {
@@ -29,6 +32,7 @@ export interface WorkerConfig {
   readonly databaseUrl: string;
   readonly webhookSecretEncryptionKey: string;
   readonly webhookSecretWrapPrivateKeys?: string;
+  readonly metricsPort?: number;
 }
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
@@ -75,6 +79,17 @@ function port(source: EnvironmentSource): number {
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65535 || String(parsed) !== raw) {
     throw new ConfigurationError('SWIFTPAY_API_PORT must be an integer between 1 and 65535');
+  }
+  return parsed;
+}
+
+function optionalMetricsPort(source: EnvironmentSource, name: string): number | undefined {
+  const rawValue = source[name];
+  if (rawValue === undefined) return undefined;
+  const raw = rawValue.trim();
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65535 || String(parsed) !== raw) {
+    throw new ConfigurationError(`${name} must be an integer between 1 and 65535`);
   }
   return parsed;
 }
@@ -199,6 +214,7 @@ function optionalPrivateKeyring(source: EnvironmentSource): string | undefined {
 }
 
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
+  const metricsPort = optionalMetricsPort(source, API_METRICS_PORT_ENV);
   return {
     environment: environment(source),
     databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
@@ -210,6 +226,7 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     webhookSecretWrapPublicKey: canonicalBase64Url(source, WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV),
     host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
     port: port(source),
+    ...(metricsPort === undefined ? {} : { metricsPort }),
   };
 }
 
@@ -218,11 +235,13 @@ export function loadWorkerConfig(source: EnvironmentSource = process.env): Worke
   const databaseUrl = postgresUrl(source, 'SWIFTPAY_WORKER_DATABASE_URL');
   const encryptionKey = webhookSecretEncryptionKey(source);
   const privateKeys = optionalPrivateKeyring(source);
+  const metricsPort = optionalMetricsPort(source, WORKER_METRICS_PORT_ENV);
 
   return {
     environment: resolvedEnvironment,
     databaseUrl,
     webhookSecretEncryptionKey: encryptionKey,
     ...(privateKeys === undefined ? {} : { webhookSecretWrapPrivateKeys: privateKeys }),
+    ...(metricsPort === undefined ? {} : { metricsPort }),
   };
 }
