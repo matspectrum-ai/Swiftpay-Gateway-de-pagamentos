@@ -69,6 +69,7 @@ select throws_ok(
     )
   $$,
   '23514',
+  null,
   'A17 direct AES secret-version insertion must be rejected'
 );
 
@@ -85,6 +86,7 @@ select throws_ok(
     )
   $$,
   '23502',
+  null,
   'A17 RSA secret-version insertion with null wrapping key id must be rejected'
 );
 
