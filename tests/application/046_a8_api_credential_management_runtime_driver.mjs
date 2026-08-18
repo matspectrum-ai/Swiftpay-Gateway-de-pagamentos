@@ -2,7 +2,9 @@ import * as auth from '../../packages/auth/dist/index.js';
 import * as db from '../../packages/db/dist/index.js';
 
 const DATABASE_URL = process.env.SWIFTPAY_API_DATABASE_URL;
-const SIGNING_KEY = process.env.SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY;
+const ACTIVE_KEY_ID = process.env.SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID;
+const RAW_SIGNING_KEYS = process.env.SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS;
+const LEGACY_NO_KID_KEY = process.env.SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY;
 const MERCHANT_ID = '28000000-0000-0000-0000-000000000801';
 const IDS = {
   member: '18000000-0000-0000-0000-000000000801',
@@ -22,7 +24,18 @@ function check(condition, message) {
   if (!condition) fail(message);
 }
 if (!DATABASE_URL) fail('SWIFTPAY_API_DATABASE_URL is required');
-if (!SIGNING_KEY) fail('SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY is required');
+if (!ACTIVE_KEY_ID || !RAW_SIGNING_KEYS) fail('A15 signing authority configuration is required');
+let signingKeys;
+try {
+  signingKeys = JSON.parse(RAW_SIGNING_KEYS);
+} catch {
+  fail('A15 signing authority configuration is invalid');
+}
+const signingAuthority = auth.createAccessTokenSigningAuthority({
+  activeKeyId: ACTIVE_KEY_ID,
+  keys: signingKeys,
+  ...(LEGACY_NO_KID_KEY === undefined ? {} : { legacyNoKidKey: LEGACY_NO_KID_KEY }),
+});
 
 const pool = db.createRuntimePool({ databaseUrl: DATABASE_URL, workload: 'api' });
 let idIndex = 0;
@@ -109,8 +122,8 @@ try {
     secretVersion: 1,
     jti: '48000000-0000-0000-0000-000000000801',
     nowSeconds: now,
-  }, SIGNING_KEY);
-  check((await auth.authenticateAccessToken(oldToken, SIGNING_KEY, authStore, now + 1))?.credentialId === CREDENTIAL_IDS[0], 'old_token_valid_before_rotation');
+  }, signingAuthority);
+  check((await auth.authenticateAccessToken(oldToken, signingAuthority, authStore, now + 1))?.credentialId === CREDENTIAL_IDS[0], 'old_token_valid_before_rotation');
 
   const rotateInput = {
     authorization: 'Bearer admin-aal2', merchantId: MERCHANT_ID, environment: 'sandbox', credentialId: CREDENTIAL_IDS[0],
@@ -119,7 +132,7 @@ try {
   const rotated = await service.rotateSecret(rotateInput);
   check(rotated.kind === 'ok' && rotated.replayed === false && rotated.secretAvailable === true, 'rotation_winner');
   check(rotated.credential?.revision === 2 && rotated.credential?.secretVersion === 2, 'rotation_versions');
-  check(await auth.authenticateAccessToken(oldToken, SIGNING_KEY, authStore, now + 2) === null, 'old_token_invalid_after_rotation');
+  check(await auth.authenticateAccessToken(oldToken, signingAuthority, authStore, now + 2) === null, 'old_token_invalid_after_rotation');
 
   const rotateReplay = await service.rotateSecret(rotateInput);
   check(rotateReplay.kind === 'ok' && rotateReplay.replayed === true && rotateReplay.secretKey === null && rotateReplay.secretAvailable === false, 'rotation_replay');
@@ -133,8 +146,8 @@ try {
     secretVersion: 2,
     jti: '48000000-0000-0000-0000-000000000802',
     nowSeconds: now,
-  }, SIGNING_KEY);
-  check((await auth.authenticateAccessToken(currentToken, SIGNING_KEY, authStore, now + 3))?.credentialId === CREDENTIAL_IDS[0], 'current_token_valid_before_revoke');
+  }, signingAuthority);
+  check((await auth.authenticateAccessToken(currentToken, signingAuthority, authStore, now + 3))?.credentialId === CREDENTIAL_IDS[0], 'current_token_valid_before_revoke');
 
   const revokeInput = {
     authorization: 'Bearer admin-aal2', merchantId: MERCHANT_ID, environment: 'sandbox', credentialId: CREDENTIAL_IDS[0],
@@ -143,7 +156,7 @@ try {
   const revoked = await service.revoke(revokeInput);
   check(revoked.kind === 'ok' && revoked.replayed === false, 'revoke_winner');
   check(revoked.credential?.status === 'revoked' && revoked.credential?.revision === 3, 'revoke_projection');
-  check(await auth.authenticateAccessToken(currentToken, SIGNING_KEY, authStore, now + 4) === null, 'current_token_invalid_after_revoke');
+  check(await auth.authenticateAccessToken(currentToken, signingAuthority, authStore, now + 4) === null, 'current_token_invalid_after_revoke');
 
   const revokeReplay = await service.revoke(revokeInput);
   check(revokeReplay.kind === 'ok' && revokeReplay.replayed === true, 'revoke_replay');
