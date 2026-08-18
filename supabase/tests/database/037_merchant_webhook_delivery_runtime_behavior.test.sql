@@ -20,10 +20,22 @@ insert into app.webhook_endpoints (
   'sandbox',
   'https://merchant.example.test/swiftpay',
   'active',
-  'cipher-v3',
+  'rsa-oaep-sha256-v1$YTRmaXh0dXJlLXYz',
   3,
   null, null, null,
   '["payment.paid"]'::jsonb
+);
+
+insert into app.webhook_endpoint_secret_versions (
+  webhook_endpoint_id, secret_version, ciphertext_format,
+  wrapping_key_id, secret_ciphertext, usable_until
+) values (
+  'a4100000-0000-0000-0000-000000000001'::uuid,
+  3,
+  'rsa-oaep-sha256-v1',
+  'webhook-wrap-a4-v3',
+  'rsa-oaep-sha256-v1$YTRmaXh0dXJlLXYz',
+  null
 );
 
 create temporary table a4_cases (
@@ -187,7 +199,7 @@ end;
 $$;
 
 -- A delivery freezes secret version 3. Rotate the endpoint before dispatch so
--- A4 must use the bounded previous-secret overlap rather than silently switching.
+-- A4 must use the bounded RSA history overlap rather than silently switching.
 call pg_temp.a4_record_case(
   'retry_then_success',
   'a4200000-0000-0000-0000-000000000001'::uuid
@@ -202,12 +214,29 @@ select is(
 );
 
 update app.webhook_endpoints
-   set secret_ciphertext='cipher-v4',
+   set secret_ciphertext='rsa-oaep-sha256-v1$YTRmaXh0dXJlLXY0',
        secret_version=4,
-       previous_secret_ciphertext='cipher-v3',
+       previous_secret_ciphertext='rsa-oaep-sha256-v1$YTRmaXh0dXJlLXYz',
        previous_secret_version=3,
        previous_secret_expires_at='2099-01-01T00:00:00Z'::timestamptz
  where id='a4100000-0000-0000-0000-000000000001'::uuid;
+
+update app.webhook_endpoint_secret_versions
+   set usable_until='2099-01-01T00:00:00Z'::timestamptz
+ where webhook_endpoint_id='a4100000-0000-0000-0000-000000000001'::uuid
+   and secret_version=3;
+
+insert into app.webhook_endpoint_secret_versions (
+  webhook_endpoint_id, secret_version, ciphertext_format,
+  wrapping_key_id, secret_ciphertext, usable_until
+) values (
+  'a4100000-0000-0000-0000-000000000001'::uuid,
+  4,
+  'rsa-oaep-sha256-v1',
+  'webhook-wrap-a4-v4',
+  'rsa-oaep-sha256-v1$YTRmaXh0dXJlLXY0',
+  null
+);
 
 -- An unrelated due job must never be consumed by the A4 composed scheduler.
 do $$
@@ -235,9 +264,13 @@ select is(
   'A4 claim preserves the delivery secret-version snapshot after endpoint rotation'
 );
 select is(
-  (select result -> 0 -> 'endpoint' ->> 'signingSecretCiphertext' from a4_claims where capture_name='first_claim'),
-  'cipher-v3',
-  'A4 claim selects the still-valid previous ciphertext for an in-flight delivery'
+  (select
+     (result -> 0 -> 'endpoint' ->> 'signingSecretCiphertext') || '|' ||
+     (result -> 0 -> 'endpoint' ->> 'signingSecretCiphertextFormat') || '|' ||
+     (result -> 0 -> 'endpoint' ->> 'signingSecretWrappingKeyId')
+     from a4_claims where capture_name='first_claim'),
+  'rsa-oaep-sha256-v1$YTRmaXh0dXJlLXYz|rsa-oaep-sha256-v1|webhook-wrap-a4-v3',
+  'A4 claim selects the still-valid exact RSA history row for an in-flight delivery'
 );
 select is(
   (select result -> 0 -> 'event' ->> 'type' from a4_claims where capture_name='first_claim'),
@@ -370,7 +403,7 @@ select is((select jsonb_array_length(result) from a4_claims where capture_name='
 -- Disable after fanout: no HTTP dispatch attempt should be created.
 update app.webhook_endpoints
    set status='active',
-       secret_ciphertext='cipher-v4', secret_version=4,
+       secret_ciphertext='rsa-oaep-sha256-v1$YTRmaXh0dXJlLXY0', secret_version=4,
        previous_secret_ciphertext=null, previous_secret_version=null, previous_secret_expires_at=null
  where id='a4100000-0000-0000-0000-000000000001'::uuid;
 call pg_temp.a4_record_case('disabled_after_fanout', 'a4200000-0000-0000-0000-000000000002'::uuid);
