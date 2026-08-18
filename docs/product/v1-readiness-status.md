@@ -1,24 +1,24 @@
 # SwiftPay V2 — V1 Readiness Status
 
-Date: 2026-08-17  
+Date: 2026-08-18  
 Branch: `agent/foundation-phase-0`  
 PR: #1 — draft  
 `main`: intentionally untouched
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A12 closure remains:
+Conservative risk/effort-weighted readiness after A13 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A12 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network and unsafe-runtime-logging risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
+A10-A13 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging and observability-blindness risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A12 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, and A12 provides safe server-owned runtime correlation plus closed-schema structured logging.
+K1-K7 and A1-A13 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, and A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces.
 
 The branch proves:
 
@@ -38,7 +38,28 @@ The branch proves:
 14. hosted dashboard transaction list/detail with exact filters, authenticated keyset cursor, tenant/environment isolation and merchant-safe projection;
 15. provider activation registry/authorizer that denies every checked-in retained-provider operation and binds any future grant to exact provider/operation/environment/contract lineage plus reviewed evidence metadata;
 16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification;
-17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging.
+17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging;
+18. bounded in-memory API/worker operational metrics with closed label sets, deterministic OpenMetrics rendering and optional `127.0.0.1`-only scrape listeners.
+
+## A13 checkpoint — operational metrics & health signals
+
+Evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals.md`.
+
+Final behavioral GREEN head: `9393fda1cee8a0ceaf3b215d3efc8063ee5cd390`.
+
+- Behavioral Application workflow `32094346060`: **288/288 PASS**, including **12/12 A13** contracts and K7/A1-A9 real-database regression acceptance.
+- Behavioral Database workflow `32094346105`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- Evidence-head Application workflow `32094504874`: **GREEN**.
+- Evidence-head Database workflow `32094504849`: **GREEN**.
+- A13 Supabase migrations: **none**.
+- A13 retained-provider network calls: **0**.
+- Provider/financial authority changes: **none**.
+
+A13 introduces the dependency-free `@swiftpay/metrics` package with closed methods for HTTP request totals, HTTP duration histograms, readiness outcomes and worker webhook-batch outcomes. It intentionally exposes no generic metric-name/arbitrary-label API. Metric labels exclude dynamic merchant/payment/request/provider identifiers, money, PII, secrets, URLs, SQL, error content and provider payloads.
+
+API and worker may expose separate metrics listeners only when `SWIFTPAY_API_METRICS_PORT` or `SWIFTPAY_WORKER_METRICS_PORT` is configured. The listener has no configurable host and binds only to `127.0.0.1`; telemetry failure cannot alter readiness, HTTP/domain results or worker retry behavior.
+
+External exporters, alerting, dashboards, SLO policy and distributed tracing remain outside A13.
 
 ## A12 checkpoint — structured runtime logging & correlation
 
@@ -52,7 +73,7 @@ Final behavioral GREEN head: `bce20e1bbfdc41c53d913043dff55d1cb14ca797`.
 - A12 retained-provider network calls: **0**.
 - Provider/financial authority changes: **none**.
 
-A12 adds the dependency-free `@swiftpay/observability` package, moves API request identity to SwiftPay-owned UUIDv4 generation, ignores caller `x-request-id` as authority, correlates response headers/public errors with the generated ID, disables Fastify generic request logging, emits one safe route-template completion event and moves the worker to the same closed-schema serializer. Metrics, distributed tracing, exporters, alerts, dashboards and SLOs remain outside A12.
+A12 adds the dependency-free `@swiftpay/observability` package, moves API request identity to SwiftPay-owned UUIDv4 generation, ignores caller `x-request-id` as authority, correlates response headers/public errors with the generated ID, disables Fastify generic request logging, emits one safe route-template completion event and moves the worker to the same closed-schema serializer.
 
 Known compatibility debt is explicit: Fastify 5.11 emits `FSTDEP023` for the top-level `disableRequestLogging` option. The behavior remains GREEN; migrate to `logController` before a Fastify 6 upgrade in a dedicated compatibility slice.
 
@@ -116,7 +137,7 @@ The largest unresolved block is production PSP authority:
 - provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
 - deliberate `production_enabled` transition only after production acceptance gates.
 
-There are also remaining merchant/product surfaces outside the completed A1-A12 path:
+There are also remaining merchant/product surfaces outside the completed A1-A13 path:
 
 - dashboard login/session UX and Supabase Auth product configuration;
 - merchant-usable payout/refund operations;
@@ -127,7 +148,7 @@ There are also remaining merchant/product surfaces outside the completed A1-A12 
 
 Production hardening still includes:
 
-- metrics, traces, exporters, alerts, dashboards and SLOs beyond A12 logging/correlation;
+- external metrics collection/export, alerting, dashboards, SLO policy and distributed tracing beyond A12/A13 local observability foundations;
 - secret/key rotation architecture, dependency/security review, least-privilege audit and abuse/rate-limit review;
 - measured performance cleanup;
 - deployment/cutover/rollback, backup/recovery, provider credential bootstrap and launch runbook.
@@ -148,8 +169,8 @@ Therefore A5 fixture conformance + A10 activation safety + A11 strict transport 
 
 ## Next internal action
 
-A12 is DONE / GREEN. Continue provider-owned current technical evidence/authenticated sandbox acquisition in parallel, but do not bridge retained adapters merely because A11 transport exists.
+A13 is DONE / GREEN / RUNTIME-ONLY. Continue provider-owned current technical evidence/authenticated sandbox acquisition in parallel, but do not bridge retained adapters merely because A11 transport exists.
 
-The next internal production-hardening behavior should restart at Problem Analysis. Highest-value candidates are operational metrics/health signals, abuse/rate-limit hardening or a merchant-operational surface. Choose one bounded slice, preserve current provider authority at zero, and keep metrics/security/product work independent of the external PSP evidence gate.
+The next internal production-hardening behavior must restart at Problem Analysis. The highest current unblocked risk-adjusted candidate is abuse/rate-limit hardening across public machine and dashboard boundaries, because it reduces production exposure without requiring provider contract authority. No A14 implementation authority exists until its Problem Analysis, spec, contracts and RED tests are frozen.
 
 No real monetary PSP call is authorized until the exact current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
