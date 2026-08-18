@@ -1,6 +1,12 @@
 import { loadWorkerConfig } from '@swiftpay/config';
 import { createRuntimePool } from '@swiftpay/db';
+import {
+  createMetricsRequestHandler,
+  createOperationalMetricsRegistry,
+  type WorkerBatchOutcome,
+} from '@swiftpay/metrics';
 import { createSafeRuntimeLogger, type RuntimeLogLevel } from '@swiftpay/observability';
+import { createServer, type Server } from 'node:http';
 import { createWorkerRuntimeServices } from './runtime.js';
 
 const CHECK_FLAG = '--check';
@@ -17,6 +23,18 @@ const services = createWorkerRuntimeServices(pool, {
     ? {}
     : { webhookPrivateKeyring: config.webhookSecretWrapPrivateKeys }),
 });
+const metrics = createOperationalMetricsRegistry({ workload: 'worker' });
+
+let metricsServer: Server | undefined;
+if (config.metricsPort !== undefined) {
+  try {
+    metricsServer = createServer(createMetricsRequestHandler({ registry: metrics }));
+    metricsServer.on('error', () => undefined);
+    metricsServer.listen(config.metricsPort, '127.0.0.1');
+  } catch {
+    metricsServer = undefined;
+  }
+}
 
 const runtimeLogger = createSafeRuntimeLogger({
   sink: {
@@ -30,6 +48,22 @@ function emit(level: RuntimeLogLevel, event: string): void {
     runtimeLogger.log({ level, event, workload: 'worker' });
   } catch {
     // Observability degradation must never change worker behavior.
+  }
+}
+
+function recordReadiness(outcome: 'ok' | 'failed'): void {
+  try {
+    metrics.recordReadiness(outcome);
+  } catch {
+    // Metrics degradation must never change worker behavior.
+  }
+}
+
+function recordWorkerBatch(outcome: WorkerBatchOutcome): void {
+  try {
+    metrics.recordWorkerBatch({ batch: 'merchant_webhook_delivery', outcome });
+  } catch {
+    // Metrics degradation must never change worker retry or loop behavior.
   }
 }
 
@@ -83,7 +117,9 @@ async function runWebhookLoop(controller: {
         limit: CLAIM_LIMIT,
         leaseSeconds: LEASE_SECONDS,
       });
+      recordWorkerBatch('success');
     } catch {
+      recordWorkerBatch('failure');
       emit('error', 'merchant_webhook_delivery_batch_failed');
     }
 
@@ -94,8 +130,11 @@ async function runWebhookLoop(controller: {
   return controller.shutdown;
 }
 
+let readinessPassed = false;
 try {
   await services.readinessProbe();
+  recordReadiness('ok');
+  readinessPassed = true;
 
   if (process.argv.includes(CHECK_FLAG)) {
     emit('info', 'worker_readiness_ok');
@@ -106,8 +145,10 @@ try {
     emit('info', `worker_shutdown_${signal.toLowerCase()}`);
   }
 } catch {
+  if (!readinessPassed) recordReadiness('failed');
   emit('error', 'worker_runtime_boundary_failed');
   process.exitCode = 1;
 } finally {
+  if (metricsServer !== undefined) metricsServer.close();
   await pool.end().catch(() => undefined);
 }
