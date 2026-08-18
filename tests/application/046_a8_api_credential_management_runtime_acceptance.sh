@@ -2,7 +2,6 @@
 set -euo pipefail
 
 : "${SWIFTPAY_API_DATABASE_URL:?SWIFTPAY_API_DATABASE_URL is required}"
-: "${SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY:?SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY is required}"
 
 readonly ADMIN_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 readonly MERCHANT_ID='28000000-0000-0000-0000-000000000801'
