@@ -281,6 +281,34 @@ Current state: **DONE / GREEN / HOSTED**. Final evidence: `docs/evidence/applica
 - [x] Hosted Payment/ProviderAttempt rows remain zero after A14 deploy
 - [x] Final A14 evidence committed
 
+## Machine access-token signing-key rotation — A15
+
+Current state: **TDD_RED / IMPLEMENTATION AUTHORIZED**. RED evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation-red.md`.
+
+- [x] Problem Analysis frozen
+- [x] Specification frozen
+- [x] Contract frozen
+- [x] Fail-first tests committed
+- [x] CLEAN RED Application run `32107998211`: 322 total, **307 pass / 15 fail**, with all 306 pre-A15 contracts GREEN
+- [x] K7/A1-A9/A14 real-database regression acceptance GREEN on RED head
+- [x] Database run `32107998170`: K5/K6 + **41 files / 1298 assertions** GREEN
+- [ ] Validated branded signing authority implemented
+- [ ] Required active `kid` + bounded 1..4 keyring config implemented
+- [ ] New tokens emit exact HS256 + active `kid`
+- [ ] Known `kid` verifies using exactly one selected key
+- [ ] Unknown/malformed `kid` fails closed without fallback/trial-all
+- [ ] Explicit verify-only legacy no-`kid` migration slot implemented
+- [ ] No-`kid` tokens fail after legacy slot removal
+- [ ] HS256/issuer/audience/900s/zero-tolerance/A1 claims preserved
+- [ ] A1 database bearer revalidation and A8 revocation semantics preserved
+- [ ] Old single-key runtime variable has no implicit fallback
+- [ ] Final 322/322 application contracts GREEN
+- [ ] Final K7/A1-A9/A14 real-database acceptance GREEN
+- [ ] Final K5/K6/41 files/1298 assertions GREEN
+- [ ] Final A15 evidence committed
+
+A15 intentionally excludes A9 cursor HMAC rotation, A14 abuse HMAC rotation, webhook cryptographic authorities, API credential secrets and provider credentials.
+
 ## Existing domain/database foundations not yet full product workflows
 
 - [x] KYC private-storage foundation
