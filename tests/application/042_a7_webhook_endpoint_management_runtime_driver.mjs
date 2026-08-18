@@ -11,7 +11,6 @@ const WORKER_DATABASE_URL = process.env.SWIFTPAY_WORKER_DATABASE_URL;
 const WRAP_KEY_ID = process.env.SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID;
 const WRAP_PUBLIC_KEY = process.env.SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY;
 const WRAP_PRIVATE_KEYS = process.env.SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS;
-const LEGACY_ENCRYPTION_KEY = process.env.SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY;
 const ADMIN_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
 for (const [name, value] of Object.entries({
@@ -20,7 +19,6 @@ for (const [name, value] of Object.entries({
   SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID: WRAP_KEY_ID,
   SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY: WRAP_PUBLIC_KEY,
   SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS: WRAP_PRIVATE_KEYS,
-  SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY: LEGACY_ENCRYPTION_KEY,
 })) {
   assert.equal(typeof value, 'string', `${name} must be configured`);
   assert.ok(value.length > 0, `${name} must be non-empty`);
@@ -344,7 +342,6 @@ try {
   const workerStore = db.createMerchantWebhookDeliveryStore(workerPool);
   const deliveryService = webhooks.createWebhookDeliveryService({
     store: workerStore,
-    encryptionKey: LEGACY_ENCRYPTION_KEY,
     privateKeyring: WRAP_PRIVATE_KEYS,
     endpointPolicy,
     transport: {
