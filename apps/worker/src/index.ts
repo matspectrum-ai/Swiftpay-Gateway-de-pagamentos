@@ -18,10 +18,7 @@ type ShutdownSignal = 'SIGTERM' | 'SIGINT';
 const config = loadWorkerConfig();
 const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'worker' });
 const services = createWorkerRuntimeServices(pool, {
-  webhookEncryptionKey: config.webhookSecretEncryptionKey,
-  ...(config.webhookSecretWrapPrivateKeys === undefined
-    ? {}
-    : { webhookPrivateKeyring: config.webhookSecretWrapPrivateKeys }),
+  webhookPrivateKeyring: config.webhookSecretWrapPrivateKeys,
 });
 const metrics = createOperationalMetricsRegistry({ workload: 'worker' });
 
