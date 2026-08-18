@@ -6,7 +6,8 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../abuse" }
+    { "path": "../abuse" },
+    { "path": "../webhooks" }
   ],
   "include": ["src/**/*.ts"]
 }
