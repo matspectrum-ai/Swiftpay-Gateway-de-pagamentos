@@ -10,7 +10,11 @@ const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'api
 const metrics = createOperationalMetricsRegistry({ workload: 'api' });
 const services = {
   ...createApiRuntimeServices(pool, {
-    signingKey: config.accessTokenSigningKey,
+    accessTokenActiveKeyId: config.accessTokenActiveKeyId,
+    accessTokenSigningKeys: config.accessTokenSigningKeys,
+    ...(config.accessTokenLegacyNoKidKey === undefined
+      ? {}
+      : { accessTokenLegacyNoKidKey: config.accessTokenLegacyNoKidKey }),
     supabaseUrl: config.supabaseUrl,
     supabasePublishableKey: config.supabasePublishableKey,
     dashboardCursorHmacKey: config.dashboardCursorHmacKey,
