@@ -4,6 +4,12 @@ import type {
   TokenExchangeHandler,
   TokenExchangeRequest,
 } from '@swiftpay/auth';
+import type {
+  MetricsHttpMethod,
+  MetricsRoute,
+  OperationalMetricsRegistry,
+  ReadinessOutcome,
+} from '@swiftpay/metrics';
 import {
   createSafeRuntimeLogger,
   type RuntimeEvent,
@@ -115,6 +121,7 @@ export interface BuildAppOptions {
   readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
   readonly dashboardTransactions?: DashboardTransactionsHttpService;
   readonly runtimeLogger?: SafeRuntimeLogger;
+  readonly metrics?: OperationalMetricsRegistry;
   readonly monotonicNow?: () => number;
 }
 
@@ -130,6 +137,30 @@ function emitRuntime(options: BuildAppOptions, event: RuntimeEvent): void {
     (options.runtimeLogger ?? defaultRuntimeLogger).log(event);
   } catch {
     // Observability degradation must never alter HTTP or domain behavior.
+  }
+}
+
+function recordHttpMetric(
+  options: BuildAppOptions,
+  input: {
+    readonly method: MetricsHttpMethod;
+    readonly route: MetricsRoute;
+    readonly statusCode: number;
+    readonly durationMs: number;
+  },
+): void {
+  try {
+    options.metrics?.recordHttp(input);
+  } catch {
+    // Metrics degradation must never alter the selected HTTP response.
+  }
+}
+
+function recordReadinessMetric(options: BuildAppOptions, outcome: ReadinessOutcome): void {
+  try {
+    options.metrics?.recordReadiness(outcome);
+  } catch {
+    // Telemetry is not a readiness dependency.
   }
 }
 
@@ -448,6 +479,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     const start = requestStarts.get(request) ?? 0;
     const end = readMonotonic(monotonicNow);
     const route = request.routeOptions?.url ?? '<unmatched>';
+    const durationMs = boundedDuration(start, end);
     emitRuntime(options, {
       level: 'info',
       event: 'http_request_completed',
@@ -456,7 +488,13 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       method: request.method as RuntimeHttpMethod,
       route,
       statusCode: reply.statusCode,
-      durationMs: boundedDuration(start, end),
+      durationMs,
+    });
+    recordHttpMetric(options, {
+      method: request.method as MetricsHttpMethod,
+      route: route as MetricsRoute,
+      statusCode: reply.statusCode,
+      durationMs,
     });
   });
 
@@ -465,8 +503,10 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.get('/health/ready', async (request, reply) => {
     try {
       await options.readinessProbe();
+      recordReadinessMetric(options, 'ok');
       return { status: 'ready' as const, workload: 'api' as const };
     } catch {
+      recordReadinessMetric(options, 'failed');
       emitRuntime(options, {
         level: 'warn',
         event: 'database_readiness_failed',
