@@ -49,18 +49,18 @@ stop_api() {
   api_pid=''
 }
 
-# Correct API identity: liveness and readiness are both healthy.
+# Correct API identity: A14 admission and K7 readiness are both healthy.
 start_api "${SWIFTPAY_API_DATABASE_URL}" "${API_PORT_OK}" /tmp/swiftpay-api-ok.log
 [[ "$(curl --silent --output /tmp/swiftpay-ready-ok.json --write-out '%{http_code}' "http://127.0.0.1:${API_PORT_OK}/health/ready")" == '200' ]]
 grep -q '"status":"ready"' /tmp/swiftpay-ready-ok.json
 grep -q '"workload":"api"' /tmp/swiftpay-ready-ok.json
 stop_api
 
-# Wrong K6 identity: process remains live, readiness fails closed and leaks no URL/password.
+# Wrong K6 identity: process remains live. A14 fails closed before the K7 DB probe because
+# the worker identity has no EXECUTE authority over the API abuse-quota RPC.
 start_api "${SWIFTPAY_WORKER_DATABASE_URL}" "${API_PORT_WRONG}" /tmp/swiftpay-api-wrong.log
 [[ "$(curl --silent --output /tmp/swiftpay-ready-wrong.json --write-out '%{http_code}' "http://127.0.0.1:${API_PORT_WRONG}/health/ready")" == '503' ]]
-grep -q '"status":"unavailable"' /tmp/swiftpay-ready-wrong.json
-grep -q '"workload":"api"' /tmp/swiftpay-ready-wrong.json
+grep -q '"code":"request_admission_unavailable"' /tmp/swiftpay-ready-wrong.json
 ! grep -Eq 'postgres(ql)?://|local_worker_runtime_only|local_api_runtime_only' /tmp/swiftpay-ready-wrong.json
 ! grep -Eq 'postgres(ql)?://|local_worker_runtime_only|local_api_runtime_only' /tmp/swiftpay-api-wrong.log
 stop_api
@@ -81,7 +81,7 @@ fi
 grep -q 'worker_runtime_boundary_failed' /tmp/swiftpay-worker-wrong.log
 ! grep -Eq 'postgres(ql)?://|local_worker_runtime_only|local_api_runtime_only' /tmp/swiftpay-worker-wrong.log
 
-# K7 readiness/check behavior is read-only and creates no financial/async state.
+# K7/A14 health checks create no financial/async state.
 read -r payments jobs ledger_transactions webhook_events < <(
   psql "${ADMIN_DB_URL}" --tuples-only --no-align --field-separator=' ' --command \
     "select (select count(*) from app.payments),
