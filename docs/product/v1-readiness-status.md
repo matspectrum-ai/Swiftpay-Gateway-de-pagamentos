@@ -5,20 +5,22 @@ Branch: `agent/foundation-phase-0`
 PR: #1 — draft  
 `main`: intentionally untouched
 
+Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
+
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A13 closure remains:
+Conservative risk/effort-weighted readiness after A14 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A13 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging and observability-blindness risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
+A10-A14 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness and public-ingress abuse risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A13 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, and A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces.
+K1-K7 and A1-A14 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces, and A14 adds hosted fail-closed distributed ingress abuse limiting.
 
 The branch proves:
 
@@ -39,7 +41,32 @@ The branch proves:
 15. provider activation registry/authorizer that denies every checked-in retained-provider operation and binds any future grant to exact provider/operation/environment/contract lineage plus reviewed evidence metadata;
 16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification;
 17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging;
-18. bounded in-memory API/worker operational metrics with closed label sets, deterministic OpenMetrics rendering and optional `127.0.0.1`-only scrape listeners.
+18. bounded in-memory API/worker operational metrics with closed label sets, deterministic OpenMetrics rendering and optional `127.0.0.1`-only scrape listeners;
+19. hosted distributed ingress admission control with exact trusted-proxy authority, HMAC-obscured subjects, fixed-window PostgreSQL quotas and fail-closed 429/503 semantics before expensive or mutating boundaries.
+
+## A14 hosted checkpoint — ingress abuse / rate-limit hardening
+
+Evidence: `docs/evidence/application/2026-08-18-a14-ingress-abuse-rate-limit-hardening.md`.
+
+Final behavior/evidence head before evidence-only handoff commits: `d12d05016019cf07065da141e0a5d4e7abecc58a`.
+
+- Application workflow `32103726491`: **306/306 application contracts PASS**, plus K7 and A1-A9/A14 real-database acceptance.
+- Database workflow `32103726496`: **41 files / 1298 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- Hosted migration: `20260818054252_ingress_abuse_rate_limit_hardening`.
+- Hosted `swiftpay_api`: exact **24** `app` EXECUTE capabilities.
+- Hosted `swiftpay_worker`: exact **6**.
+- A14 RPC executable by API only; forbidden `PUBLIC`/`anon`/`authenticated`/`service_role`/worker EXECUTE entries: **0**.
+- Direct A14 table privilege entries for public/Data API/service/API/worker runtime identities: **0**.
+- Hosted A14 window rows immediately after deploy: **0**.
+- Hosted Payment rows after deploy: **0**.
+- Hosted ProviderAttempt rows after deploy: **0**.
+- Security Advisor after A14: **0 lints**.
+- A14 retained-provider calls: **0**.
+- Provider/financial authority changes: **none**.
+
+A14 preserves the A1 successful token issuance quota while adding a separate distributed ingress protection boundary. Network subjects are canonicalized and HMAC-SHA256-obscured before persistence; merchant-level machine quotas are bound only to merchant/environment. `/health/live` remains independent while readiness is protected before its DB probe.
+
+A14 legitimately expands the trusted API RPC allowlist from 23 to 24 only by adding `app.consume_api_abuse_quota(text,text)`; worker capability remains six. Historical K4/A3/A8/A9 allowlist acceptance assertions were synchronized to that explicit contract rather than weakened.
 
 ## A13 checkpoint — operational metrics & health signals
 
@@ -116,7 +143,7 @@ Behavioral GREEN head: `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`.
 - Application workflow `32009421604`: **240/240 PASS**, including K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance.
 - Database workflow `32009421592`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
 - Hosted migration: `20260817081745_merchant_transaction_operations.sql`.
-- Hosted `swiftpay_api`: exact **23** `app` EXECUTE capabilities.
+- Hosted post-A9 `swiftpay_api`: exact **23** `app` EXECUTE capabilities before A14.
 - Hosted `swiftpay_worker`: exact **6**.
 - Security Advisor after A9: **0 lints**.
 
@@ -137,7 +164,7 @@ The largest unresolved block is production PSP authority:
 - provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
 - deliberate `production_enabled` transition only after production acceptance gates.
 
-There are also remaining merchant/product surfaces outside the completed A1-A13 path:
+There are also remaining merchant/product surfaces outside the completed A1-A14 path:
 
 - dashboard login/session UX and Supabase Auth product configuration;
 - merchant-usable payout/refund operations;
@@ -149,8 +176,8 @@ There are also remaining merchant/product surfaces outside the completed A1-A13 
 Production hardening still includes:
 
 - external metrics collection/export, alerting, dashboards, SLO policy and distributed tracing beyond A12/A13 local observability foundations;
-- secret/key rotation architecture, dependency/security review, least-privilege audit and abuse/rate-limit review;
-- measured performance cleanup;
+- secret/key rotation architecture, dependency/security review and final least-privilege audit;
+- measured performance cleanup and A14 limit tuning from production-like traffic;
 - deployment/cutover/rollback, backup/recovery, provider credential bootstrap and launch runbook.
 
 These remaining items do not supersede the PSP evidence gate on the live Pix critical path.
@@ -169,8 +196,10 @@ Therefore A5 fixture conformance + A10 activation safety + A11 strict transport 
 
 ## Next internal action
 
-A13 is DONE / GREEN / RUNTIME-ONLY. Continue provider-owned current technical evidence/authenticated sandbox acquisition in parallel, but do not bridge retained adapters merely because A11 transport exists.
+A14 is **DONE / GREEN / HOSTED**. The living functional checklist is `docs/product/v1-functional-checklist.md` and must remain synchronized after every accepted slice.
 
-The next internal production-hardening behavior must restart at Problem Analysis. The highest current unblocked risk-adjusted candidate is abuse/rate-limit hardening across public machine and dashboard boundaries, because it reduces production exposure without requiring provider contract authority. No A14 implementation authority exists until its Problem Analysis, spec, contracts and RED tests are frozen.
+Provider-owned current technical evidence and authenticated sandbox acquisition are now the highest-value critical path. Do not bridge retained adapters merely because A11 transport exists. If provider evidence becomes available, begin the A5→A11 bridge/activation slice again at Problem Analysis and strict RED before implementation.
+
+In parallel, only bounded hardening/product work that does not obscure the PSP blocker should proceed: external observability/SLO wiring, key rotation/security review, measured performance/load work, deployment/backup/rollback runbooks, or explicitly prioritized merchant product surfaces.
 
 No real monetary PSP call is authorized until the exact current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
