@@ -101,6 +101,14 @@ function legacyV0Key(source: EnvironmentSource): string | undefined {
 }
 
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
+  // Preserve every pre-A16 validation and its ordering before evaluating the
+  // newly added cursor authority. The removed cursor field receives a fixed
+  // internal placeholder; caller-provided legacy single-key input is ignored.
+  const preA16 = loadPreA16ApiConfig({
+    ...source,
+    [INTERNAL_PRE_A16_CURSOR_KEY_ENV]: INTERNAL_PRE_A16_PLACEHOLDER,
+  });
+
   const resolvedActiveKeyId = activeKeyId(source);
   const resolvedKeys = hmacKeys(source);
   if (!resolvedKeys.some((entry) => entry.id === resolvedActiveKeyId)) {
@@ -109,14 +117,6 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     );
   }
   const resolvedLegacyV0Key = legacyV0Key(source);
-
-  // The pre-A16 parser is retained internally only to avoid duplicating unrelated
-  // configuration validation. Its removed cursor field receives a fixed internal
-  // placeholder; caller-provided legacy single-key input is never consulted.
-  const preA16 = loadPreA16ApiConfig({
-    ...source,
-    [INTERNAL_PRE_A16_CURSOR_KEY_ENV]: INTERNAL_PRE_A16_PLACEHOLDER,
-  });
   const { dashboardCursorHmacKey: _discardedPreA16CursorKey, ...base } = preA16;
 
   return {
