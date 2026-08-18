@@ -205,10 +205,10 @@ select ok(
     'dashboard context helper is STABLE'
 );
 
--- Exact API allowlist after A9: prior K4/A1/A2/A3/A7/A8 capabilities plus two A9 read RPCs.
+-- Exact API allowlist after A14: prior K4/A1/A2/A3/A7/A8/A9 capabilities plus one A14 abuse-quota RPC.
 select ok(
     coalesce((
-        select count(*) = 23
+        select count(*) = 24
            and bool_and(p.oid = any(array[
                to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')::oid,
                to_regprocedure('app.lookup_api_credential_for_token(text)')::oid,
@@ -232,7 +232,8 @@ select ok(
                to_regprocedure('app.rotate_dashboard_api_credential_secret(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
                to_regprocedure('app.revoke_dashboard_api_credential(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
                to_regprocedure('app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamptz,timestamptz,timestamptz,uuid,integer)')::oid,
-               to_regprocedure('app.get_dashboard_transaction(uuid,uuid,text,uuid)')::oid
+               to_regprocedure('app.get_dashboard_transaction(uuid,uuid,text,uuid)')::oid,
+               to_regprocedure('app.consume_api_abuse_quota(text,text)')::oid
            ]::oid[]))
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
@@ -241,7 +242,7 @@ select ok(
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ), false),
-    'swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 allowlist'
+    'swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 A14 allowlist'
 );
 select ok(
     exists (
