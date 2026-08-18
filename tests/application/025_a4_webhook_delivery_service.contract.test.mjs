@@ -1,10 +1,28 @@
 import assert from 'node:assert/strict';
+import { constants, generateKeyPairSync, publicEncrypt } from 'node:crypto';
 import test from 'node:test';
 
 async function webhooks() { return import('../../packages/webhooks/dist/index.js'); }
 
-const encryptionKey = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8';
-const secretCiphertext = 'aes-256-gcm-v1$AAECAwQFBgcICQoL$MGqlfqa6oy_Scaa5gt1NW7TuvlWSGDsZXlfUty5dNYQ2KJedzaJ2_RI$JHRLQtcGf8jjgEcrEbBimQ';
+const ENDPOINT_ID = 'b4200000-0000-0000-0000-000000000001';
+const WRAPPING_KEY_ID = 'webhook-wrap-a4-v1';
+const SIGNING_SECRET = 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const keyPair = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'der' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'der' },
+});
+const privateKeyring = { [WRAPPING_KEY_ID]: keyPair.privateKey.toString('base64url') };
+const label = Buffer.from(`swiftpay-webhook-secret-wrap-v1\n${ENDPOINT_ID}\n7\n${WRAPPING_KEY_ID}`, 'utf8');
+const encryptedSecret = publicEncrypt({
+  key: keyPair.publicKey,
+  format: 'der',
+  type: 'spki',
+  padding: constants.RSA_PKCS1_OAEP_PADDING,
+  oaepHash: 'sha256',
+  oaepLabel: label,
+}, Buffer.from(SIGNING_SECRET, 'utf8'));
+const secretCiphertext = `rsa-oaep-sha256-v1$${encryptedSecret.toString('base64url')}`;
 
 function baseClaim(overrides = {}) {
   return {
@@ -15,11 +33,13 @@ function baseClaim(overrides = {}) {
     maxAttempts: 8,
     leaseExpiresAt: '2030-01-01T00:00:30.000Z',
     endpoint: {
-      id: 'b4200000-0000-0000-0000-000000000001',
+      id: ENDPOINT_ID,
       url: 'https://merchant.example/webhook',
       environment: 'sandbox',
       signingSecretVersion: 7,
       signingSecretCiphertext: secretCiphertext,
+      signingSecretCiphertextFormat: 'rsa-oaep-sha256-v1',
+      signingSecretWrappingKeyId: WRAPPING_KEY_ID,
     },
     event: {
       id: 'b4000000-0000-0000-0000-000000000001',
@@ -55,7 +75,7 @@ test('A4 delivery service performs one signed POST attempt and atomically resolv
   const store = makeStore([baseClaim()]);
   const sent = [];
   const transport = { async send(request) { sent.push(request); return { status: 204, headers: {} }; } };
-  const service = createWebhookDeliveryService({ store, encryptionKey, endpointPolicy: testEndpointPolicy, transport, clock: fixedClock });
+  const service = createWebhookDeliveryService({ store, privateKeyring, endpointPolicy: testEndpointPolicy, transport, clock: fixedClock });
 
   const result = await service.runBatch({ workerId: 'worker-a4', limit: 10, leaseSeconds: 30 });
   assert.deepEqual(result, { claimed: 1, succeeded: 1, retried: 0, terminal: 0 });
@@ -68,6 +88,7 @@ test('A4 delivery service performs one signed POST attempt and atomically resolv
   assert.equal(sent[0].headers['x-swiftpay-event'], baseClaim().event.id);
   assert.equal(sent[0].headers['x-swiftpay-delivery'], baseClaim().deliveryId);
   assert.equal(sent[0].headers['x-swiftpay-timestamp'], '1893456000');
+  assert.equal(sent[0].headers['x-swiftpay-signature-version'], '7');
   assert.match(sent[0].headers['x-swiftpay-signature'], /^v1=[0-9a-f]{64}$/);
   assert.equal(store.resolutions.length, 1);
   assert.equal(store.resolutions[0].outcome, 'success');
@@ -80,7 +101,7 @@ test('A4 one retryable HTTP response causes one durable retry resolution and no 
   const store = makeStore([claim]);
   let sends = 0;
   const service = createWebhookDeliveryService({
-    store, encryptionKey, endpointPolicy: testEndpointPolicy, clock: fixedClock,
+    store, privateKeyring, endpointPolicy: testEndpointPolicy, clock: fixedClock,
     transport: { async send() { sends += 1; return { status: 503, headers: {} }; } },
   });
   const result = await service.runBatch({ workerId: 'worker-a4', limit: 10, leaseSeconds: 30 });
@@ -98,14 +119,19 @@ test('A4 one retryable HTTP response causes one durable retry resolution and no 
   });
 });
 
-test('A4 unavailable or invalid signing material is terminal without a network call and without secret leakage', async () => {
+test('A4 unavailable or invalid RSA signing material is terminal without a network call and without secret leakage', async () => {
   const { createWebhookDeliveryService } = await webhooks();
-  for (const ciphertext of [null, `${secretCiphertext}MUTATED`]) {
-    const claim = baseClaim({ endpoint: { ...baseClaim().endpoint, signingSecretCiphertext: ciphertext } });
+  const scenarios = [
+    { signingSecretCiphertext: null },
+    { signingSecretCiphertext: `${secretCiphertext}x` },
+    { signingSecretWrappingKeyId: 'webhook-wrap-a4-missing' },
+  ];
+  for (const mutation of scenarios) {
+    const claim = baseClaim({ endpoint: { ...baseClaim().endpoint, ...mutation } });
     const store = makeStore([claim]);
     let sends = 0;
     const service = createWebhookDeliveryService({
-      store, encryptionKey, endpointPolicy: testEndpointPolicy, clock: fixedClock,
+      store, privateKeyring, endpointPolicy: testEndpointPolicy, clock: fixedClock,
       transport: { async send() { sends += 1; return { status: 204, headers: {} }; } },
     });
     const result = await service.runBatch({ workerId: 'worker-a4', limit: 10, leaseSeconds: 30 });
@@ -114,7 +140,8 @@ test('A4 unavailable or invalid signing material is terminal without a network c
     assert.equal(store.resolutions[0].outcome, 'terminal');
     assert.equal(store.resolutions[0].errorClass, 'configuration');
     assert.match(store.resolutions[0].errorCode, /^signing_secret_(unavailable|invalid)$/);
-    assert.doesNotMatch(JSON.stringify(store.resolutions[0]), /MGqlfqa6|whsec_a4/);
+    assert.equal(JSON.stringify(store.resolutions[0]).includes(SIGNING_SECRET), false);
+    assert.equal(JSON.stringify(store.resolutions[0]).includes(secretCiphertext), false);
   }
 });
 
@@ -138,7 +165,7 @@ test('A4 unsupported payload version and endpoint-policy failure are terminal be
     const store = makeStore([scenario.claim]);
     let sends = 0;
     const service = createWebhookDeliveryService({
-      store, encryptionKey, endpointPolicy: scenario.policy, clock: fixedClock,
+      store, privateKeyring, endpointPolicy: scenario.policy, clock: fixedClock,
       transport: { async send() { sends += 1; return { status: 204, headers: {} }; } },
     });
     await service.runBatch({ workerId: 'worker-a4', limit: 10, leaseSeconds: 30 });
@@ -158,7 +185,7 @@ test('A4 transport timeout/network exception becomes one retry and merchant resp
     { async send() { const error = new Error('socket failed secret=hidden'); error.code = 'ECONNRESET'; throw error; } },
   ]) {
     const store = makeStore([claim]);
-    const service = createWebhookDeliveryService({ store, encryptionKey, endpointPolicy: testEndpointPolicy, transport, clock: fixedClock });
+    const service = createWebhookDeliveryService({ store, privateKeyring, endpointPolicy: testEndpointPolicy, transport, clock: fixedClock });
     await service.runBatch({ workerId: 'worker-a4', limit: 10, leaseSeconds: 30 });
     assert.equal(store.resolutions.length, 1);
     assert.equal(store.resolutions[0].outcome, 'retry');
