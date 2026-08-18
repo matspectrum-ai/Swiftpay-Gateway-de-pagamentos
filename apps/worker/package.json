@@ -12,6 +12,7 @@
   "dependencies": {
     "@swiftpay/config": "workspace:*",
     "@swiftpay/db": "workspace:*",
+    "@swiftpay/metrics": "workspace:*",
     "@swiftpay/observability": "workspace:*"
   }
 }
