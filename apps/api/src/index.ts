@@ -7,16 +7,19 @@ import { createApiRuntimeServices } from './runtime.js';
 
 const config = loadApiConfig();
 const pool = createRuntimePool({ databaseUrl: config.databaseUrl, workload: 'api' });
-const services = createApiRuntimeServices(pool, {
-  signingKey: config.accessTokenSigningKey,
-  supabaseUrl: config.supabaseUrl,
-  supabasePublishableKey: config.supabasePublishableKey,
-  dashboardCursorHmacKey: config.dashboardCursorHmacKey,
-  webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
-  webhookSecretWrapPublicKey: config.webhookSecretWrapPublicKey,
-});
 const metrics = createOperationalMetricsRegistry({ workload: 'api' });
-const app = buildApp({ ...services, metrics });
+const services = {
+  ...createApiRuntimeServices(pool, {
+    signingKey: config.accessTokenSigningKey,
+    supabaseUrl: config.supabaseUrl,
+    supabasePublishableKey: config.supabasePublishableKey,
+    dashboardCursorHmacKey: config.dashboardCursorHmacKey,
+    webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
+    webhookSecretWrapPublicKey: config.webhookSecretWrapPublicKey,
+  }),
+  metrics,
+};
+const app = buildApp(services);
 
 let metricsServer: Server | undefined;
 if (config.metricsPort !== undefined) {
