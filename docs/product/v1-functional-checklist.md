@@ -229,7 +229,7 @@ The remaining production gap is disproportionately concentrated in live PSP cont
 
 ## Trusted ingress and abuse limiting — A14
 
-Current state: **GREEN closure in progress; do not mark hosted/DONE until final runtime acceptance and hosted verification complete.**
+Current state: **DONE / GREEN / HOSTED**. Final evidence: `docs/evidence/application/2026-08-18-a14-ingress-abuse-rate-limit-hardening.md`.
 
 - [x] Problem Analysis
 - [x] Specification frozen
@@ -253,18 +253,18 @@ Current state: **GREEN closure in progress; do not mark hosted/DONE until final 
 - [x] Concurrency/rollover/isolation behavior tested
 - [x] Opportunistic bounded stale-window pruning
 - [x] API-only quota RPC authority
-- [x] Application contracts reached 306/306 on pre-final heads
-- [x] Database contracts reached 41 files /1298 assertions on pre-final heads
+- [x] Final-head application workflow `32103726491`: **306/306** contracts GREEN
+- [x] Final-head real-database K7/A1-A9/A14 acceptance GREEN
+- [x] Final-head database workflow `32103726496`: **41 files / 1298 assertions**, K5/K6 GREEN
 - [x] Legacy API allowlist tests synchronized from 23 to 24 RPCs
 - [x] K7 wrong-runtime readiness acceptance synchronized with A14 fail-closed admission
-- [ ] Final-head application contracts GREEN
-- [ ] Final-head real-database K7/A1-A9/A14 acceptance GREEN
-- [ ] Final-head database 41/1298 + K5/K6 GREEN
-- [ ] Hosted migration applied to canonical `swiftpay v2`
-- [ ] Hosted API EXECUTE allowlist verified at exactly 24; worker exactly 6
-- [ ] Hosted public/Data API/service-role access denial verified
-- [ ] Hosted Security Advisor clean
-- [ ] Final A14 evidence committed
+- [x] Hosted migration `20260818054252_ingress_abuse_rate_limit_hardening` applied to canonical `swiftpay v2`
+- [x] Hosted API EXECUTE allowlist verified at exactly 24; worker exactly 6
+- [x] Hosted public/Data API/service-role/worker A14 function authority denied
+- [x] Hosted runtime roles have zero direct A14 table DML/SELECT authority
+- [x] Hosted Security Advisor: 0 lints
+- [x] Hosted Payment/ProviderAttempt rows remain zero after A14 deploy
+- [x] Final A14 evidence committed
 
 ## Existing domain/database foundations not yet full product workflows
 
