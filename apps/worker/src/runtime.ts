@@ -16,8 +16,7 @@ import {
 type WorkerRuntimePool = Parameters<typeof verifyRuntimeBoundary>[0];
 
 export interface WorkerRuntimeOptions {
-  readonly webhookEncryptionKey: string;
-  readonly webhookPrivateKeyring?: string | Readonly<Record<string, string>>;
+  readonly webhookPrivateKeyring: string | Readonly<Record<string, string>>;
   readonly webhookEndpointPolicy?: WebhookEndpointPolicy;
   readonly webhookTransport?: WebhookTransport;
   readonly clock?: { nowUnixSeconds(): number };
@@ -55,8 +54,7 @@ export function createWorkerRuntimeServices(
 
     webhookDeliveries = createWebhookDeliveryService({
       store: webhookStore,
-      encryptionKey: options.webhookEncryptionKey,
-      ...(options.webhookPrivateKeyring === undefined ? {} : { privateKeyring: options.webhookPrivateKeyring }),
+      privateKeyring: options.webhookPrivateKeyring,
       endpointPolicy,
       transport,
       clock,
