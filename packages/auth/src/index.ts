@@ -1,5 +1,5 @@
 import { randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
-import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
+import { SignJWT, decodeProtectedHeader, jwtVerify, type JWTPayload } from 'jose';
 import { normalizeCanonicalIp } from '../../abuse/dist/index.js';
 
 export type AuthEnvironment = 'sandbox' | 'production';
@@ -85,8 +85,23 @@ export interface MachinePrincipal {
   readonly tokenId: string;
 }
 
+export interface AccessTokenSigningKeyEntry {
+  readonly id: string;
+  readonly secret: string;
+}
+
+export interface AccessTokenSigningAuthorityInput {
+  readonly activeKeyId: string;
+  readonly keys: readonly AccessTokenSigningKeyEntry[];
+  readonly legacyNoKidKey?: string;
+}
+
+export interface AccessTokenSigningAuthority {
+  readonly activeKeyId: string;
+}
+
 export interface TokenExchangeServiceOptions {
-  readonly signingKey: string;
+  readonly signingAuthority: AccessTokenSigningAuthority;
   readonly nowSeconds?: () => number;
   readonly jti?: () => string;
 }
@@ -123,9 +138,19 @@ const JWT_ISSUER = 'swiftpay';
 const JWT_AUDIENCE = 'swiftpay-api';
 const JWT_TTL_SECONDS = 900;
 const MIN_SIGNING_KEY_BYTES = 32;
+const MAX_SIGNING_KEYS = 4;
+const KEY_ID_SHAPE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BASE64URL_SHAPE = /^[A-Za-z0-9_-]+$/;
+
+interface AccessTokenSigningAuthorityState {
+  readonly activeKeyId: string;
+  readonly keys: ReadonlyMap<string, Buffer>;
+  readonly legacyNoKidKey?: Buffer;
+}
+
+const signingAuthorityState = new WeakMap<object, AccessTokenSigningAuthorityState>();
 
 const VALIDATION_FAILURE: TokenExchangeResult = {
   ok: false,
@@ -145,18 +170,74 @@ const INTERNAL_FAILURE: TokenExchangeResult = {
 };
 
 export class SigningKeyError extends Error {
-  constructor() {
-    super(`Access-token signing key must contain at least ${MIN_SIGNING_KEY_BYTES} UTF-8 bytes`);
+  constructor(message = 'Invalid access-token signing authority.') {
+    super(message);
     this.name = 'SigningKeyError';
   }
 }
 
 function signingKeyBytes(signingKey: string): Buffer {
+  if (typeof signingKey !== 'string') throw new SigningKeyError();
   const bytes = Buffer.from(signingKey, 'utf8');
-  if (bytes.byteLength < MIN_SIGNING_KEY_BYTES) {
+  if (bytes.byteLength < MIN_SIGNING_KEY_BYTES) throw new SigningKeyError();
+  return bytes;
+}
+
+function hasExactFields(value: object, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return actual.length === wanted.length && actual.every((field, index) => field === wanted[index]);
+}
+
+export function createAccessTokenSigningAuthority(
+  input: AccessTokenSigningAuthorityInput,
+): AccessTokenSigningAuthority {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new SigningKeyError();
+  const allowedInputFields = input.legacyNoKidKey === undefined
+    ? ['activeKeyId', 'keys']
+    : ['activeKeyId', 'keys', 'legacyNoKidKey'];
+  if (!hasExactFields(input, allowedInputFields)) throw new SigningKeyError();
+  if (typeof input.activeKeyId !== 'string' || !KEY_ID_SHAPE.test(input.activeKeyId)) throw new SigningKeyError();
+  if (!Array.isArray(input.keys) || input.keys.length < 1 || input.keys.length > MAX_SIGNING_KEYS) {
     throw new SigningKeyError();
   }
-  return bytes;
+
+  const keys = new Map<string, Buffer>();
+  const secrets = new Set<string>();
+  for (const entry of input.keys) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry) || !hasExactFields(entry, ['id', 'secret'])) {
+      throw new SigningKeyError();
+    }
+    if (typeof entry.id !== 'string' || !KEY_ID_SHAPE.test(entry.id) || keys.has(entry.id)) throw new SigningKeyError();
+    if (typeof entry.secret !== 'string' || secrets.has(entry.secret)) throw new SigningKeyError();
+    const key = signingKeyBytes(entry.secret);
+    secrets.add(entry.secret);
+    keys.set(entry.id, Buffer.from(key));
+  }
+  if (!keys.has(input.activeKeyId)) throw new SigningKeyError();
+
+  const legacyNoKidKey = input.legacyNoKidKey === undefined
+    ? undefined
+    : Buffer.from(signingKeyBytes(input.legacyNoKidKey));
+  const authority = Object.freeze({ activeKeyId: input.activeKeyId });
+  signingAuthorityState.set(authority, {
+    activeKeyId: input.activeKeyId,
+    keys,
+    ...(legacyNoKidKey === undefined ? {} : { legacyNoKidKey }),
+  });
+  return authority;
+}
+
+function requiredSigningAuthorityState(authority: AccessTokenSigningAuthority): AccessTokenSigningAuthorityState {
+  if (authority === null || typeof authority !== 'object') throw new SigningKeyError();
+  const state = signingAuthorityState.get(authority);
+  if (state === undefined) throw new SigningKeyError();
+  return state;
+}
+
+function optionalSigningAuthorityState(authority: AccessTokenSigningAuthority): AccessTokenSigningAuthorityState | null {
+  if (authority === null || typeof authority !== 'object') return null;
+  return signingAuthorityState.get(authority) ?? null;
 }
 
 function decodeCanonicalBase64Url(value: string, expectedBytes: number): Buffer | null {
@@ -243,15 +324,20 @@ export function evaluateExactIpAllowlist(clientIp: string, allowlist: unknown): 
   return canonicalAllowlist.includes(canonicalClientIp);
 }
 
-export async function issueAccessToken(input: AccessTokenInput, signingKey: string): Promise<string> {
-  const key = signingKeyBytes(signingKey);
+export async function issueAccessToken(
+  input: AccessTokenInput,
+  authority: AccessTokenSigningAuthority,
+): Promise<string> {
+  const state = requiredSigningAuthorityState(authority);
+  const key = state.keys.get(state.activeKeyId);
+  if (key === undefined) throw new SigningKeyError();
 
   return new SignJWT({
     credential_id: input.credentialId,
     environment: input.environment,
     secret_version: input.secretVersion,
   })
-    .setProtectedHeader({ alg: JWT_ALGORITHM })
+    .setProtectedHeader({ alg: JWT_ALGORITHM, kid: state.activeKeyId })
     .setSubject(input.merchantId)
     .setIssuer(JWT_ISSUER)
     .setAudience(JWT_AUDIENCE)
@@ -283,12 +369,39 @@ function hasCanonicalAccessTokenClaims(payload: JWTPayload): payload is AccessTo
   );
 }
 
+function selectedVerificationKey(
+  token: string,
+  state: AccessTokenSigningAuthorityState,
+): Buffer | null {
+  try {
+    const header = decodeProtectedHeader(token);
+    if (header.kid === undefined) {
+      if (!hasExactFields(header, ['alg']) || header.alg !== JWT_ALGORITHM) return null;
+      return state.legacyNoKidKey ?? null;
+    }
+    if (
+      !hasExactFields(header, ['alg', 'kid'])
+      || header.alg !== JWT_ALGORITHM
+      || typeof header.kid !== 'string'
+      || !KEY_ID_SHAPE.test(header.kid)
+    ) {
+      return null;
+    }
+    return state.keys.get(header.kid) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function verifyAccessToken(
   token: string,
-  signingKey: string,
+  authority: AccessTokenSigningAuthority,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): Promise<AccessTokenClaims | null> {
-  const key = signingKeyBytes(signingKey);
+  const state = optionalSigningAuthorityState(authority);
+  if (state === null) return null;
+  const key = selectedVerificationKey(token, state);
+  if (key === null) return null;
 
   try {
     const { payload } = await jwtVerify(token, key, {
@@ -307,11 +420,11 @@ export async function verifyAccessToken(
 
 export async function authenticateAccessToken(
   token: string,
-  signingKey: string,
+  authority: AccessTokenSigningAuthority,
   store: BearerAuthStore,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): Promise<MachinePrincipal | null> {
-  const claims = await verifyAccessToken(token, signingKey, nowSeconds);
+  const claims = await verifyAccessToken(token, authority, nowSeconds);
   if (claims === null) return null;
 
   const state = await store.getCredentialAuthState(claims.credential_id);
@@ -368,6 +481,7 @@ export function createTokenExchangeHandler(
   store: TokenAuthStore,
   options: TokenExchangeServiceOptions,
 ): TokenExchangeHandler {
+  requiredSigningAuthorityState(options.signingAuthority);
   const nowSeconds = options.nowSeconds ?? (() => Math.floor(Date.now() / 1000));
   const createJti = options.jti ?? randomUUID;
 
@@ -413,7 +527,7 @@ export function createTokenExchangeHandler(
         secretVersion: credential.secretVersion,
         jti: createJti(),
         nowSeconds: nowSeconds(),
-      }, options.signingKey);
+      }, options.signingAuthority);
 
       return {
         ok: true,
