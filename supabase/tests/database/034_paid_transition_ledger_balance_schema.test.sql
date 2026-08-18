@@ -169,7 +169,7 @@ select ok(
 
 select ok(
   coalesce((
-    select count(*) = 23
+    select count(*) = 24
       and bool_and(p.oid = any(array[
         to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')::oid,
         to_regprocedure('app.lookup_api_credential_for_token(text)')::oid,
@@ -193,7 +193,8 @@ select ok(
         to_regprocedure('app.rotate_dashboard_api_credential_secret(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
         to_regprocedure('app.revoke_dashboard_api_credential(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
         to_regprocedure('app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamptz,timestamptz,timestamptz,uuid,integer)')::oid,
-        to_regprocedure('app.get_dashboard_transaction(uuid,uuid,text,uuid)')::oid
+        to_regprocedure('app.get_dashboard_transaction(uuid,uuid,text,uuid)')::oid,
+        to_regprocedure('app.consume_api_abuse_quota(text,text)')::oid
       ]::oid[]))
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
@@ -202,7 +203,7 @@ select ok(
       and acl.grantee = (select oid from pg_roles where rolname = 'swiftpay_api')
       and acl.privilege_type = 'EXECUTE'
   ), false),
-  'A3 financial read remains inside the exact A9 twenty-three-routine API allowlist'
+  'A3 financial read remains inside the exact A14 twenty-four-routine API allowlist'
 );
 
 select ok(
