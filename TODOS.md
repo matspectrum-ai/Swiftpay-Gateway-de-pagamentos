@@ -4,7 +4,8 @@ Updated: 2026-08-18
 
 This is the durable backlog and handoff ledger for the reconstruction. Repository artifacts are the source of truth. Detailed proof lives in specs, migrations, tests and `docs/evidence/**`; Git history preserves checkpoint chronology.
 
-Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
+Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.  
+Living functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## States
 
@@ -26,28 +27,29 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A13: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is a strict outbound HTTPS primitive and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics)
-- A13 Problem Analysis: `docs/design/a13-operational-metrics-health-signals-problem-analysis.md`
-- A13 frozen spec: `docs/specs/operational-metrics-health-signals-v0.yaml`
-- A13 contract: `docs/contracts/operational-metrics-health-signals-v0.md`
-- A13 RED evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals-red.md`
-- A13 final evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals.md`
-- A13 behavioral GREEN head: `9393fda1cee8a0ceaf3b215d3efc8063ee5cd390`
-- Behavioral A13 Application workflow: `32094346060` — GREEN, **288/288 application contracts**, including **12/12 A13**, + K7/A1-A9 real-database acceptance
-- Behavioral A13 Database workflow: `32094346105` — GREEN, **40 files / 1292 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
-- Evidence-head workflows: Application `32094504874` — GREEN; Database `32094504849` — GREEN
-- A13 hosted migrations: **none**
-- A13 retained-provider network calls: **0**
-- A10 default authorized provider runtime operations after A13: **0**
-- Hosted post-A9 `swiftpay_api`: exact **23** `app` EXECUTE capabilities
-- Hosted post-A9 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
-- Hosted Security Advisor after A9: **0 lints**
+- A1-A14: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting)
+- A14 Problem Analysis: `docs/design/a14-ingress-abuse-rate-limit-hardening-problem-analysis.md`
+- A14 frozen spec: `docs/specs/ingress-abuse-rate-limit-hardening-v0.yaml`
+- A14 contract: `docs/contracts/ingress-abuse-rate-limit-hardening-v0.md`
+- A14 final evidence: `docs/evidence/application/2026-08-18-a14-ingress-abuse-rate-limit-hardening.md`
+- A14 final behavior/evidence head before evidence-only handoff commits: `d12d05016019cf07065da141e0a5d4e7abecc58a`
+- A14 Application workflow: `32103726491` — GREEN, **306/306 application contracts** + K7/A1-A9/A14 real-database acceptance
+- A14 Database workflow: `32103726496` — GREEN, **41 files / 1298 pgTAP assertions** + K5 fixtures + K6 runtime topology
+- A14 hosted migration: `20260818054252_ingress_abuse_rate_limit_hardening`
+- Hosted `swiftpay_api`: exact **24** `app` EXECUTE capabilities
+- Hosted `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
+- Hosted A14 forbidden function/table ACL entries across public/Data API/service/worker/direct-runtime roles: **0**
+- Hosted Security Advisor after A14: **0 lints**
+- Hosted Payment rows after A14: **0**
+- Hosted ProviderAttempt rows after A14: **0**
+- A14 retained-provider network calls: **0**
+- A10 default authorized provider runtime operations after A14: **0**
 - Core architecture/domain/database/platform estimate: ~99%
 - First end-to-end Pix sandbox MVP estimate: ~97%
 - Production-capable Pix V1 estimate: ~60%
 - Weighted V1 engineering estimate: ~75%
 - Current external critical blocker: exact current PSP contract/lineage/idempotency/recovery/webhook-auth evidence plus authenticated current sandbox proof for the selected retained contract
-- Next internal action: start the next highest risk-adjusted unblocked production-hardening slice at `PROBLEM_ANALYSIS`; current candidate is abuse/rate-limit hardening. Do not bridge A5 retained adapters to A11 until the applicable exact current-contract and sandbox evidence gates close.
+- Next highest-value action: provider-owned current contract/lineage evidence and authenticated sandbox proof. Do not bridge A5 retained adapters to A11 until those evidence gates close.
 
 ## Non-negotiable delivery method
 
@@ -124,6 +126,8 @@ Node.js 24 TypeScript workspace, pinned pnpm, Fastify API, separate worker, live
 
 Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.md`.
 
+A14 later strengthens K7 readiness semantics: a deliberately wrong API database identity is rejected by ingress admission before the readiness DB probe because it lacks the API-only abuse-quota RPC, while liveness remains independent.
+
 ---
 
 # Phase 3 — Public API authentication and deterministic Pix lifecycle
@@ -133,7 +137,7 @@ Evidence: `docs/evidence/application/2026-08-15-k7-executable-runtime-bootstrap.
 Spec: `docs/specs/api-credential-token-exchange-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authentication.md`.
 
-Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation.
+Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation. A14 adds a separate network-level pre-auth throttle without replacing the A1 successful-issuance quota.
 
 ## A2 — authenticated Pix create/get emulator — `DONE`
 
@@ -216,7 +220,7 @@ Accepted boundary:
 - query/recovery/webhook verification authority is operation-specific and not implied by create authority;
 - successful authorization returns an immutable in-memory grant with approved origin/evidence context and no credentials/customer/Payment data;
 - default registry version `2026-08-17.0` authorizes zero runtime provider operations;
-- no Fetch/Undici/HTTP/DNS/socket implementation, provider call, route, database migration or monetary side effect was introduced by A10.
+- no provider call, route, database migration or monetary side effect was introduced by A10.
 
 Final GREEN proof:
 
@@ -372,7 +376,7 @@ Hosted migration:
 
 - `20260817081745_merchant_transaction_operations.sql`
 
-Hosted post-deploy audit keeps `swiftpay_api` at 23 execute capabilities, worker at 6, zero audited direct protected-table runtime privileges, zero hosted Payment/ProviderAttempt business rows and Security Advisor at zero lints.
+Hosted post-A9 audit kept `swiftpay_api` at 23 execute capabilities and worker at 6. A14 later adds exactly one API-only abuse-quota RPC, moving the current hosted API total to 24 while worker remains 6.
 
 Other merchant/admin work:
 
@@ -424,15 +428,35 @@ Final GREEN proof:
 
 Remaining observability work — `PENDING`: external collection/export, alerting, dashboards, SLO policy and distributed tracing. These are not implicit in A13.
 
+## A14 — ingress abuse / rate-limit hardening — `DONE / GREEN / HOSTED`
+
+Problem Analysis: `docs/design/a14-ingress-abuse-rate-limit-hardening-problem-analysis.md`.
+Spec: `docs/specs/ingress-abuse-rate-limit-hardening-v0.yaml`.
+Contract: `docs/contracts/ingress-abuse-rate-limit-hardening-v0.md`.
+Evidence: `docs/evidence/application/2026-08-18-a14-ingress-abuse-rate-limit-hardening.md`.
+
+Accepted: exact trusted-proxy list with no generic `trustProxy`, canonical IPv4/IPv6 origin handling, HMAC-SHA256 opaque limiter subjects, separate network and merchant/environment fixed-window quotas, pre-auth admission before expensive boundaries, mutation admission before Pix/idempotency side effects, protected readiness with independent liveness, deterministic 429/Retry-After, fail-closed sanitized 503, bounded stale-window pruning, API-only RPC authority and zero provider/financial authority.
+
+Final GREEN proof:
+
+- final behavior/evidence head before handoff-only commits `d12d05016019cf07065da141e0a5d4e7abecc58a`;
+- Application workflow `32103726491`: **306/306 application contracts PASS** + K7/A1-A9/A14 real-database acceptance;
+- Database workflow `32103726496`: **41 files / 1298 pgTAP assertions PASS** + K5/K6;
+- hosted migration `20260818054252_ingress_abuse_rate_limit_hardening`;
+- hosted API EXECUTE capabilities: **24**; worker: **6**;
+- forbidden A14 public/Data API/service/worker function authority: **0**;
+- forbidden direct A14 table privileges for public/Data API/service/runtime roles: **0**;
+- Security Advisor: **0 lints**;
+- hosted Payment/ProviderAttempt rows after deploy: **0/0**;
+- retained-provider calls: **0**.
+
 ## Security hardening — `PENDING`
 
-Final secret inventory/rotation, signing-key rotation architecture, dependency/security review, least-privilege audit, abuse/rate-limit review and operational audit review.
-
-Highest current unblocked risk-adjusted candidate: abuse/rate-limit hardening across public machine and dashboard boundaries. It must begin at `PROBLEM_ANALYSIS`; no A14 behavior is authorized yet.
+A14 closes the ingress/rate-limit slice. Remaining security work is final secret inventory/rotation, signing-key rotation architecture, dependency/security review, least-privilege audit, operational audit review and production network/WAF hardening.
 
 ## Performance debt — `PENDING`
 
-Supabase Performance Advisor currently reports INFO-level unindexed foreign keys and unused indexes. Address only in a dedicated measured/tested optimization slice.
+Supabase Performance Advisor currently reports INFO-level unindexed foreign keys and unused indexes. Address only in a dedicated measured/tested optimization slice. A14 limit tuning also requires production-like traffic measurements rather than arbitrary changes.
 
 ## Deployment / cutover / rollback — `PENDING`
 
@@ -473,18 +497,20 @@ Parallel internal product path:
 Parallel production-hardening path:
   -> A12 safe runtime logging/correlation                DONE / GREEN
   -> A13 bounded operational metrics/OpenMetrics         DONE / GREEN
-  -> abuse/rate-limit hardening                          NEXT PROBLEM_ANALYSIS
+  -> A14 ingress abuse/rate-limit hardening              DONE / GREEN / HOSTED
   -> external exporters/alerts/SLOs/tracing              PENDING
-  -> security/cutover/rollback                           PENDING
+  -> key rotation/security review                        PENDING
+  -> performance/load/capacity                           PENDING
+  -> deployment/backup/cutover/rollback                  PENDING
 ```
 
 ## Immediate next action
 
-A13 is fully GREEN and runtime-only. The next new behavior must begin again at `PROBLEM_ANALYSIS`.
+A14 is fully GREEN and hosted. The living functional checklist is now the durable feature-level status surface and must be updated after every accepted slice.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
-3. if provider evidence closes first, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
-4. otherwise freeze a bounded abuse/rate-limit hardening Problem Analysis covering machine and dashboard public boundaries without inventing implementation before the contract;
-5. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
+3. if provider evidence closes, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
+4. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
+5. in parallel, only bounded work that does not obscure the PSP blocker should proceed: external observability/SLOs, key rotation/security review, measured performance/load, deployment/backup/rollback runbooks or explicitly prioritized merchant product surfaces;
 6. do not call AkkadPag, AkadPay or FlevoPay monetarily until the exact current-contract, sandbox and activation gates are closed.
