@@ -17,6 +17,9 @@ export interface DashboardTransactionCursorCodecOptions {
   readonly legacyV0Key?: string;
 }
 
+type CursorEncodeInput = Parameters<DashboardTransactionCursorCodec['encode']>[0];
+type CursorDecodeInput = Parameters<DashboardTransactionCursorCodec['decode']>[0];
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
@@ -175,7 +178,7 @@ export function createDashboardTransactionCursorCodec(
   const authority = snapshotAuthority(options);
 
   return Object.freeze({
-    encode(input) {
+    encode(input: CursorEncodeInput) {
       if (
         !validateRouteScope(input.merchantId, input.environment)
         || !isCanonicalTimestamp(input.createdAt)
@@ -196,7 +199,7 @@ export function createDashboardTransactionCursorCodec(
       return `${signed}.${signature}`;
     },
 
-    decode(input) {
+    decode(input: CursorDecodeInput) {
       if (typeof input.token !== 'string' || !validateRouteScope(input.merchantId, input.environment)) {
         return cursorViolation();
       }
