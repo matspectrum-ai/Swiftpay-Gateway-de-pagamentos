@@ -49,10 +49,10 @@ test('A1 auth package is part of the TypeScript graph and API dependency graph',
   assert.equal(apiManifest.dependencies?.['@swiftpay/auth'], 'workspace:*');
 });
 
-test('A1 runtime config names the signing key without provider secrets', async () => {
-  const source = await text('packages/config/src/index.ts');
-  assert.match(source, /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY/);
-  assert.match(source, /32/);
+test('A1 runtime config names the signing authority without provider secrets', async () => {
+  const source = await text('packages/config/src/core.ts');
+  assert.match(source, /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS/);
+  assert.match(source, /MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES\s*=\s*32|32/);
   assert.doesNotMatch(source, /AKKAD.*(SECRET|KEY)|FLEVO.*(SECRET|KEY)/i);
 });
 
