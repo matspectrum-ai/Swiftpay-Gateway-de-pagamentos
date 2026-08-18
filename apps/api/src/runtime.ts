@@ -1,4 +1,4 @@
-import { createApiAbuseControls, type ApiAbuseControls } from '@swiftpay/abuse';
+import { createApiAbuseControls, type ApiAbuseControls } from '../../../packages/abuse/dist/index.js';
 import {
   authenticateAccessToken,
   createDashboardApiCredentialManagementService,
