@@ -243,7 +243,7 @@ test('A13 worker source records readiness and each webhook batch outcome while a
 });
 
 test('A13 metrics ports are optional workload-specific validated configuration with no public-host option', async () => {
-  const source = await readFile(path.join(ROOT, 'packages/config/src/index.ts'), 'utf8');
+  const source = await readFile(path.join(ROOT, 'packages/config/src/core.ts'), 'utf8');
   assert.match(source, /SWIFTPAY_API_METRICS_PORT/);
   assert.match(source, /SWIFTPAY_WORKER_METRICS_PORT/);
   assert.match(source, /metricsPort\?:\s*number/);
