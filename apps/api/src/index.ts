@@ -14,6 +14,8 @@ const services = {
     supabaseUrl: config.supabaseUrl,
     supabasePublishableKey: config.supabasePublishableKey,
     dashboardCursorHmacKey: config.dashboardCursorHmacKey,
+    trustedProxyIps: config.trustedProxyIps,
+    abuseHmacKey: config.abuseHmacKey,
     webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
     webhookSecretWrapPublicKey: config.webhookSecretWrapPublicKey,
   }),
