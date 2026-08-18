@@ -116,10 +116,11 @@ test('A17 A4 and A7 runtime acceptances no longer require the retired AES enviro
 });
 
 test('A17 keeps A14/A15/A16 and provider authority boundaries independent', async () => {
-  const configSource = await readFile('packages/config/src/core.ts', 'utf8');
+  const coreSource = await readFile('packages/config/src/core.ts', 'utf8');
+  const a16ConfigSource = await readFile('packages/config/src/a16-api-config.ts', 'utf8');
   const providerSource = await readFile('packages/providers/src/activation.ts', 'utf8');
-  assert.match(configSource, /SWIFTPAY_ABUSE_HMAC_KEY/);
-  assert.match(configSource, /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS/);
-  assert.match(configSource, /SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS/);
+  assert.match(coreSource, /SWIFTPAY_ABUSE_HMAC_KEY/);
+  assert.match(coreSource, /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS/);
+  assert.match(a16ConfigSource, /SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS/);
   assert.doesNotMatch(providerSource, /aes-256-gcm-v1|WEBHOOK_SECRET_ENCRYPTION_KEY/);
 });
