@@ -51,7 +51,9 @@ jobs:
       SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
       SWIFTPAY_API_DATABASE_URL: postgresql://swiftpay_api_runtime:local_api_runtime_only@127.0.0.1:54322/postgres
       SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
-      SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY: 0123456789abcdef0123456789abcdef
+      SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID: a15-ci-active
+      SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS: '[{"id":"a15-ci-active","secret":"0123456789abcdef0123456789abcdef"}]'
+      SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY: 0123456789abcdef0123456789abcdef
       SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY: a9-dashboard-cursor-ci-key-0123456789abcdef
       SWIFTPAY_ABUSE_HMAC_KEY: a14-abuse-ci-key-0123456789abcdef0123456789abcdef
       SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
