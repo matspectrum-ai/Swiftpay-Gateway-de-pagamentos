@@ -9,18 +9,18 @@ Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A14 closure remains:
+Conservative risk/effort-weighted readiness after A15 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A14 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness and public-ingress abuse risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
+A10-A15 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse and machine-token signing-key rotation risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A14 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces, and A14 adds hosted fail-closed distributed ingress abuse limiting.
+K1-K7 and A1-A15 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces, A14 adds hosted fail-closed distributed ingress abuse limiting, and A15 adds bounded `kid`-aware machine access-token signing-key rotation without changing A1 public token semantics.
 
 The branch proves:
 
@@ -42,7 +42,27 @@ The branch proves:
 16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification;
 17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging;
 18. bounded in-memory API/worker operational metrics with closed label sets, deterministic OpenMetrics rendering and optional `127.0.0.1`-only scrape listeners;
-19. hosted distributed ingress admission control with exact trusted-proxy authority, HMAC-obscured subjects, fixed-window PostgreSQL quotas and fail-closed 429/503 semantics before expensive or mutating boundaries.
+19. hosted distributed ingress admission control with exact trusted-proxy authority, HMAC-obscured subjects, fixed-window PostgreSQL quotas and fail-closed 429/503 semantics before expensive or mutating boundaries;
+20. bounded machine-token signing authority with active `kid`, exact per-key verification, explicit no-`kid` transition slot and no implicit fallback to the removed single-key runtime configuration.
+
+## A15 checkpoint — machine access-token signing-key rotation
+
+Evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation.md`.
+
+Accepted implementation head: `1ad6fb9b44d89e05d598db81f15c11ef745da6f9`.
+
+- Application workflow `32116297016`: **322/322 application contracts PASS**, plus K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance.
+- Database workflow `32116297019`: **41 files / 1298 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- A15 Supabase migrations: **none**.
+- A15 retained-provider network calls: **0**.
+- Provider/financial authority changes: **none**.
+- Default A10 runtime-authorized retained-provider operations after A15: **0**.
+
+A15 replaces the single production signing secret with `SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID` plus a bounded one-to-four entry `SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS` authority. New JWTs carry exact HS256 + active `kid`; verification selects exactly the named configured key and does not trial other keys. Pre-A15 no-`kid` tokens require the explicit verify-only legacy slot and that compatibility can be removed after the existing 900-second token lifetime window.
+
+The public A1 token response, issuer, audience, canonical identity claims and exact 900-second lifetime remain unchanged. Successful signature verification still requires current PostgreSQL credential/merchant/environment/secret-version revalidation, and the A8 acceptance path re-proves immediate invalidation after credential secret rotation/revocation.
+
+A15 intentionally does not rotate A9 cursor HMAC, A14 abuse HMAC, webhook cryptographic authorities, API credential secrets or provider credentials.
 
 ## A14 hosted checkpoint — ingress abuse / rate-limit hardening
 
@@ -164,7 +184,7 @@ The largest unresolved block is production PSP authority:
 - provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
 - deliberate `production_enabled` transition only after production acceptance gates.
 
-There are also remaining merchant/product surfaces outside the completed A1-A14 path:
+There are also remaining merchant/product surfaces outside the completed A1-A15 path:
 
 - dashboard login/session UX and Supabase Auth product configuration;
 - merchant-usable payout/refund operations;
@@ -176,7 +196,7 @@ There are also remaining merchant/product surfaces outside the completed A1-A14 
 Production hardening still includes:
 
 - external metrics collection/export, alerting, dashboards, SLO policy and distributed tracing beyond A12/A13 local observability foundations;
-- secret/key rotation architecture, dependency/security review and final least-privilege audit;
+- rotation/runbooks for remaining independent cryptographic authorities, dependency/security review and final least-privilege audit;
 - measured performance cleanup and A14 limit tuning from production-like traffic;
 - deployment/cutover/rollback, backup/recovery, provider credential bootstrap and launch runbook.
 
@@ -186,20 +206,23 @@ These remaining items do not supersede the PSP evidence gate on the live Pix cri
 
 The critical production blocker remains current provider-owned contract evidence for retained PSPs.
 
-The 2026-08-17 evidence refresh is recorded at `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`.
+Current evidence refreshes are recorded at:
 
-Current AkadPay public technical material documents useful Pix-out idempotency/replay details, but no accepted provider-owned evidence proves that the public AkadPay contract is the authoritative/current lineage of the retained AkkadPag legacy adapter. Exact trusted webhook verification also remains unproven.
+- `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`;
+- `docs/evidence/providers/2026-08-18-current-provider-contract-critical-path-refresh.md`.
 
-Current FlevoPay public material exposes a current API host and high-level Pix capabilities but still does not provide the exact executable create/query/recovery/webhook contract required to activate the retained integration.
+Current AkadPay technical material documents current Pix-IN/Pix-OUT creation and useful Pix-OUT idempotency/replay details, but no accepted provider-owned evidence proves that the public AkadPay contract is the authoritative/current lineage of the retained AkkadPag legacy adapter. Exact query/recovery and trusted webhook cryptographic verification remain incomplete.
+
+Current FlevoPay provider-owned material exposes a current API host and Basic `PUBLIC_KEY:SECRET_KEY` authentication evidence. That proves drift from the historical retained `X-API-Key` integration rather than compatibility; exact executable create/query/recovery/webhook semantics remain incomplete.
 
 Therefore A5 fixture conformance + A10 activation safety + A11 strict transport still authorize **zero live retained-provider runtime operations**.
 
 ## Next internal action
 
-A14 is **DONE / GREEN / HOSTED**. The living functional checklist is `docs/product/v1-functional-checklist.md` and must remain synchronized after every accepted slice.
+A15 is **DONE / GREEN / APPLICATION-ONLY**. The living functional checklist is `docs/product/v1-functional-checklist.md` and must remain synchronized after every accepted slice.
 
-Provider-owned current technical evidence and authenticated sandbox acquisition are now the highest-value critical path. Do not bridge retained adapters merely because A11 transport exists. If provider evidence becomes available, begin the A5→A11 bridge/activation slice again at Problem Analysis and strict RED before implementation.
+Provider-owned current technical evidence and authenticated sandbox acquisition remain the highest-value critical path. Do not bridge retained adapters merely because A11 transport exists. If provider evidence becomes available, begin the A5→A11 bridge/activation slice again at Problem Analysis and strict RED before implementation.
 
-In parallel, only bounded hardening/product work that does not obscure the PSP blocker should proceed: external observability/SLO wiring, key rotation/security review, measured performance/load work, deployment/backup/rollback runbooks, or explicitly prioritized merchant product surfaces.
+In parallel, only bounded hardening/product work that does not obscure the PSP blocker should proceed: remaining independent cryptographic-authority rotation, external observability/SLO wiring, measured performance/load work, deployment/backup/rollback runbooks, or explicitly prioritized merchant product surfaces.
 
 No real monetary PSP call is authorized until the exact current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
