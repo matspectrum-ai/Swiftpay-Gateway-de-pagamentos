@@ -1,8 +1,6 @@
 import {
   classifyWebhookOutcome,
   computeWebhookRetryDelay,
-  decodeWebhookEncryptionKey,
-  decryptWebhookSigningSecret,
   serializeWebhookEvent,
   signWebhookRequest,
   type MerchantWebhookDeliveryClaim as LegacyClaim,
@@ -17,7 +15,7 @@ import {
 import { unwrapWebhookSigningSecret } from './a7.js';
 
 type A7Endpoint = LegacyClaim['endpoint'] & {
-  readonly signingSecretCiphertextFormat?: 'aes-256-gcm-v1' | 'rsa-oaep-sha256-v1' | null;
+  readonly signingSecretCiphertextFormat?: string | null;
   readonly signingSecretWrappingKeyId?: string | null;
 };
 
@@ -27,36 +25,32 @@ type A7Store = Omit<MerchantWebhookDeliveryStore, 'claim'> & {
   claim(input: { workerId: string; limit: number; leaseSeconds: number }): Promise<readonly A7Claim[]>;
 };
 
+function safeSecretError(code: 'signing_secret_unavailable' | 'signing_secret_invalid'): Error & { code: string } {
+  return Object.assign(new Error('signing secret unavailable'), { code });
+}
+
 function secretForClaim(input: {
   claim: A7Claim;
-  encryptionKey: Buffer;
-  privateKeyring?: string | Readonly<Record<string, string>>;
+  privateKeyring: string | Readonly<Record<string, string>>;
 }): string {
   const endpoint = input.claim.endpoint;
-  if (endpoint.signingSecretCiphertext === null) {
-    throw Object.assign(new Error('signing secret unavailable'), { code: 'signing_secret_unavailable' });
+  if (endpoint.signingSecretCiphertext === null || endpoint.signingSecretCiphertext.trim().length === 0) {
+    throw safeSecretError('signing_secret_unavailable');
   }
-
-  const format = endpoint.signingSecretCiphertextFormat ?? 'aes-256-gcm-v1';
-  if (format === 'aes-256-gcm-v1') {
-    return decryptWebhookSigningSecret({
-      encryptionKey: input.encryptionKey,
-      endpointId: endpoint.id,
-      secretVersion: endpoint.signingSecretVersion,
-      ciphertext: endpoint.signingSecretCiphertext,
-    });
+  if (endpoint.signingSecretCiphertextFormat !== 'rsa-oaep-sha256-v1') {
+    throw safeSecretError('signing_secret_invalid');
   }
-
-  if (format !== 'rsa-oaep-sha256-v1'
-      || endpoint.signingSecretWrappingKeyId === null
-      || endpoint.signingSecretWrappingKeyId === undefined
-      || input.privateKeyring === undefined) {
-    throw Object.assign(new Error('signing secret unavailable'), { code: 'signing_secret_unavailable' });
+  const keyId = endpoint.signingSecretWrappingKeyId;
+  if (keyId === null || keyId === undefined) {
+    throw safeSecretError('signing_secret_unavailable');
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(keyId)) {
+    throw safeSecretError('signing_secret_invalid');
   }
 
   return unwrapWebhookSigningSecret({
     privateKeyring: input.privateKeyring,
-    wrappingKeyId: endpoint.signingSecretWrappingKeyId,
+    wrappingKeyId: keyId,
     endpointId: endpoint.id,
     secretVersion: endpoint.signingSecretVersion,
     ciphertext: endpoint.signingSecretCiphertext,
@@ -65,16 +59,11 @@ function secretForClaim(input: {
 
 export function createWebhookDeliveryService(input: {
   store: A7Store;
-  encryptionKey: string | Buffer;
-  privateKeyring?: string | Readonly<Record<string, string>>;
+  privateKeyring: string | Readonly<Record<string, string>>;
   endpointPolicy: WebhookEndpointPolicy;
   transport: WebhookTransport;
   clock: { nowUnixSeconds(): number };
 }): WebhookDeliveryService {
-  const encryptionKey = typeof input.encryptionKey === 'string'
-    ? decodeWebhookEncryptionKey(input.encryptionKey)
-    : input.encryptionKey;
-
   async function terminal(
     claim: A7Claim,
     errorClass: WebhookErrorClass,
@@ -111,11 +100,7 @@ export function createWebhookDeliveryService(input: {
 
         let secret: string;
         try {
-          secret = secretForClaim({
-            claim,
-            encryptionKey,
-            ...(input.privateKeyring === undefined ? {} : { privateKeyring: input.privateKeyring }),
-          });
+          secret = secretForClaim({ claim, privateKeyring: input.privateKeyring });
         } catch (error) {
           const code = error instanceof Error && 'code' in error && error.code === 'signing_secret_unavailable'
             ? 'signing_secret_unavailable'
