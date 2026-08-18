@@ -47,15 +47,15 @@ export interface ApiRuntimeServicesOptions extends TokenExchangeServiceOptions {
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
   readonly dashboardCursorHmacKey: string;
-  readonly trustedProxyIps: readonly string[];
-  readonly abuseHmacKey: string;
+  readonly trustedProxyIps?: readonly string[];
+  readonly abuseHmacKey?: string;
   readonly webhookSecretWrapKeyId?: string;
   readonly webhookSecretWrapPublicKey?: string;
 }
 
 export interface ApiRuntimeServices {
   readonly readinessProbe: () => Promise<void>;
-  readonly abuseControls: ApiAbuseControls;
+  readonly abuseControls?: ApiAbuseControls;
   readonly tokenExchange: TokenExchangeHandler;
   readonly authenticateBearer: BearerAuthenticator;
   readonly dashboardAuthorization: DashboardAuthorizationService;
@@ -70,10 +70,15 @@ export function createApiRuntimeServices(
   pool: ApiRuntimePool,
   options: ApiRuntimeServicesOptions,
 ): ApiRuntimeServices {
-  const abuseControls = createApiAbuseControls(
-    createApiAbuseRateLimitStore(pool),
-    { trustedProxyIps: options.trustedProxyIps, hmacKey: options.abuseHmacKey },
-  );
+  if (options.abuseHmacKey === undefined && options.trustedProxyIps !== undefined) {
+    throw new Error('Invalid abuse-control runtime configuration.');
+  }
+  const abuseControls = options.abuseHmacKey === undefined
+    ? undefined
+    : createApiAbuseControls(
+      createApiAbuseRateLimitStore(pool),
+      { trustedProxyIps: options.trustedProxyIps ?? [], hmacKey: options.abuseHmacKey },
+    );
   const authStore = createApiCredentialAuthStore(pool);
   const dashboardContextStore = createDashboardMerchantContextStore(pool);
   const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({
@@ -128,7 +133,7 @@ export function createApiRuntimeServices(
 
   return {
     readinessProbe: () => verifyRuntimeBoundary(pool, 'api'),
-    abuseControls,
+    ...(abuseControls === undefined ? {} : { abuseControls }),
     tokenExchange: createTokenExchangeHandler(authStore, options),
     authenticateBearer: (token) => authenticateAccessToken(
       token,
