@@ -145,7 +145,7 @@ export function createApiAbuseControls(
   }
 
   return Object.freeze({
-    resolveClientIp(input): string | null {
+    resolveClientIp(input: { readonly remoteAddress: unknown; readonly xForwardedFor: unknown }): string | null {
       const directPeer = normalizeCanonicalIp(input.remoteAddress);
       if (directPeer === null) return null;
       if (!trustedProxyIps.has(directPeer)) return directPeer;
@@ -153,14 +153,18 @@ export function createApiAbuseControls(
       return normalizeCanonicalIp(input.xForwardedFor);
     },
 
-    async admitNetwork(input): Promise<AdmissionResult> {
+    async admitNetwork(input: { readonly policy: NetworkAbusePolicy; readonly clientIp: string }): Promise<AdmissionResult> {
       if (!NETWORK_POLICIES.has(input.policy)) return { kind: 'unavailable' };
       const clientIp = normalizeCanonicalIp(input.clientIp);
       if (clientIp === null) return { kind: 'unavailable' };
       return consume(input.policy, deriveSubjectHash(options.hmacKey, 'network', clientIp));
     },
 
-    async admitMachine(input): Promise<AdmissionResult> {
+    async admitMachine(input: {
+      readonly policy: MachineAbusePolicy;
+      readonly merchantId: string;
+      readonly environment: 'sandbox' | 'production';
+    }): Promise<AdmissionResult> {
       if (!MACHINE_POLICIES.has(input.policy)) return { kind: 'unavailable' };
       if (!UUID_RE.test(input.merchantId)) return { kind: 'unavailable' };
       if (input.environment !== 'sandbox' && input.environment !== 'production') return { kind: 'unavailable' };
