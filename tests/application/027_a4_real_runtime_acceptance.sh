@@ -2,14 +2,28 @@
 set -euo pipefail
 
 : "${SWIFTPAY_WORKER_DATABASE_URL:?SWIFTPAY_WORKER_DATABASE_URL is required}"
-: "${SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY:?SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY is required}"
+: "${SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID:?SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID is required}"
+: "${SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY:?SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY is required}"
+: "${SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS:?SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS is required}"
 
 readonly ADMIN_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 readonly MERCHANT_ID='b4300000-0000-0000-0000-000000000001'
 readonly ENDPOINT_ID='b4200000-0000-0000-0000-000000000001'
-readonly SECRET_CIPHERTEXT='aes-256-gcm-v1$AAECAwQFBgcICQoL$MGqlfqa6oy_Scaa5gt1NW7TuvlWSGDsZXlfUty5dNYQ2KJedzaJ2_RI$JHRLQtcGf8jjgEcrEbBimQ'
 readonly STALE_TOKEN='b4ff0000-0000-0000-0000-000000000001'
 readonly DRIVER='tests/application/027_a4_real_runtime_driver.mjs'
+readonly SECRET_CIPHERTEXT="$(
+  node --input-type=module <<'NODE'
+import { wrapWebhookSigningSecret } from './packages/webhooks/dist/index.js';
+const wrapped = wrapWebhookSigningSecret({
+  publicKey: process.env.SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY,
+  wrappingKeyId: process.env.SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID,
+  endpointId: 'b4200000-0000-0000-0000-000000000001',
+  secretVersion: 7,
+  secret: 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+});
+process.stdout.write(wrapped.ciphertext);
+NODE
+)"
 
 read_counts() {
   psql "${ADMIN_DB_URL}" --tuples-only --no-align --field-separator=' ' --command \
@@ -71,7 +85,7 @@ run_driver() {
     grep '^A4_DIAG ' "${log_file}" >&2 || true
     exit 1
   fi
-  if grep -Eq 'whsec_|MGqlfqa6|JHRLQtcG|v1=[0-9a-f]{64}' "${log_file}"; then
+  if grep -Eq 'whsec_|rsa-oaep-sha256-v1\$|v1=[0-9a-f]{64}' "${log_file}"; then
     echo "A4 runtime acceptance leaked signing material in phase ${mode}" >&2
     exit 1
   fi
@@ -128,7 +142,8 @@ SQL
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=merchant_id="${MERCHANT_ID}" \
   --set=endpoint_id="${ENDPOINT_ID}" \
-  --set=secret_ciphertext="${SECRET_CIPHERTEXT}" <<'SQL' >/dev/null
+  --set=secret_ciphertext="${SECRET_CIPHERTEXT}" \
+  --set=wrapping_key_id="${SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID}" <<'SQL' >/dev/null
 insert into app.merchants (id, name, lifecycle_status)
 values (:'merchant_id'::uuid, 'A4 Runtime Acceptance Merchant', 'active');
 
@@ -157,23 +172,44 @@ insert into app.webhook_endpoints (
   null,
   '["payment.paid"]'::jsonb
 );
+
+insert into app.webhook_endpoint_secret_versions (
+  webhook_endpoint_id,
+  secret_version,
+  ciphertext_format,
+  wrapping_key_id,
+  secret_ciphertext,
+  usable_until
+) values (
+  :'endpoint_id'::uuid,
+  7,
+  'rsa-oaep-sha256-v1',
+  :'wrapping_key_id',
+  :'secret_ciphertext',
+  null
+);
 SQL
 
-# Phase 1: freeze version 7 on the delivery, rotate the endpoint to version 8,
-# and hold the first transport call while a second worker competes for the lease.
+# Phase 1: freeze version 7 on the delivery, rotate the endpoint mirror to
+# version 8, and keep RSA version 7 explicitly usable during the grace window.
 readonly CONCURRENCY_SOURCE='b4400000-0000-0000-0000-000000000001'
 record_event "${CONCURRENCY_SOURCE}"
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=endpoint_id="${ENDPOINT_ID}" \
   --set=secret_ciphertext="${SECRET_CIPHERTEXT}" <<'SQL' >/dev/null
 update app.webhook_endpoints
-   set secret_ciphertext='cipher-v8-not-valid-for-snapshot-v7',
+   set secret_ciphertext='rsa-oaep-sha256-v1$mirror-v8-not-used-by-snapshot-v7',
        secret_version=8,
        previous_secret_ciphertext=:'secret_ciphertext',
        previous_secret_version=7,
        previous_secret_expires_at='2099-01-01T00:00:00Z'::timestamptz,
        updated_at=now()
  where id=:'endpoint_id'::uuid;
+
+update app.webhook_endpoint_secret_versions
+   set usable_until='2099-01-01T00:00:00Z'::timestamptz
+ where webhook_endpoint_id=:'endpoint_id'::uuid
+   and secret_version=7;
 SQL
 run_driver 'concurrency-success'
 
@@ -181,7 +217,8 @@ concurrency_state="$(state_for_source "${CONCURRENCY_SOURCE}" \
   "j.state || '|' || d.state || '|' || j.attempt_count || '|' || d.attempt_count || '|' || d.signing_secret_version || '|' || ep.secret_version || '|' || ep.previous_secret_version")"
 [[ "${concurrency_state}" == 'completed|succeeded|1|1|7|8|7' ]]
 
-# Restore a valid current v7 secret for independent subsequent phases.
+# Restore version 7 as current for independent subsequent phases and remove the
+# temporary historical grace marker.
 psql "${ADMIN_DB_URL}" --quiet --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=endpoint_id="${ENDPOINT_ID}" \
   --set=secret_ciphertext="${SECRET_CIPHERTEXT}" <<'SQL' >/dev/null
@@ -194,6 +231,11 @@ update app.webhook_endpoints
        previous_secret_expires_at=null,
        updated_at=now()
  where id=:'endpoint_id'::uuid;
+
+update app.webhook_endpoint_secret_versions
+   set usable_until=null
+ where webhook_endpoint_id=:'endpoint_id'::uuid
+   and secret_version=7;
 SQL
 
 # Phase 2: a 503 is one network attempt and one durable retry, never an
