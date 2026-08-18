@@ -49,7 +49,7 @@ test('A4/A17 RSA wrapping preserves endpoint/version/key-bound signing-secret re
 test('A4/A17 RSA secret unwrap fails closed on endpoint/version/key/ciphertext drift without material leakage', async () => {
   const { wrapWebhookSigningSecret, unwrapWebhookSigningSecret } = await webhooks();
   const keys = fixtureKeys();
-  const secret = 'whsec_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const secret = 'whsec_QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI';
   const endpointId = 'b4200000-0000-0000-0000-000000000001';
   const wrappingKeyId = 'webhook-wrap-a4-v1';
   const wrapped = wrapWebhookSigningSecret({
@@ -78,7 +78,7 @@ test('A4/A17 RSA secret unwrap fails closed on endpoint/version/key/ciphertext d
       }),
       (error) => {
         const text = String(error);
-        assert.doesNotMatch(text, /whsec_BBBBB/);
+        assert.doesNotMatch(text, /whsec_QkJC/);
         assert.equal(text.includes(keys.privateKey), false);
         assert.equal(text.includes(wrapped.ciphertext), false);
         return true;
