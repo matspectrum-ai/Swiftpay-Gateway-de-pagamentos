@@ -23,6 +23,7 @@ import Fastify, {
   type FastifyReply,
   type FastifyRequest,
 } from 'fastify';
+import { admitA14MachineRequest, installA14NetworkAdmission } from './a14-admission.js';
 
 export type ReadinessProbe = () => Promise<void>;
 
@@ -113,6 +114,7 @@ export interface DashboardTransactionsHttpService {
 
 export interface BuildAppOptions {
   readonly readinessProbe: ReadinessProbe;
+  readonly abuseControls?: Parameters<typeof installA14NetworkAdmission>[1];
   readonly tokenExchange?: TokenExchangeHandler;
   readonly authenticateBearer?: BearerAuthenticator;
   readonly pixPayments?: PixPaymentsHttpService;
@@ -469,6 +471,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     requestIdHeader: false,
     genReqId: () => randomUUID(),
   });
+  const admission = installA14NetworkAdmission(app, options.abuseControls);
 
   app.addHook('onRequest', async (request, reply) => {
     requestStarts.set(request, readMonotonic(monotonicNow));
@@ -537,7 +540,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     try {
       const result = await options.tokenExchange(
         request.body as TokenExchangeRequest,
-        { clientIp: request.ip, requestId: request.id },
+        { clientIp: admission.clientIp(request) ?? request.ip, requestId: request.id },
       );
 
       if (result.ok) {
@@ -580,6 +583,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.post('/v1/transactions', async (request, reply) => {
     const principal = await authenticatePaymentRequest(request, reply, options);
     if (principal === null) return reply;
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, 'machine_mutation'))) return reply;
 
     try {
       const result = await options.pixPayments!.create({
@@ -613,6 +617,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.get('/v1/transactions/:id', async (request, reply) => {
     const principal = await authenticatePaymentRequest(request, reply, options);
     if (principal === null) return reply;
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, 'machine_read'))) return reply;
 
     try {
       const { id } = request.params as { readonly id: string };
@@ -635,6 +640,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   app.get('/v1/balance', async (request, reply) => {
     const principal = await authenticateBearerRequest(request, reply, options);
     if (principal === null) return reply;
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, 'machine_read'))) return reply;
 
     if (!options.merchantBalance) {
       emitRuntime(options, {
