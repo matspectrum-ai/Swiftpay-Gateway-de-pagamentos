@@ -9,10 +9,12 @@ const [runtimeSource, indexSource, appSource, configSource] = await Promise.all(
   readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
 ]);
 
-test('A9 config freezes a dedicated dashboard cursor HMAC key with no signing-key fallback', () => {
-  assert.match(configSource, /SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY/);
-  assert.match(configSource, /dashboardCursorHmacKey/);
-  assert.doesNotMatch(configSource, /dashboardCursorHmacKey:\s*accessTokenSigningKey/);
+test('A9/A16 config freezes dedicated dashboard cursor HMAC keyring authority with no access-token fallback', () => {
+  assert.match(configSource, /SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID/);
+  assert.match(configSource, /SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS/);
+  assert.match(configSource, /SWIFTPAY_DASHBOARD_CURSOR_LEGACY_V0_KEY/);
+  assert.doesNotMatch(configSource, /['"]SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY['"]/);
+  assert.doesNotMatch(configSource, /dashboardCursorHmacKeys:\s*accessTokenSigningKeys/);
 });
 
 test('A9 API runtime composes A6 member auth, A9 store, cursor codec and read service', () => {
@@ -24,9 +26,13 @@ test('A9 API runtime composes A6 member auth, A9 store, cursor codec and read se
   assert.match(runtimeSource, /dashboardTransactions/);
 });
 
-test('A9 runtime injects the dedicated cursor key and production bootstrap forwards it', () => {
-  assert.match(runtimeSource, /key:\s*options\.dashboardCursorHmacKey/);
-  assert.match(indexSource, /dashboardCursorHmacKey:\s*config\.dashboardCursorHmacKey/);
+test('A9/A16 runtime injects the dedicated cursor keyring and production bootstrap forwards it', () => {
+  assert.match(runtimeSource, /activeKeyId:\s*options\.dashboardCursorActiveKeyId/);
+  assert.match(runtimeSource, /keys:\s*options\.dashboardCursorHmacKeys/);
+  assert.match(runtimeSource, /legacyV0Key:\s*options\.dashboardCursorLegacyV0Key/);
+  assert.match(indexSource, /dashboardCursorActiveKeyId:\s*config\.dashboardCursorActiveKeyId/);
+  assert.match(indexSource, /dashboardCursorHmacKeys:\s*config\.dashboardCursorHmacKeys/);
+  assert.match(indexSource, /dashboardCursorLegacyV0Key/);
   assert.match(appSource, /dashboardTransactions/);
   assert.match(indexSource, /buildApp\(services\)/);
 });
