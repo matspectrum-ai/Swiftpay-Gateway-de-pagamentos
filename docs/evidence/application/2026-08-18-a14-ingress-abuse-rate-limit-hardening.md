@@ -76,6 +76,15 @@ GitHub Actions run `32103726496`: **GREEN**.
 - production-like runtime topology / K6: GREEN;
 - pgTAP: **41 files / 1298 assertions PASS**.
 
+### Evidence-head verification
+
+The documentation/handoff head was rerun after final evidence/checklist/readiness/TODOS synchronization and remained fully GREEN:
+
+- Application workflow `32104297491`: **GREEN** — typecheck/build + **306/306 application contracts**, K7 and A1-A9/A14 real-database acceptance all PASS;
+- Database workflow `32104297387`: **GREEN** — K5 deterministic fixtures, K6 runtime topology and **41 files / 1298 pgTAP assertions PASS**.
+
+This confirms that final evidence and handoff-only commits introduced no behavior or schema regression.
+
 ## Compatibility synchronization during GREEN
 
 A14 legitimately expands the exact `swiftpay_api` RPC allowlist from 23 to 24 by adding only `app.consume_api_abuse_quota(text,text)`. Several historical acceptance assertions froze the prior count and were synchronized without widening the actual contract beyond A14:
