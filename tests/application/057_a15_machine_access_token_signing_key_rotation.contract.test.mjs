@@ -7,6 +7,8 @@ const ACTIVE_KEY = 'a15-active-signing-secret-0123456789abcdef0123456789';
 const PREVIOUS_KEY = 'a15-previous-signing-secret-0123456789abcdef012345';
 const LEGACY_KEY = 'a15-legacy-no-kid-secret-0123456789abcdef0123456';
 const WRONG_KEY = 'a15-wrong-signing-secret-0123456789abcdef012345678';
+const CURSOR_KEY = 'a16-a15-fixture-cursor-secret-0123456789abcdef012345';
+const CURSOR_KEY_ID = 'cursor-a15-fixture';
 
 const ACTIVE_ID = 'machine-2026-08-a';
 const PREVIOUS_ID = 'machine-2026-07-z';
@@ -45,7 +47,8 @@ function validConfigSource(overrides = {}) {
     SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID: ACTIVE_ID,
     SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS: JSON.stringify(authorityInput().keys),
     SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY: LEGACY_KEY,
-    SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY: 'a9-dashboard-cursor-test-key-0123456789abcdef',
+    SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID: CURSOR_KEY_ID,
+    SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS: JSON.stringify([{ id: CURSOR_KEY_ID, secret: CURSOR_KEY }]),
     SWIFTPAY_ABUSE_HMAC_KEY: 'a14-abuse-test-key-0123456789abcdef0123456789abcdef',
     SWIFTPAY_SUPABASE_URL: 'https://project-a6.supabase.co',
     SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_a6_test_key',
