@@ -1,6 +1,6 @@
 import { randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
-import { isIP } from 'node:net';
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
+import { normalizeCanonicalIp } from '../../abuse/dist/index.js';
 
 export type AuthEnvironment = 'sandbox' | 'production';
 
@@ -226,16 +226,21 @@ export async function verifyCredentialSecret(secret: string, verifier: string): 
 }
 
 export function evaluateExactIpAllowlist(clientIp: string, allowlist: unknown): boolean {
-  if (typeof clientIp !== 'string' || isIP(clientIp) === 0) return false;
+  const canonicalClientIp = normalizeCanonicalIp(clientIp);
+  if (canonicalClientIp === null) return false;
   if (allowlist === null) return true;
   if (!Array.isArray(allowlist)) return false;
   if (allowlist.length === 0) return true;
 
+  const canonicalAllowlist: string[] = [];
   for (const entry of allowlist) {
-    if (typeof entry !== 'string' || isIP(entry) === 0) return false;
+    if (typeof entry !== 'string') return false;
+    const canonicalEntry = normalizeCanonicalIp(entry);
+    if (canonicalEntry === null) return false;
+    canonicalAllowlist.push(canonicalEntry);
   }
 
-  return allowlist.includes(clientIp);
+  return canonicalAllowlist.includes(canonicalClientIp);
 }
 
 export async function issueAccessToken(input: AccessTokenInput, signingKey: string): Promise<string> {
