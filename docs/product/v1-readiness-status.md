@@ -9,243 +9,190 @@ Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A16 closure remains:
+Conservative risk/effort-weighted readiness after A17 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A16 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, machine-token signing-key rotation and dashboard-cursor HMAC rotation risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
+A10-A17 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation and legacy webhook-secret authority risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A16 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces, A14 adds hosted fail-closed distributed ingress abuse limiting, A15 adds bounded `kid`-aware machine access-token signing-key rotation without changing A1 public token semantics, and A16 adds independent `kid`-aware A9 cursor HMAC rotation with an explicit legacy-v0 verification slot and no single-key fallback.
+K1-K7 and A1-A17 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero.
 
 The branch proves:
 
-1. API credential `client_credentials` -> 900-second machine Bearer token;
+1. API credential `client_credentials` -> exact 900-second machine Bearer token;
 2. authenticated/idempotent Pix Payment creation;
 3. deterministic visibly non-payable sandbox emulator;
 4. authenticated machine Payment retrieval;
 5. worker trusted paid evidence with replay/concurrency absorption;
 6. exactly one `settlement_paid` double-entry posting;
 7. authenticated merchant balance;
-8. transactional `payment.paid` outbox;
+8. transactional `payment.paid` merchant outbox;
 9. signed/fenced/retried merchant webhook delivery;
 10. fixture-only retained-provider conformance contracts;
-11. online-verified Supabase dashboard sessions + K4 current membership/role authorization;
+11. online-verified Supabase dashboard sessions + current membership/role authorization;
 12. hosted webhook endpoint lifecycle administration;
-13. hosted API credential lifecycle administration with AAL2 mutation step-up and immediate A1 token invalidation on rotation/revocation;
-14. hosted dashboard transaction list/detail with exact filters, authenticated keyset cursor, tenant/environment isolation and merchant-safe projection;
-15. provider activation registry/authorizer that denies every checked-in retained-provider operation and binds any future grant to exact provider/operation/environment/contract lineage plus reviewed evidence metadata;
-16. strict provider HTTPS transport with grant-derived destination, DNS public-address validation/pinning, SNI/Host preservation, bounded request/response sizes, TLS verification, no redirect, no retry and conservative ambiguous-transmission classification;
-17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging;
-18. bounded in-memory API/worker operational metrics with closed label sets, deterministic OpenMetrics rendering and optional `127.0.0.1`-only scrape listeners;
-19. hosted distributed ingress admission control with exact trusted-proxy authority, HMAC-obscured subjects, fixed-window PostgreSQL quotas and fail-closed 429/503 semantics before expensive or mutating boundaries;
-20. bounded machine-token signing authority with active `kid`, exact per-key verification, explicit no-`kid` transition slot and no implicit fallback to the removed single-key runtime configuration;
-21. bounded dashboard transaction cursor HMAC authority with active `kid`, exact per-key verification, explicit verify-only `a9v0` migration slot and no implicit fallback to the retired single-key cursor configuration.
+13. hosted API credential lifecycle administration with AAL2 mutation step-up;
+14. hosted dashboard transaction list/detail with authenticated keyset pagination;
+15. provider activation registry/authorizer defaulting every retained-provider operation to denied;
+16. strict provider HTTPS transport that remains unbound from retained PSP adapters;
+17. safe structured API/worker logging with server-owned correlation;
+18. bounded in-memory operational metrics + loopback OpenMetrics scrape;
+19. hosted distributed ingress admission control with trusted-proxy authority and PostgreSQL quotas;
+20. `kid`-aware machine access-token signing-key rotation;
+21. `kid`-aware dashboard cursor HMAC rotation;
+22. RSA-only persisted merchant webhook signing-secret authority with legacy AES decrypt/config/schema fallback retired.
+
+## A17 hosted checkpoint — legacy webhook AES secret retirement
+
+Evidence: `docs/evidence/application/2026-08-18-a17-legacy-webhook-aes-secret-retirement.md`.
+
+Accepted implementation head: `e7c41e9a416cf454724b8167a5d17c9bf1c19e08`.
+
+- Application workflow `32168309740`: **344/344 application contracts PASS**, including **7/7 A17**.
+- Real-database runtime acceptance in the same workflow: K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 all GREEN.
+- Database workflow `32168309894`: K5/K6 GREEN and **42 files / 1304 pgTAP assertions PASS**.
+- Hosted preflight on canonical `swiftpay v2`: 0 webhook endpoints, 0 secret-version rows, 0 AES rows, 0 Payments, 0 ProviderAttempts.
+- Hosted migration history: `20260818175935_legacy_webhook_aes_secret_retirement`.
+- `webhook_endpoint_secret_versions.wrapping_key_id`: NOT NULL.
+- Persisted secret format/ciphertext: RSA-OAEP-SHA256 only.
+- `claim_merchant_webhook_deliveries` remains `SECURITY DEFINER`, `VOLATILE`, `search_path=''` and worker-only executable.
+- API/worker direct secret-version table DML authority: zero.
+- Hosted API/worker app EXECUTE capability counts remain exactly **24 / 6**.
+- Hosted Security Advisor: **0 lints**.
+- Hosted Payment/ProviderAttempt counts after deploy: **0 / 0**.
+- Retained-provider calls: **0**.
+- A10 activation promotions: **0**.
+
+A17 removes `SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY`, `webhookEncryptionKey`, executable persisted-secret AES decrypt authority and the database claim fallback that previously interpreted missing version history through endpoint AES mirrors. Delivery now accepts only explicit RSA version history bound to an exact wrapping-key ID. Merchant webhook HMAC request signing, retry/fencing, URL snapshots and secret-version rotation overlap remain unchanged.
 
 ## A16 checkpoint — dashboard transaction cursor HMAC rotation
 
 Evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation.md`.
 
-Accepted behavioral head: `8f181d6b3b3c7a43309e4e36061cf193d082c259`.
-
-- Application workflow `32130004275`: **336/336 application contracts PASS**, including **14/14 A16** contracts.
-- Real-database runtime acceptance in the same workflow: GREEN after an isolated rerun of the runtime job; K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 all PASS.
-- Database workflow `32130004397`: **41 files / 1298 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- A16 Supabase migrations: **none**.
-- A16 retained-provider network calls: **0**.
-- Provider/financial authority changes: **none**.
-- Default A10 runtime-authorized retained-provider operations after A16: **0**.
-
-A16 replaces the A9 single cursor HMAC secret with `SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID` plus a bounded one-to-four entry `SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS` authority. New cursors are `a9v1.<kid>.<payload>.<signature>` and are signed only by the active key. Verification selects exactly the named configured key and does not trial other keys. A retained non-active v1 key supplies deliberate overlap during rotation; removing it invalidates only cursors carrying that `kid`.
-
-Pre-A16 `a9v0` cursors require the explicit verify-only `SWIFTPAY_DASHBOARD_CURSOR_LEGACY_V0_KEY`. The legacy slot never signs new cursors and removal immediately retires remaining v0 tokens through the existing generic `invalid_cursor` contract. The former `SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY` has no implicit fallback authority.
-
-A16 preserves exact A9 merchant/environment/filter/createdAt/paymentId binding, read-only transaction semantics and merchant-safe projections. It intentionally does not rotate A14 abuse HMAC, A15 access-token signing authority, webhook cryptographic authorities, API credential secrets or provider credentials.
-
-The initial runtime attempt on the final Application workflow stopped at the pre-existing A8 concurrent active-credential-limit acceptance race before reaching A9. No A8 or A16 implementation was changed in response; the isolated runtime rerun passed A8, A9 and the complete remaining acceptance chain.
+- **336/336** application contracts, including 14/14 A16.
+- K7/A1-A9/A14 real-database regression acceptance GREEN.
+- Database: **41 files / 1298 assertions**, K5/K6 GREEN.
+- New cursors: `a9v1.<kid>.<payload>.<signature>`.
+- Exact-key verification and explicit verify-only `a9v0` transition slot.
+- No migration/provider/financial authority change.
 
 ## A15 checkpoint — machine access-token signing-key rotation
 
 Evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation.md`.
 
-Accepted implementation head: `1ad6fb9b44d89e05d598db81f15c11ef745da6f9`.
+- **322/322** application contracts.
+- K7/A1-A9/A14 runtime regression GREEN.
+- Database: **41 files / 1298 assertions**, K5/K6 GREEN.
+- New Bearers carry active HS256 `kid`; exact selected-key verification only.
+- Explicit legacy no-`kid` verify-only slot bounded by the 900-second token lifetime.
+- No migration/provider/financial authority change.
 
-- Application workflow `32116297016`: **322/322 application contracts PASS**, plus K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance.
-- Database workflow `32116297019`: **41 files / 1298 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- A15 Supabase migrations: **none**.
-- A15 retained-provider network calls: **0**.
-- Provider/financial authority changes: **none**.
-- Default A10 runtime-authorized retained-provider operations after A15: **0**.
-
-A15 replaces the single production signing secret with `SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID` plus a bounded one-to-four entry `SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS` authority. New JWTs carry exact HS256 + active `kid`; verification selects exactly the named configured key and does not trial other keys. Pre-A15 no-`kid` tokens require the explicit verify-only legacy slot and that compatibility can be removed after the existing 900-second token lifetime window.
-
-The public A1 token response, issuer, audience, canonical identity claims and exact 900-second lifetime remain unchanged. Successful signature verification still requires current PostgreSQL credential/merchant/environment/secret-version revalidation, and the A8 acceptance path re-proves immediate invalidation after credential secret rotation/revocation.
-
-A15 intentionally does not rotate A9 cursor HMAC, A14 abuse HMAC, webhook cryptographic authorities, API credential secrets or provider credentials. A9 cursor HMAC rotation was later completed independently in A16.
-
-## A14 hosted checkpoint — ingress abuse / rate-limit hardening
+## A14 hosted checkpoint — trusted ingress and abuse controls
 
 Evidence: `docs/evidence/application/2026-08-18-a14-ingress-abuse-rate-limit-hardening.md`.
 
-Final behavior/evidence head before evidence-only handoff commits: `d12d05016019cf07065da141e0a5d4e7abecc58a`.
+- **306/306** application contracts at A14 closure.
+- Database: **41 files / 1298 assertions**, K5/K6 GREEN.
+- Hosted migration applied.
+- Exact trusted proxy, HMAC-obscured network subjects and distributed fixed-window PostgreSQL quotas.
+- API app EXECUTE allowlist became exactly 24; worker remained 6.
+- Hosted Security Advisor: 0 lints.
 
-- Application workflow `32103726491`: **306/306 application contracts PASS**, plus K7 and A1-A9/A14 real-database acceptance.
-- Database workflow `32103726496`: **41 files / 1298 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- Hosted migration: `20260818054252_ingress_abuse_rate_limit_hardening`.
-- Hosted `swiftpay_api`: exact **24** `app` EXECUTE capabilities.
-- Hosted `swiftpay_worker`: exact **6**.
-- A14 RPC executable by API only; forbidden `PUBLIC`/`anon`/`authenticated`/`service_role`/worker EXECUTE entries: **0**.
-- Direct A14 table privilege entries for public/Data API/service/API/worker runtime identities: **0**.
-- Hosted A14 window rows immediately after deploy: **0**.
-- Hosted Payment rows after deploy: **0**.
-- Hosted ProviderAttempt rows after deploy: **0**.
-- Security Advisor after A14: **0 lints**.
-- A14 retained-provider calls: **0**.
-- Provider/financial authority changes: **none**.
+## A12-A13 observability foundation
 
-A14 preserves the A1 successful token issuance quota while adding a separate distributed ingress protection boundary. Network subjects are canonicalized and HMAC-SHA256-obscured before persistence; merchant-level machine quotas are bound only to merchant/environment. `/health/live` remains independent while readiness is protected before its DB probe.
+Evidence:
 
-A14 legitimately expands the trusted API RPC allowlist from 23 to 24 only by adding `app.consume_api_abuse_quota(text,text)`; worker capability remains six. Historical K4/A3/A8/A9 allowlist acceptance assertions were synchronized to that explicit contract rather than weakened.
+- `docs/evidence/application/2026-08-17-a12-structured-runtime-logging-correlation.md`;
+- `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals.md`.
 
-## A13 checkpoint — operational metrics & health signals
+Proven:
 
-Evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals.md`.
+- closed-schema redacted JSONL logging;
+- server-owned UUID request correlation;
+- route-template-only HTTP completion logging;
+- dependency-free bounded metrics;
+- HTTP request/duration, readiness and worker-batch signals;
+- loopback-only optional OpenMetrics scrape surfaces.
 
-Final behavioral GREEN head: `9393fda1cee8a0ceaf3b215d3efc8063ee5cd390`.
+Remaining: external metrics collection, dashboards, alerts/SLO policy and distributed tracing.
 
-- Behavioral Application workflow `32094346060`: **288/288 PASS**, including **12/12 A13** contracts and K7/A1-A9 real-database regression acceptance.
-- Behavioral Database workflow `32094346105`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- Evidence-head Application workflow `32094504874`: **GREEN**.
-- Evidence-head Database workflow `32094504849`: **GREEN**.
-- A13 Supabase migrations: **none**.
-- A13 retained-provider network calls: **0**.
-- Provider/financial authority changes: **none**.
+Known compatibility debt remains: Fastify 5.11 emits `FSTDEP023` for top-level `disableRequestLogging`; migrate to `logController` before Fastify 6.
 
-A13 introduces the dependency-free `@swiftpay/metrics` package with closed methods for HTTP request totals, HTTP duration histograms, readiness outcomes and worker webhook-batch outcomes. It intentionally exposes no generic metric-name/arbitrary-label API. Metric labels exclude dynamic merchant/payment/request/provider identifiers, money, PII, secrets, URLs, SQL, error content and provider payloads.
+## A10-A11 provider safety boundary
 
-API and worker may expose separate metrics listeners only when `SWIFTPAY_API_METRICS_PORT` or `SWIFTPAY_WORKER_METRICS_PORT` is configured. The listener has no configurable host and binds only to `127.0.0.1`; telemetry failure cannot alter readiness, HTTP/domain results or worker retry behavior.
+Evidence:
 
-External exporters, alerting, dashboards, SLO policy and distributed tracing remain outside A13.
+- `docs/evidence/application/2026-08-17-a10-provider-activation-outbound-safety.md`;
+- `docs/evidence/application/2026-08-17-a11-strict-provider-http-transport.md`.
 
-## A12 checkpoint — structured runtime logging & correlation
+A10 requires exact provider/operation/environment/contract-lineage evidence before authorization. `current_contract_proven` alone cannot authorize traffic; sandbox requires `sandbox_proven` or stronger and production requires `production_enabled`.
 
-Evidence: `docs/evidence/application/2026-08-17-a12-structured-runtime-logging-correlation.md`.
+A11 supplies a strict grant-derived HTTPS transport with public-address DNS validation/pinning, SNI/Host preservation, TLS verification, no redirects, no automatic retry, bounded I/O and conservative `transmission_unknown` semantics. A5 adapters remain unbound from it.
 
-Final behavioral GREEN head: `bce20e1bbfdc41c53d913043dff55d1cb14ca797`.
+Default authorized retained-provider operations: **0**.
 
-- Application workflow `32019551464`: **276/276 PASS**, including **11/11 A12** contracts and K7/A1-A9 real-database regression acceptance.
-- Database workflow `32019551475`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- A12 Supabase migrations: **none**.
-- A12 retained-provider network calls: **0**.
-- Provider/financial authority changes: **none**.
+## Current provider evidence boundary
 
-A12 adds the dependency-free `@swiftpay/observability` package, moves API request identity to SwiftPay-owned UUIDv4 generation, ignores caller `x-request-id` as authority, correlates response headers/public errors with the generated ID, disables Fastify generic request logging, emits one safe route-template completion event and moves the worker to the same closed-schema serializer.
+Acquisition criteria: `docs/evidence/providers/2026-08-18-provider-contract-evidence-acquisition-pack.md`.
 
-Known compatibility debt is explicit: Fastify 5.11 emits `FSTDEP023` for the top-level `disableRequestLogging` option. The behavior remains GREEN; migrate to `logController` before a Fastify 6 upgrade in a dedicated compatibility slice.
+Public evidence currently proves useful fragments, but not enough to authorize provider traffic:
 
-## A11 checkpoint — strict provider HTTP transport
+- AkadPay: current Pix-IN/Pix-OUT material and Pix-OUT idempotency/replay identifiers are captured;
+- AkkadPag legacy -> AkadPay current lineage/equivalence remains unproven;
+- AkadPay complete query/recovery and cryptographic webhook verification remain incomplete;
+- FlevoPay current public material shows Basic `PUBLIC_KEY:SECRET_KEY`, proving drift from the retained historical `X-API-Key` adapter;
+- FlevoPay complete executable create/query/recovery/idempotency/webhook contract remains incomplete;
+- authenticated current sandbox proof is absent for both retained paths.
 
-Evidence: `docs/evidence/application/2026-08-17-a11-strict-provider-http-transport.md`.
-
-Behavioral GREEN head: `7f3b373fe0bdfe32ae9f1924e9e461071abeea6d`.
-
-- Application workflow `32014646148`: **265/265 PASS**, including 15/15 A11 contracts and K7/A1-A9 real-database regression acceptance.
-- Database workflow `32014646143`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- A11 Supabase migrations: **none**.
-- A11 retained-provider network calls in tests/CI: **0**.
-- Default A10 runtime-authorized provider operations after A11: **0**.
-
-A11 adds the single approved Node network boundary in `packages/providers/src/http-transport.ts`. A5 retained adapters remain network-free and are not wired to A11. Destination authority cannot come from caller-supplied URLs or grant-shaped objects: the transport consumes a runtime-validated A10 registry and authorizes the exact subject internally before DNS/network execution.
-
-The transport uses fresh all-address DNS resolution per send, rejects empty/private/reserved/mixed answers, pins the first validated public address, preserves approved hostname for TLS SNI and Host, requires certificate verification/TLS >=1.2, applies fixed size/time ceilings, performs at most one HTTPS execution, follows no redirect and performs no automatic retry. Post-attempt uncertainty remains explicit `transmission_unknown` rather than fabricated failure/success.
-
-## A10 checkpoint — provider activation & outbound safety
-
-Evidence: `docs/evidence/application/2026-08-17-a10-provider-activation-outbound-safety.md`.
-
-GREEN implementation head: `0308844c4aedb1d359068becfd29d1f4a234b064`.
-
-- Application workflow `32011311478`: **250/250 PASS**, including 10/10 A10 contracts and K7/A1-A9 real-database regression acceptance.
-- Database workflow `32011311485`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- A10 Supabase migrations: **none**.
-- A10 provider network calls: **none**.
-- Default A10 runtime-authorized provider operations: **0**.
-
-A10 V0 introduces a strict versioned registry and immutable in-memory authorization grant boundary in `packages/providers`. `unsupported`, `fixture_only` and `current_contract_proven` do not authorize runtime provider traffic. Sandbox requires an exact `sandbox_proven`/`production_enabled` Sandbox record; Production requires an exact `production_enabled` Production record. Evidence is contract-lineage specific: similarly named AkadPay material cannot silently authorize the retained AkkadPag legacy lineage.
-
-## A9 hosted checkpoint
-
-Evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`.
-
-Behavioral GREEN head: `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`.
-
-- Application workflow `32009421604`: **240/240 PASS**, including K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance.
-- Database workflow `32009421592`: **40 files / 1292 pgTAP assertions PASS**, K5 fixtures and K6 topology.
-- Hosted migration: `20260817081745_merchant_transaction_operations.sql`.
-- Hosted post-A9 `swiftpay_api`: exact **23** `app` EXECUTE capabilities before A14.
-- Hosted `swiftpay_worker`: exact **6**.
-- Security Advisor after A9: **0 lints**.
-
-A9 V0 is dashboard-only and read-only. It adds no Payment status mutation, provider recovery command, reconciliation command or monetary capability. A16 later replaces only A9's single-key cursor-integrity authority/token issuance format while preserving these read semantics.
+Therefore A5 remains **FIXTURE-ONLY**, A11 remains unbound and A10 remains zero-authority.
 
 ## What remains for V1
 
-The remaining weighted V1 engineering work is approximately **25%**, but it is risk-heavy rather than a simple quarter of feature count. Separately, the production-capable Pix V1 measure is only about **60% complete**, so roughly **40% of production launch capability remains**.
+The remaining weighted V1 engineering work is approximately **25%**, while roughly **40% of production launch capability/risk closure remains**. The remaining work is disproportionately risk-heavy.
 
-The largest unresolved block is production PSP authority:
+### Critical PSP path
 
-- provider-owned proof of the exact retained AkkadPag/AkadPay contractual lineage/equivalence or a deliberate replacement decision;
-- current create/query/idempotency and ambiguous-execution recovery semantics for the selected retained contract;
-- current FlevoPay technical create/query/recovery semantics;
-- exact provider webhook authentication/replay contracts;
-- authenticated current sandbox acceptance before any registry transition to `sandbox_proven`;
-- a deliberately specified adapter-to-A11 bridge only after the applicable evidence gate closes;
-- provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
-- deliberate `production_enabled` transition only after production acceptance gates.
+- provider-owned current AkkadPag/AkadPay lineage/equivalence;
+- complete current selected provider auth/create/query/recovery/idempotency contract;
+- cryptographically specified provider webhook ingress/authentication/replay contract;
+- authenticated current PSP sandbox acceptance;
+- deliberate A10 promotion to `sandbox_proven`;
+- separately specified/tested A5 -> A11 bridge;
+- provider webhook ingress and replay protection;
+- ambiguous-execution recovery;
+- authoritative provider reconciliation;
+- controlled production activation and A10 `production_enabled` promotion;
+- monetary canary and rollback proof.
 
-There are also remaining merchant/product surfaces outside the completed A1-A16 path:
+### Production operations
 
-- dashboard login/session UX and Supabase Auth product configuration;
-- merchant-usable payout/refund operations;
-- KYC/compliance operations UX;
-- hosted Pix checkout;
-- payment links;
-- conversion/analytics and broader operational/reporting surfaces.
+- external telemetry collection, dashboards, alerts and SLOs;
+- load/capacity testing and A14 limit tuning;
+- final dependency/security/least-privilege review;
+- secret/key rotation runbooks and drills;
+- backup/restore and disaster-recovery drills;
+- deploy/rollback/incident runbooks;
+- production network/WAF hardening;
+- cutover readiness.
 
-Production hardening still includes:
+### Product surface beyond the Pix core
 
-- external metrics collection/export, alerting, dashboards, SLO policy and distributed tracing beyond A12/A13 local observability foundations;
-- rotation/runbooks for remaining independent cryptographic authorities, dependency/security review and final least-privilege audit;
-- measured performance cleanup and A14 limit tuning from production-like traffic;
-- deployment/cutover/rollback, backup/recovery, provider credential bootstrap and launch runbook.
+- production-ready KYC merchant/admin workflow;
+- payout/refund operational APIs and UX;
+- hosted Pix checkout / Payment Links;
+- broader reporting/analytics and settlement/payout UX.
 
-These remaining items do not supersede the PSP evidence gate on the live Pix critical path.
+## Safety invariants
 
-## External production blocker
-
-The critical production blocker remains current provider-owned contract evidence for retained PSPs.
-
-Current evidence refreshes are recorded at:
-
-- `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`;
-- `docs/evidence/providers/2026-08-18-current-provider-contract-critical-path-refresh.md`.
-
-Current AkadPay technical material documents current Pix-IN/Pix-OUT creation and useful Pix-OUT idempotency/replay details, but no accepted provider-owned evidence proves that the public AkadPay contract is the authoritative/current lineage of the retained AkkadPag legacy adapter. Exact query/recovery and trusted webhook cryptographic verification remain incomplete.
-
-Current FlevoPay provider-owned material exposes a current API host and Basic `PUBLIC_KEY:SECRET_KEY` authentication evidence. That proves drift from the historical retained `X-API-Key` integration rather than compatibility; exact executable create/query/recovery/webhook semantics remain incomplete.
-
-Therefore A5 fixture conformance + A10 activation safety + A11 strict transport still authorize **zero live retained-provider runtime operations**.
-
-## Next internal action
-
-A16 is **DONE / GREEN / APPLICATION-ONLY**. The living functional checklist is `docs/product/v1-functional-checklist.md` and must remain synchronized after every accepted slice.
-
-Provider-owned current technical evidence and authenticated sandbox acquisition remain the highest-value critical path. Do not bridge retained adapters merely because A11 transport exists. If provider evidence becomes available, begin the A5→A11 bridge/activation slice again at Problem Analysis and strict RED before implementation.
-
-In parallel, only bounded hardening/product work that does not obscure the PSP blocker should proceed: remaining independent cryptographic-authority rotation, external observability/SLO wiring, measured performance/load work, deployment/backup/rollback runbooks, or explicitly prioritized merchant product surfaces.
-
-No real monetary PSP call is authorized until the exact current-contract evidence, authenticated sandbox proof and applicable activation gates are closed.
+- `main` remains intentionally untouched while PR #1 is draft.
+- No retained PSP call is authorized by repository defaults.
+- A5 fixture evidence never becomes runtime authority implicitly.
+- A10 activation is explicit and exact-subject only.
+- A11 transport existence alone grants no provider authority.
+- `execution_unknown` is preserved rather than fabricated into definitive monetary failure.
+- No live retained-provider call is permitted until current-contract, authenticated-sandbox and activation gates are satisfied.
