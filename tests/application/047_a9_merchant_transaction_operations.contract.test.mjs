@@ -127,7 +127,7 @@ function buildReadService(overrides = {}) {
     cursorCodec: {
       encode: (input) => {
         calls.encode.push(input);
-        return 'a9v0.next.synthetic';
+        return 'a9v1.synthetic.next.signature';
       },
       decode: (input) => {
         calls.decode.push(input);
@@ -198,7 +198,8 @@ test('A9 cursor is authenticated and bound to route scope plus exact normalized 
   assert.equal(typeof factory, 'function');
   if (typeof factory !== 'function') return;
 
-  const codec = factory({ key: 'a9-test-cursor-key-32-bytes-minimum!!' });
+  const key = 'a9-test-cursor-key-32-bytes-minimum!!';
+  const codec = factory({ activeKeyId: 'a9-current', keys: [{ id: 'a9-current', secret: key }] });
   const token = codec.encode({
     merchantId: MERCHANT_ID,
     environment: 'sandbox',
@@ -206,7 +207,7 @@ test('A9 cursor is authenticated and bound to route scope plus exact normalized 
     createdAt: CREATED_2,
     paymentId: PAYMENT_2,
   });
-  assert.match(token, /^a9v0\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  assert.match(token, /^a9v1\.a9-current\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
 
   assert.deepEqual(codec.decode({
     token,
@@ -225,12 +226,12 @@ test('A9 cursor is authenticated and bound to route scope plus exact normalized 
   assert.equal(codec.decode({ token, merchantId: MERCHANT_ID, environment: 'sandbox', filters: { ...EMPTY_FILTERS, status: 'paid' } }).ok, false);
 });
 
-test('A9 cursor factory rejects missing or undersized integrity key', () => {
+test('A9 cursor factory rejects missing or undersized integrity authority', () => {
   const factory = payments.createDashboardTransactionCursorCodec;
   assert.equal(typeof factory, 'function');
   if (typeof factory !== 'function') return;
-  assert.throws(() => factory({ key: '' }));
-  assert.throws(() => factory({ key: 'too-short' }));
+  assert.throws(() => factory({ activeKeyId: 'a9-current', keys: [] }));
+  assert.throws(() => factory({ activeKeyId: 'a9-current', keys: [{ id: 'a9-current', secret: 'too-short' }] }));
 });
 
 test('A9 db store uses only the two frozen trusted routines and no direct Payment table SQL', async () => {
@@ -271,7 +272,7 @@ test('A9 list service uses ordinary member authority, limit+1 rows and emits cur
   assert.deepEqual(result, {
     kind: 'ok',
     items: [LIST_ITEM_1, LIST_ITEM_2],
-    nextCursor: 'a9v0.next.synthetic',
+    nextCursor: 'a9v1.synthetic.next.signature',
   });
   assert.deepEqual(calls.auth, ['Bearer ordinary-aal1-dashboard']);
   assert.equal(calls.context.length, 1);
@@ -300,7 +301,7 @@ test('A9 list rejects a cursor before database access when cursor scope/filter v
     authorization: 'Bearer ordinary-aal1-dashboard',
     merchantId: MERCHANT_ID,
     environment: 'sandbox',
-    query: { cursor: 'a9v0.forged.signature' },
+    query: { cursor: 'a9v1.forged.payload.signature' },
   });
   assert.equal(result.kind, 'validation_error');
   assert.equal(calls.list.length, 0);
