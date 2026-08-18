@@ -1,3 +1,5 @@
+import { normalizeCanonicalIp } from '@swiftpay/abuse';
+
 export type SwiftpayEnvironment = 'sandbox' | 'production';
 
 export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
@@ -12,6 +14,9 @@ export const SUPABASE_URL_ENV = 'SWIFTPAY_SUPABASE_URL';
 export const SUPABASE_PUBLISHABLE_KEY_ENV = 'SWIFTPAY_SUPABASE_PUBLISHABLE_KEY';
 export const API_METRICS_PORT_ENV = 'SWIFTPAY_API_METRICS_PORT';
 export const WORKER_METRICS_PORT_ENV = 'SWIFTPAY_WORKER_METRICS_PORT';
+export const TRUSTED_PROXY_IPS_ENV = 'SWIFTPAY_TRUSTED_PROXY_IPS';
+export const ABUSE_HMAC_KEY_ENV = 'SWIFTPAY_ABUSE_HMAC_KEY';
+export const MIN_ABUSE_HMAC_KEY_BYTES = 32;
 
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
@@ -22,6 +27,8 @@ export interface ApiConfig {
   readonly supabasePublishableKey: string;
   readonly webhookSecretWrapKeyId: string;
   readonly webhookSecretWrapPublicKey: string;
+  readonly trustedProxyIps: readonly string[];
+  readonly abuseHmacKey: string;
   readonly host: string;
   readonly port: number;
   readonly metricsPort?: number;
@@ -115,6 +122,43 @@ function dashboardCursorHmacKey(source: EnvironmentSource): string {
   if (Buffer.byteLength(value, 'utf8') < MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES) {
     throw new ConfigurationError(
       `${DASHBOARD_CURSOR_HMAC_KEY_ENV} must contain at least ${MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES} UTF-8 bytes`,
+    );
+  }
+  return value;
+}
+
+function trustedProxyIps(source: EnvironmentSource): readonly string[] {
+  const raw = source[TRUSTED_PROXY_IPS_ENV];
+  if (raw === undefined) return Object.freeze([]);
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length > 16) throw new Error('invalid proxy list');
+    const canonical: string[] = [];
+    const unique = new Set<string>();
+    for (const value of parsed) {
+      if (typeof value !== 'string') throw new Error('invalid proxy list');
+      const normalized = normalizeCanonicalIp(value);
+      if (normalized === null || unique.has(normalized)) throw new Error('invalid proxy list');
+      unique.add(normalized);
+      canonical.push(normalized);
+    }
+    return Object.freeze(canonical);
+  } catch {
+    throw new ConfigurationError(
+      `${TRUSTED_PROXY_IPS_ENV} must be a JSON array of at most 16 unique exact IP addresses`,
+    );
+  }
+}
+
+function abuseHmacKey(source: EnvironmentSource): string {
+  const value = source[ABUSE_HMAC_KEY_ENV];
+  if (value === undefined) {
+    throw new ConfigurationError(`Missing required environment variable: ${ABUSE_HMAC_KEY_ENV}`);
+  }
+  if (Buffer.byteLength(value, 'utf8') < MIN_ABUSE_HMAC_KEY_BYTES) {
+    throw new ConfigurationError(
+      `${ABUSE_HMAC_KEY_ENV} must contain at least ${MIN_ABUSE_HMAC_KEY_BYTES} UTF-8 bytes`,
     );
   }
   return value;
@@ -224,6 +268,8 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     supabasePublishableKey: supabasePublishableKey(source),
     webhookSecretWrapKeyId: webhookSecretWrapKeyId(source),
     webhookSecretWrapPublicKey: canonicalBase64Url(source, WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV),
+    trustedProxyIps: trustedProxyIps(source),
+    abuseHmacKey: abuseHmacKey(source),
     host: source.SWIFTPAY_API_HOST?.trim() || '127.0.0.1',
     port: port(source),
     ...(metricsPort === undefined ? {} : { metricsPort }),
