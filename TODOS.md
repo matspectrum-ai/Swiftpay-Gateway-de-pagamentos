@@ -27,23 +27,23 @@ Living functional checklist: `docs/product/v1-functional-checklist.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A14: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting)
-- A14 Problem Analysis: `docs/design/a14-ingress-abuse-rate-limit-hardening-problem-analysis.md`
-- A14 frozen spec: `docs/specs/ingress-abuse-rate-limit-hardening-v0.yaml`
-- A14 contract: `docs/contracts/ingress-abuse-rate-limit-hardening-v0.md`
-- A14 final evidence: `docs/evidence/application/2026-08-18-a14-ingress-abuse-rate-limit-hardening.md`
-- A14 final behavior/evidence head before evidence-only handoff commits: `d12d05016019cf07065da141e0a5d4e7abecc58a`
-- A14 Application workflow: `32103726491` — GREEN, **306/306 application contracts** + K7/A1-A9/A14 real-database acceptance
-- A14 Database workflow: `32103726496` — GREEN, **41 files / 1298 pgTAP assertions** + K5 fixtures + K6 runtime topology
-- A14 hosted migration: `20260818054252_ingress_abuse_rate_limit_hardening`
+- A1-A15: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting; A15 is application-only machine access-token signing-key rotation)
+- A15 Problem Analysis: `docs/design/a15-machine-access-token-signing-key-rotation-problem-analysis.md`
+- A15 frozen spec: `docs/specs/machine-access-token-signing-key-rotation-v0.yaml`
+- A15 contract: `docs/contracts/machine-access-token-signing-key-rotation-v0.md`
+- A15 final evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation.md`
+- A15 accepted implementation head: `1ad6fb9b44d89e05d598db81f15c11ef745da6f9`
+- A15 Application workflow: `32116297016` — GREEN, **322/322 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance
+- A15 Database workflow: `32116297019` — GREEN, **41 files / 1298 pgTAP assertions** + K5 fixtures + K6 runtime topology
+- A15 hosted migrations: **none**
+- A15 retained-provider network calls: **0**
+- A10 default authorized provider runtime operations after A15: **0**
+- A14 hosted migration remains `20260818054252_ingress_abuse_rate_limit_hardening`
 - Hosted `swiftpay_api`: exact **24** `app` EXECUTE capabilities
 - Hosted `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
-- Hosted A14 forbidden function/table ACL entries across public/Data API/service/worker/direct-runtime roles: **0**
 - Hosted Security Advisor after A14: **0 lints**
 - Hosted Payment rows after A14: **0**
 - Hosted ProviderAttempt rows after A14: **0**
-- A14 retained-provider network calls: **0**
-- A10 default authorized provider runtime operations after A14: **0**
 - Core architecture/domain/database/platform estimate: ~99%
 - First end-to-end Pix sandbox MVP estimate: ~97%
 - Production-capable Pix V1 estimate: ~60%
@@ -137,7 +137,7 @@ A14 later strengthens K7 readiness semantics: a deliberately wrong API database 
 Spec: `docs/specs/api-credential-token-exchange-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-15-a1-api-credential-token-authentication.md`.
 
-Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation. A14 adds a separate network-level pre-auth throttle without replacing the A1 successful-issuance quota.
+Accepted: `client_credentials`, opaque secret verifier, exact-IP policy, issuance quota, 900-second machine token and DB revalidation. Dashboard credential create/list/get/rotate/revoke administration is supplied by hosted A8 while A1 remains authoritative for machine authentication and token revalidation. A14 adds a separate network-level pre-auth throttle without replacing the A1 successful-issuance quota. A15 later replaces the single signing secret with an explicit bounded `kid` keyring while preserving the A1 public/claim/revalidation contract.
 
 ## A2 — authenticated Pix create/get emulator — `DONE`
 
@@ -275,13 +275,16 @@ A11 closes the safe-transport implementation gap but does **not** close provider
 
 ## Current-provider contract evidence gate — `EVIDENCE_REQUIRED`
 
-Canonical refresh: `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`.
+Canonical refreshes:
+
+- `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`
+- `docs/evidence/providers/2026-08-18-current-provider-contract-critical-path-refresh.md`
 
 ### AkkadPag / AkadPay
 
 Legacy retained evidence proves `api.akkadpag.com/v1`, Basic Auth and `transactions`/`transfers`.
 
-Current public AkadPay technical material now documents a materially different API under `painel.akadpay.com.br/api/...` and useful Pix-out idempotency/replay behavior. No accepted provider-owned artifact proves that AkadPay is the migration/current contractual lineage of the retained AkkadPag API, that credentials/contracts are interchangeable, or that the AkadPay public contract may authorize `akkadpag-legacy-api-v1`. Exact trusted webhook verification also remains unavailable.
+Current public AkadPay technical material now documents a materially different API under `painel.akadpay.com.br/api/...`, including current Pix-IN creation, Pix-OUT creation, same-key/same-data Pix-OUT idempotency semantics and useful webhook replay identifiers. No accepted provider-owned artifact proves that AkadPay is the migration/current contractual lineage of the retained AkkadPag API, that credentials/contracts are interchangeable, or that the AkadPay public contract may authorize `akkadpag-legacy-api-v1`. Exact query/recovery coverage and trusted webhook cryptographic verification also remain incomplete.
 
 Required before retained live activation:
 
@@ -296,7 +299,7 @@ Required before retained live activation:
 
 Legacy retained evidence proves historical `app.flevopay.com.br/api/v1`, `X-API-Key`, Pix create/query and no Pix-out adapter.
 
-Current provider-owned public material exposes `api.flevopay.com/v1` and advertises Pix/API-key capabilities, but still does not expose the exact executable create/query/recovery/webhook contract needed to activate the retained integration or prove compatibility with the historical host.
+Current provider-owned material exposes `api.flevopay.com/v1` and current Basic `PUBLIC_KEY:SECRET_KEY` authentication evidence. This proves material authentication drift from the retained historical `X-API-Key` adapter, not compatibility. The exact executable current create/query/recovery/webhook contract remains incomplete.
 
 Required before retained live activation:
 
@@ -349,7 +352,7 @@ Problem Analysis: `docs/design/a8-api-credential-management-problem-analysis.md`
 Spec: `docs/specs/api-credential-management-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-17-a8-api-credential-management.md`.
 
-Accepted boundary includes dashboard read/create/rotate/revoke, AAL2 mutation gate, role-sensitive Sandbox/Production authority, CSPRNG credential material, one-time secret disclosure, A1-compatible scrypt verifier, exact-IP policy, optimistic revision, immediate token invalidation, active-credential cap, idempotency/audit and zero direct protected-table authority.
+Accepted boundary includes dashboard read/create/rotate/revoke, AAL2 mutation gate, role-sensitive Sandbox/Production authority, CSPRNG credential material, one-time secret disclosure, A1-compatible scrypt verifier, exact-IP policy, optimistic revision, immediate token invalidation, active-credential cap, idempotency/audit and zero direct protected-table authority. A15 acceptance explicitly re-proves A8 token invalidation semantics using the new branded signing authority.
 
 Hosted migrations:
 
@@ -450,9 +453,31 @@ Final GREEN proof:
 - hosted Payment/ProviderAttempt rows after deploy: **0/0**;
 - retained-provider calls: **0**.
 
+## A15 — machine access-token signing-key rotation — `DONE / GREEN / APPLICATION-ONLY`
+
+Problem Analysis: `docs/design/a15-machine-access-token-signing-key-rotation-problem-analysis.md`.
+Spec: `docs/specs/machine-access-token-signing-key-rotation-v0.yaml`.
+Contract: `docs/contracts/machine-access-token-signing-key-rotation-v0.md`.
+RED evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation-red.md`.
+Final evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation.md`.
+
+Accepted: bounded one-to-four-key HS256 signing authority, exact active `kid`, strict per-`kid` verification with no trial-all fallback, branded immutable authority, explicit verify-only legacy no-`kid` transition slot, exact 900-second A1 token lifetime and claim contract, current PostgreSQL credential revalidation, immediate A8 secret-version/revocation invalidation, redacted configuration failures and no implicit fallback to the old single-key environment variable.
+
+Final GREEN proof:
+
+- accepted implementation head `1ad6fb9b44d89e05d598db81f15c11ef745da6f9`;
+- Application workflow `32116297016`: **322/322 application contracts PASS** + K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance;
+- Database workflow `32116297019`: **41 files / 1298 pgTAP assertions PASS** + K5/K6;
+- hosted Supabase changes: none;
+- retained-provider calls: none;
+- provider/financial authority changes: none;
+- A10 default authorized provider operations: zero.
+
+A15 intentionally does not rotate the A9 cursor HMAC key, A14 abuse HMAC key, webhook cryptographic authorities, API credential secrets or provider credentials. Those authorities require separate semantics and separately frozen slices.
+
 ## Security hardening — `PENDING`
 
-A14 closes the ingress/rate-limit slice. Remaining security work is final secret inventory/rotation, signing-key rotation architecture, dependency/security review, least-privilege audit, operational audit review and production network/WAF hardening.
+A14 closes ingress/rate limiting and A15 closes machine access-token signing-key rotation. Remaining security work includes the other independent cryptographic authorities, dependency/security review, final least-privilege audit, operational audit review and production network/WAF hardening.
 
 ## Performance debt — `PENDING`
 
@@ -498,19 +523,20 @@ Parallel production-hardening path:
   -> A12 safe runtime logging/correlation                DONE / GREEN
   -> A13 bounded operational metrics/OpenMetrics         DONE / GREEN
   -> A14 ingress abuse/rate-limit hardening              DONE / GREEN / HOSTED
+  -> A15 machine access-token signing-key rotation       DONE / GREEN
   -> external exporters/alerts/SLOs/tracing              PENDING
-  -> key rotation/security review                        PENDING
+  -> remaining crypto authorities/security review        PENDING
   -> performance/load/capacity                           PENDING
   -> deployment/backup/cutover/rollback                  PENDING
 ```
 
 ## Immediate next action
 
-A14 is fully GREEN and hosted. The living functional checklist is now the durable feature-level status surface and must be updated after every accepted slice.
+A15 is fully GREEN and application-only. The living functional checklist remains the durable feature-level status surface and must be updated after every accepted slice.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
 3. if provider evidence closes, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
 4. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
-5. in parallel, only bounded work that does not obscure the PSP blocker should proceed: external observability/SLOs, key rotation/security review, measured performance/load, deployment/backup/rollback runbooks or explicitly prioritized merchant product surfaces;
+5. in parallel, only bounded work that does not obscure the PSP blocker should proceed: remaining independent cryptographic-authority rotation, external observability/SLOs, measured performance/load, deployment/backup/rollback runbooks or explicitly prioritized merchant product surfaces;
 6. do not call AkkadPag, AkadPay or FlevoPay monetarily until the exact current-contract, sandbox and activation gates are closed.
