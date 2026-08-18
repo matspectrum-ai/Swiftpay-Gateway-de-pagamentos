@@ -27,17 +27,17 @@ Living functional checklist: `docs/product/v1-functional-checklist.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A15: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting; A15 is application-only machine access-token signing-key rotation)
-- A15 Problem Analysis: `docs/design/a15-machine-access-token-signing-key-rotation-problem-analysis.md`
-- A15 frozen spec: `docs/specs/machine-access-token-signing-key-rotation-v0.yaml`
-- A15 contract: `docs/contracts/machine-access-token-signing-key-rotation-v0.md`
-- A15 final evidence: `docs/evidence/application/2026-08-18-a15-machine-access-token-signing-key-rotation.md`
-- A15 accepted implementation head: `1ad6fb9b44d89e05d598db81f15c11ef745da6f9`
-- A15 Application workflow: `32116297016` — GREEN, **322/322 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance
-- A15 Database workflow: `32116297019` — GREEN, **41 files / 1298 pgTAP assertions** + K5 fixtures + K6 runtime topology
-- A15 hosted migrations: **none**
-- A15 retained-provider network calls: **0**
-- A10 default authorized provider runtime operations after A15: **0**
+- A1-A16: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting; A15 is application-only machine access-token signing-key rotation; A16 is application-only dashboard transaction cursor HMAC rotation)
+- A16 Problem Analysis: `docs/design/a16-dashboard-transaction-cursor-hmac-rotation-problem-analysis.md`
+- A16 frozen spec: `docs/specs/dashboard-transaction-cursor-hmac-rotation-v0.yaml`
+- A16 contract: `docs/contracts/dashboard-transaction-cursor-hmac-rotation-v0.md`
+- A16 final evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation.md`
+- A16 accepted behavioral head: `8f181d6b3b3c7a43309e4e36061cf193d082c259`
+- A16 Application workflow: `32130004275` — GREEN, **336/336 application contracts**, including **14/14 A16**; isolated runtime rerun passed K7/A1/A2/A3/A4/A6/A7/A8/A9/A14
+- A16 Database workflow: `32130004397` — GREEN, **41 files / 1298 pgTAP assertions** + K5 fixtures + K6 runtime topology
+- A16 hosted migrations: **none**
+- A16 retained-provider network calls: **0**
+- A10 default authorized provider runtime operations after A16: **0**
 - A14 hosted migration remains `20260818054252_ingress_abuse_rate_limit_hardening`
 - Hosted `swiftpay_api`: exact **24** `app` EXECUTE capabilities
 - Hosted `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
@@ -367,7 +367,7 @@ Spec: `docs/specs/merchant-transaction-operations-v0.yaml`.
 Contracts: `docs/contracts/merchant-transaction-operations-v0.md`, `docs/contracts/merchant-transaction-operations-database-v0.md`.
 Evidence: `docs/evidence/application/2026-08-17-a9-merchant-transaction-operations.md`.
 
-Accepted boundary includes dashboard-only read list/detail, current member authority, canonical Payment statuses, exact filters, HMAC-authenticated keyset cursor, merchant-safe list/detail projections, two trusted read RPCs and zero financial/provider/idempotency/audit/job/webhook/credential side effects.
+Accepted boundary includes dashboard-only read list/detail, current member authority, canonical Payment statuses, exact filters, HMAC-authenticated keyset cursor, merchant-safe list/detail projections, two trusted read RPCs and zero financial/provider/idempotency/audit/job/webhook/credential side effects. A16 later replaces only the A9 single cursor HMAC secret/token envelope with explicit key-ID-aware rotation while preserving the A9 payload binding and read behavior.
 
 Final GREEN proof:
 
@@ -473,11 +473,34 @@ Final GREEN proof:
 - provider/financial authority changes: none;
 - A10 default authorized provider operations: zero.
 
-A15 intentionally does not rotate the A9 cursor HMAC key, A14 abuse HMAC key, webhook cryptographic authorities, API credential secrets or provider credentials. Those authorities require separate semantics and separately frozen slices.
+A15 intentionally did not rotate the A9 cursor HMAC key, A14 abuse HMAC key, webhook cryptographic authorities, API credential secrets or provider credentials. The independent A9 cursor HMAC rotation was later completed as A16.
+
+## A16 — dashboard transaction cursor HMAC rotation — `DONE / GREEN / APPLICATION-ONLY`
+
+Problem Analysis: `docs/design/a16-dashboard-transaction-cursor-hmac-rotation-problem-analysis.md`.
+Spec: `docs/specs/dashboard-transaction-cursor-hmac-rotation-v0.yaml`.
+Contract: `docs/contracts/dashboard-transaction-cursor-hmac-rotation-v0.md`.
+RED evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation-red.md`.
+Final evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation.md`.
+
+Accepted: bounded one-to-four-key cursor HMAC authority, exact active `kid`, `a9v1.<kid>.<payload>.<signature>` active-only issuance, exact per-`kid` verification with no trial-all fallback, retained non-active v1 overlap keys, explicit verify-only legacy `a9v0` slot, immutable validated key authority, preserved A9 merchant/environment/filter/createdAt/paymentId binding and no implicit fallback to the retired single-key cursor environment variable.
+
+Final GREEN proof:
+
+- accepted behavioral head `8f181d6b3b3c7a43309e4e36061cf193d082c259`;
+- Application workflow `32130004275`: **336/336 application contracts PASS**, including **14/14 A16**;
+- isolated final runtime rerun job `95689514098`: K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance GREEN; no A8/A16 code change was made for the initial transient A8 concurrency acceptance race;
+- Database workflow `32130004397`: **41 files / 1298 pgTAP assertions PASS** + K5/K6;
+- hosted Supabase changes: none;
+- retained-provider calls: none;
+- provider/financial authority changes: none;
+- A10 default authorized provider operations: zero.
+
+A16 intentionally does not rotate A14 abuse HMAC, A15 access-token signing authority, webhook cryptographic authorities, API credential secrets or provider credentials.
 
 ## Security hardening — `PENDING`
 
-A14 closes ingress/rate limiting and A15 closes machine access-token signing-key rotation. Remaining security work includes the other independent cryptographic authorities, dependency/security review, final least-privilege audit, operational audit review and production network/WAF hardening.
+A14 closes ingress/rate limiting, A15 closes machine access-token signing-key rotation and A16 closes dashboard transaction cursor HMAC rotation. Remaining security work includes the other independent cryptographic authorities, dependency/security review, final least-privilege audit, operational audit review and production network/WAF hardening.
 
 ## Performance debt — `PENDING`
 
@@ -517,6 +540,7 @@ Parallel internal product path:
   -> A7 webhook endpoint management                      DONE / HOSTED
   -> A8 API credential management                        DONE / HOSTED
   -> A9 merchant transaction operations                  DONE / HOSTED
+  -> A16 dashboard transaction cursor HMAC rotation      DONE / GREEN
   -> broader admin/KYC/payout operations                 PENDING
 
 Parallel production-hardening path:
@@ -524,6 +548,7 @@ Parallel production-hardening path:
   -> A13 bounded operational metrics/OpenMetrics         DONE / GREEN
   -> A14 ingress abuse/rate-limit hardening              DONE / GREEN / HOSTED
   -> A15 machine access-token signing-key rotation       DONE / GREEN
+  -> A16 dashboard cursor HMAC rotation                  DONE / GREEN
   -> external exporters/alerts/SLOs/tracing              PENDING
   -> remaining crypto authorities/security review        PENDING
   -> performance/load/capacity                           PENDING
@@ -532,7 +557,7 @@ Parallel production-hardening path:
 
 ## Immediate next action
 
-A15 is fully GREEN and application-only. The living functional checklist remains the durable feature-level status surface and must be updated after every accepted slice.
+A16 is fully GREEN and application-only. The living functional checklist remains the durable feature-level status surface and must be updated after every accepted slice.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
