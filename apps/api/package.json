@@ -12,6 +12,7 @@
     "@swiftpay/auth": "workspace:*",
     "@swiftpay/config": "workspace:*",
     "@swiftpay/db": "workspace:*",
+    "@swiftpay/metrics": "workspace:*",
     "@swiftpay/observability": "workspace:*",
     "fastify": "5.11.0"
   }
