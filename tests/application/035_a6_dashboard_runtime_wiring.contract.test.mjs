@@ -2,14 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [configSource, runtimeSource, appSource, authSource, dbIndexSource, dbCoreSource] = await Promise.all([
-  readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
+const [configCoreSource, configA16Source, runtimeSource, appSource, authSource, dbIndexSource, dbCoreSource] = await Promise.all([
+  readFile(new URL('../../packages/config/src/core.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../packages/config/src/a16-api-config.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../apps/api/src/app.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/auth/src/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/db/src/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/db/src/core.ts', import.meta.url), 'utf8'),
 ]);
+const configSource = `${configCoreSource}\n${configA16Source}`;
 const dbSource = `${dbIndexSource}\n${dbCoreSource}`;
 
 test('A6 API config requires only Supabase project URL and modern publishable key for dashboard authentication', () => {
