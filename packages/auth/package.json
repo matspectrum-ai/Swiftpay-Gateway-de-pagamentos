@@ -13,7 +13,6 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@swiftpay/abuse": "workspace:*",
     "jose": "6.2.4"
   }
 }
