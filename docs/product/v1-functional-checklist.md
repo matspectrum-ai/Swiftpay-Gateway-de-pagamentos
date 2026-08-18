@@ -344,6 +344,45 @@ Current state: **DONE / GREEN / APPLICATION-ONLY**. Final evidence: `docs/eviden
 
 A16 intentionally excludes A14 abuse HMAC rotation, A15 access-token signing changes, webhook cryptographic authorities, API credential secrets and provider credentials.
 
+## Legacy webhook AES secret retirement — A17
+
+Current state: **DONE / GREEN / HOSTED**. Final evidence: `docs/evidence/application/2026-08-18-a17-legacy-webhook-aes-secret-retirement.md`.
+
+- [x] Problem Analysis frozen
+- [x] Specification frozen
+- [x] Contract frozen
+- [x] CLEAN RED recorded before implementation
+- [x] Worker no longer defines, reads or requires `SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY`
+- [x] Worker runtime no longer accepts `webhookEncryptionKey`
+- [x] Worker requires validated RSA private-keyring authority
+- [x] Production webhooks package no longer exports persisted-secret AES decrypt authority
+- [x] Delivery accepts only exact `rsa-oaep-sha256-v1` persisted secret format
+- [x] Exact persisted `wrappingKeyId` selects exactly one retained private key
+- [x] AES claim terminalizes before endpoint policy or network I/O
+- [x] Missing ciphertext format does not imply AES and terminalizes before network
+- [x] Missing exact retained RSA key fails closed without trial-all fallback
+- [x] A4 signed delivery/retry/concurrency/fencing behavior preserved with RSA fixtures
+- [x] A7 secret-rotation overlap preserved using versioned RSA history
+- [x] Database claim RPC no longer synthesizes AES from endpoint current/previous mirrors
+- [x] Abortive migration refuses deployment if any AES secret-version row exists
+- [x] `webhook_endpoint_secret_versions.wrapping_key_id` is NOT NULL
+- [x] Persisted secret-version format is RSA-OAEP-SHA256 only
+- [x] Persisted RSA ciphertext/key-id shapes are constrained
+- [x] Application workflow `32168309740`: **344/344** contracts GREEN, including **7/7 A17**
+- [x] Same workflow runtime acceptance: K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 GREEN
+- [x] Database workflow `32168309894`: K5/K6 GREEN and **42 files / 1304 assertions PASS**
+- [x] Hosted preflight: 0 webhook endpoints, 0 secret versions, 0 AES, 0 Payments, 0 ProviderAttempts
+- [x] Hosted migration `20260818175935_legacy_webhook_aes_secret_retirement` applied to canonical `swiftpay v2`
+- [x] Hosted claim RPC remains `SECURITY DEFINER`, `VOLATILE`, `search_path=''`
+- [x] Claim execute remains worker-only; API/anon/authenticated/service-role denied
+- [x] API/worker retain zero direct secret-version table DML authority
+- [x] Hosted API/worker EXECUTE capability counts remain exactly **24/6**
+- [x] Hosted Security Advisor: **0 lints**
+- [x] Hosted Payment/ProviderAttempt counts remain **0/0** after deploy
+- [x] Retained-PSP calls and A10 activation promotions introduced by A17: **0**
+
+A17 retires only AES encryption-at-rest compatibility for merchant webhook signing secrets. The outbound merchant webhook HMAC-SHA256 protocol remains unchanged. This hardening does not authorize provider traffic or change the conservative readiness percentages.
+
 ## Existing domain/database foundations not yet full product workflows
 
 - [x] KYC private-storage foundation
