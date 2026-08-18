@@ -12,15 +12,19 @@ const MACHINE_ROUTES = new Set([
   'GET /v1/balance',
 ]);
 
+function routeTemplate(request: FastifyRequest): string {
+  return request.routeOptions.url ?? '<unmatched>';
+}
+
 function routeKey(request: FastifyRequest): string {
-  return `${request.method.toUpperCase()} ${request.routeOptions.url}`;
+  return `${request.method.toUpperCase()} ${routeTemplate(request)}`;
 }
 
 function networkPolicy(request: FastifyRequest): NetworkAbusePolicy | null {
   const key = routeKey(request);
   if (key === 'POST /v1/auth/token') return 'token_exchange_pre_auth';
   if (MACHINE_ROUTES.has(key)) return 'machine_request_pre_auth';
-  if (request.routeOptions.url.startsWith('/dashboard/v1/')) return 'dashboard_request_pre_auth';
+  if (routeTemplate(request).startsWith('/dashboard/v1/')) return 'dashboard_request_pre_auth';
   if (key === 'GET /health/ready') return 'readiness_probe';
   return null;
 }
