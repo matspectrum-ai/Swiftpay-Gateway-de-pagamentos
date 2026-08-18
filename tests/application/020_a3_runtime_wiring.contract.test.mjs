@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
+const SIGNING_KEY_ID = 'machine-a3-runtime';
 const CURSOR_KEY = 'a9-dashboard-cursor-test-key-0123456789abcdef';
 const MERCHANT_ID = 'c0000000-0000-0000-0000-000000000001';
 const PAYMENT_ID = 'c1000000-0000-0000-0000-000000000001';
@@ -75,7 +76,10 @@ test('A3 API runtime composes merchant balance from authenticated principal thro
   };
 
   const services = runtime.createApiRuntimeServices(pool, {
-    signingKey: SIGNING_KEY,
+    accessTokenActiveKeyId: SIGNING_KEY_ID,
+    accessTokenSigningKeys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
+    supabaseUrl: 'https://project-a6.supabase.co',
+    supabasePublishableKey: 'sb_publishable_a6_test_key',
     dashboardCursorHmacKey: CURSOR_KEY,
   });
   assert.equal(typeof services.merchantBalance?.get, 'function');
