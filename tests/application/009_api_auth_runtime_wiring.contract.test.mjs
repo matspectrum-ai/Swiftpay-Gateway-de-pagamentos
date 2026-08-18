@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
+const SIGNING_KEY_ID = 'machine-a1-runtime';
 const CURSOR_KEY = 'a9-dashboard-cursor-test-key-0123456789abcdef';
 const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
@@ -56,7 +57,10 @@ test('A1 API runtime composition drives the public token route through trusted D
   };
 
   const services = runtime.createApiRuntimeServices(pool, {
-    signingKey: SIGNING_KEY,
+    accessTokenActiveKeyId: SIGNING_KEY_ID,
+    accessTokenSigningKeys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
+    supabaseUrl: 'https://project-a6.supabase.co',
+    supabasePublishableKey: 'sb_publishable_a6_test_key',
     dashboardCursorHmacKey: CURSOR_KEY,
     nowSeconds: () => NOW_SECONDS,
     jti: () => JTI,
@@ -85,7 +89,11 @@ test('A1 API runtime composition drives the public token route through trusted D
     assert.match(requestId, UUID_V4);
     assert.notEqual(requestId, CALLER_REQUEST_ID);
 
-    const claims = await auth.verifyAccessToken(body.accessToken, SIGNING_KEY, NOW_SECONDS + 1);
+    const authority = auth.createAccessTokenSigningAuthority({
+      activeKeyId: SIGNING_KEY_ID,
+      keys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
+    });
+    const claims = await auth.verifyAccessToken(body.accessToken, authority, NOW_SECONDS + 1);
     assert.ok(claims);
     assert.equal(claims.sub, MERCHANT_ID);
     assert.equal(claims.credential_id, CREDENTIAL_ID);
@@ -106,7 +114,10 @@ test('A1 production API bootstrap preserves token exchange inside the composed r
     readFile('apps/api/src/runtime.ts', 'utf8'),
   ]);
   assert.match(bootstrapSource, /createApiRuntimeServices/);
-  assert.match(bootstrapSource, /accessTokenSigningKey/);
+  assert.match(bootstrapSource, /accessTokenActiveKeyId/);
+  assert.match(bootstrapSource, /accessTokenSigningKeys/);
+  assert.doesNotMatch(bootstrapSource, /accessTokenSigningKey\b/);
   assert.match(bootstrapSource, /buildApp\(services\)/);
+  assert.match(runtimeSource, /createAccessTokenSigningAuthority/);
   assert.match(runtimeSource, /tokenExchange:\s*createTokenExchangeHandler/);
 });
