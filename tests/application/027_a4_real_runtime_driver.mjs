@@ -3,9 +3,9 @@ import { createWorkerRuntimeServices } from '../../apps/worker/dist/runtime.js';
 import { verifyWebhookSignature } from '../../packages/webhooks/dist/index.js';
 
 const DATABASE_URL = process.env.SWIFTPAY_WORKER_DATABASE_URL;
-const ENCRYPTION_KEY = process.env.SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY;
+const PRIVATE_KEYRING = process.env.SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS;
 const MODE = process.argv[2];
-const SIGNING_SECRET = 'whsec_a4_0123456789abcdef0123456789abcdef';
+const SIGNING_SECRET = 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OLD_STALE_TOKEN = 'b4ff0000-0000-0000-0000-000000000001';
 const FIXED_TIMESTAMP = 1_893_456_000;
 
@@ -18,7 +18,7 @@ function diag(marker) {
 }
 
 if (!DATABASE_URL) throw new Error('worker database URL is required');
-if (!ENCRYPTION_KEY) throw new Error('webhook encryption key is required');
+if (!PRIVATE_KEYRING) throw new Error('webhook RSA private keyring is required');
 
 const endpointPolicy = {
   async resolveAndValidate(url, environment) {
@@ -61,13 +61,13 @@ async function concurrencySuccess() {
 
   try {
     const workerOne = createWorkerRuntimeServices(poolOne, {
-      webhookEncryptionKey: ENCRYPTION_KEY,
+      webhookPrivateKeyring: PRIVATE_KEYRING,
       webhookEndpointPolicy: endpointPolicy,
       webhookTransport: transport,
       clock,
     });
     const workerTwo = createWorkerRuntimeServices(poolTwo, {
-      webhookEncryptionKey: ENCRYPTION_KEY,
+      webhookPrivateKeyring: PRIVATE_KEYRING,
       webhookEndpointPolicy: endpointPolicy,
       webhookTransport: transport,
       clock,
@@ -109,6 +109,7 @@ async function concurrencySuccess() {
     check(capturedRequest.headers['content-type'] === 'application/json; charset=utf-8', 'content type drifted');
     check(capturedRequest.headers['user-agent'] === 'SwiftPay-Webhooks/1', 'user agent drifted');
     check(capturedRequest.headers['x-swiftpay-timestamp'] === String(FIXED_TIMESTAMP), 'timestamp header drifted');
+    check(capturedRequest.headers['x-swiftpay-signature-version'] === '7', 'signature version drifted');
     check(/^v1=[0-9a-f]{64}$/.test(capturedRequest.headers['x-swiftpay-signature'] ?? ''), 'signature shape drifted');
     diag('request-shape-ok');
 
@@ -148,7 +149,7 @@ async function retryOnce() {
   let sends = 0;
   try {
     const services = createWorkerRuntimeServices(pool, {
-      webhookEncryptionKey: ENCRYPTION_KEY,
+      webhookPrivateKeyring: PRIVATE_KEYRING,
       webhookEndpointPolicy: endpointPolicy,
       webhookTransport: {
         async send() {
@@ -182,7 +183,7 @@ async function disabledNoNetwork() {
   let sends = 0;
   try {
     const services = createWorkerRuntimeServices(pool, {
-      webhookEncryptionKey: ENCRYPTION_KEY,
+      webhookPrivateKeyring: PRIVATE_KEYRING,
       webhookEndpointPolicy: endpointPolicy,
       webhookTransport: {
         async send() {
