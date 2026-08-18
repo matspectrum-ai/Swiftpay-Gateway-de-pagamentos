@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 
 const MODULE = '../../packages/webhooks/dist/index.js';
@@ -7,39 +8,82 @@ async function webhooks() {
   return import(MODULE);
 }
 
-test('A4 AES-256-GCM decrypts the frozen endpoint/version-bound ciphertext vector', async () => {
-  const { decodeWebhookEncryptionKey, decryptWebhookSigningSecret } = await webhooks();
-  const key = decodeWebhookEncryptionKey('AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8');
-  const secret = decryptWebhookSigningSecret({
-    encryptionKey: key,
-    endpointId: 'b4200000-0000-0000-0000-000000000001',
-    secretVersion: 7,
-    ciphertext: 'aes-256-gcm-v1$AAECAwQFBgcICQoL$MGqlfqa6oy_Scaa5gt1NW7TuvlWSGDsZXlfUty5dNYQ2KJedzaJ2_RI$JHRLQtcGf8jjgEcrEbBimQ',
+function fixtureKeys() {
+  const pair = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'der' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'der' },
   });
-  assert.equal(secret, 'whsec_a4_0123456789abcdef0123456789abcdef');
+  return {
+    publicKey: pair.publicKey.toString('base64url'),
+    privateKey: pair.privateKey.toString('base64url'),
+  };
+}
+
+test('A4/A17 RSA wrapping preserves endpoint/version/key-bound signing-secret recovery', async () => {
+  const { wrapWebhookSigningSecret, unwrapWebhookSigningSecret } = await webhooks();
+  const keys = fixtureKeys();
+  const secret = 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const endpointId = 'b4200000-0000-0000-0000-000000000001';
+  const wrappingKeyId = 'webhook-wrap-a4-v1';
+  const wrapped = wrapWebhookSigningSecret({
+    publicKey: keys.publicKey,
+    wrappingKeyId,
+    endpointId,
+    secretVersion: 7,
+    secret,
+  });
+
+  assert.equal(wrapped.format, 'rsa-oaep-sha256-v1');
+  assert.equal(wrapped.wrappingKeyId, wrappingKeyId);
+  assert.match(wrapped.ciphertext, /^rsa-oaep-sha256-v1\$[A-Za-z0-9_-]+$/);
+  assert.equal(unwrapWebhookSigningSecret({
+    privateKeyring: { [wrappingKeyId]: keys.privateKey },
+    wrappingKeyId,
+    endpointId,
+    secretVersion: 7,
+    ciphertext: wrapped.ciphertext,
+  }), secret);
 });
 
-test('A4 webhook secret decryption fails closed on malformed key, AAD, nonce, ciphertext or tag without echoing secret material', async () => {
-  const { decodeWebhookEncryptionKey, decryptWebhookSigningSecret } = await webhooks();
-  assert.throws(() => decodeWebhookEncryptionKey('too-short'), /webhook/i);
-  const key = decodeWebhookEncryptionKey('AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8');
-  const vector = {
-    encryptionKey: key,
-    endpointId: 'b4200000-0000-0000-0000-000000000001',
+test('A4/A17 RSA secret unwrap fails closed on endpoint/version/key/ciphertext drift without material leakage', async () => {
+  const { wrapWebhookSigningSecret, unwrapWebhookSigningSecret } = await webhooks();
+  const keys = fixtureKeys();
+  const secret = 'whsec_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const endpointId = 'b4200000-0000-0000-0000-000000000001';
+  const wrappingKeyId = 'webhook-wrap-a4-v1';
+  const wrapped = wrapWebhookSigningSecret({
+    publicKey: keys.publicKey,
+    wrappingKeyId,
+    endpointId,
     secretVersion: 7,
-    ciphertext: 'aes-256-gcm-v1$AAECAwQFBgcICQoL$MGqlfqa6oy_Scaa5gt1NW7TuvlWSGDsZXlfUty5dNYQ2KJedzaJ2_RI$JHRLQtcGf8jjgEcrEbBimQ',
-  };
-  for (const mutation of [
-    { ...vector, endpointId: 'b4200000-0000-0000-0000-000000000002' },
-    { ...vector, secretVersion: 8 },
-    { ...vector, ciphertext: vector.ciphertext.replace('AAECAwQFBgcICQoL', 'AAECAwQFBgcICQoM') },
-    { ...vector, ciphertext: vector.ciphertext.replace('MGqlf', 'NGqlf') },
-    { ...vector, ciphertext: vector.ciphertext.replace('JHRLQ', 'KHRLQ') },
-  ]) {
-    assert.throws(() => decryptWebhookSigningSecret(mutation), (error) => {
-      assert.doesNotMatch(String(error), /whsec_a4|MGqlfqa6|JHRLQtcG/);
-      return true;
-    });
+    secret,
+  });
+
+  const mutations = [
+    { endpointId: 'b4200000-0000-0000-0000-000000000002', secretVersion: 7, wrappingKeyId, ciphertext: wrapped.ciphertext },
+    { endpointId, secretVersion: 8, wrappingKeyId, ciphertext: wrapped.ciphertext },
+    { endpointId, secretVersion: 7, wrappingKeyId: 'webhook-wrap-a4-other', ciphertext: wrapped.ciphertext },
+    { endpointId, secretVersion: 7, wrappingKeyId, ciphertext: `${wrapped.ciphertext}x` },
+  ];
+
+  for (const mutation of mutations) {
+    assert.throws(
+      () => unwrapWebhookSigningSecret({
+        privateKeyring: {
+          [wrappingKeyId]: keys.privateKey,
+          'webhook-wrap-a4-other': keys.privateKey,
+        },
+        ...mutation,
+      }),
+      (error) => {
+        const text = String(error);
+        assert.doesNotMatch(text, /whsec_BBBBB/);
+        assert.equal(text.includes(keys.privateKey), false);
+        assert.equal(text.includes(wrapped.ciphertext), false);
+        return true;
+      },
+    );
   }
 });
 
