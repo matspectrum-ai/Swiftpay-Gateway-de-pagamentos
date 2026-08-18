@@ -1,0 +1,186 @@
+version: a15-machine-access-token-signing-key-rotation-v0
+status: frozen
+scope:
+  includes:
+    - A1 machine access-token HS256 signing and verification authority
+    - zero-downtime bounded signing-key rotation
+    - explicit pre-A15 no-kid migration compatibility
+    - API runtime configuration and wiring for the signing authority
+  excludes:
+    - dashboard cursor HMAC rotation
+    - A14 abuse HMAC rotation
+    - webhook signing-secret or encryption/wrapping-key rotation
+    - API credential secret rotation
+    - provider credentials
+    - database schema or RPC changes
+    - provider activation or network calls
+
+invariants:
+  jwt:
+    algorithm: HS256
+    issuer: swiftpay
+    audience: swiftpay-api
+    ttl_seconds: 900
+    clock_tolerance_seconds: 0
+    claims_unchanged:
+      - sub
+      - credential_id
+      - environment
+      - secret_version
+      - jti
+      - iat
+      - exp
+  database_revalidation:
+    required_after_cryptographic_verification: true
+    semantics_unchanged: true
+  provider_authority_change: none
+  financial_authority_change: none
+
+configuration:
+  active_key_id_env: SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID
+  signing_keys_env: SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS
+  legacy_no_kid_key_env: SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY
+  old_single_key_env:
+    name: SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY
+    accepted_by_a15_runtime: false
+    implicit_fallback: forbidden
+  key_id:
+    regex: '^[a-z0-9][a-z0-9._-]{0,63}$'
+    max_utf8_bytes: 64
+  signing_keys:
+    representation: json_array
+    min_entries: 1
+    max_entries: 4
+    entry_exact_fields:
+      - id
+      - secret
+    duplicate_ids: reject
+    duplicate_secrets: reject
+    unknown_fields: reject
+    secret_min_utf8_bytes: 32
+    active_id_must_exist_exactly_once: true
+    parsed_result_immutable: true
+  legacy_no_kid_key:
+    optional: true
+    secret_min_utf8_bytes: 32
+    purpose: verify_only_pre_a15_tokens
+    may_equal_ring_secret: true
+    issuance_use: forbidden
+
+runtime_authority:
+  factory_export: createAccessTokenSigningAuthority
+  authority_branding:
+    runtime_validated: true
+    structural_spoofing_accepted: false
+    caller_mutation_after_creation: ineffective
+  authority_contains:
+    - activeKeyId
+    - bounded_key_lookup
+    - optional_legacy_no_kid_key
+  authority_never_exposes_through_token_or_http:
+    - key_secrets
+    - keyring_json
+    - legacy_secret
+
+issuance:
+  function: issueAccessToken
+  requires_validated_authority: true
+  protected_header_exact:
+    alg: HS256
+    kid: active_key_id
+  additional_protected_header_fields: forbidden
+  key_used: active_key_only
+  legacy_no_kid_key_used: false
+  response_shape_unchanged: true
+
+verification:
+  function: verifyAccessToken
+  requires_validated_authority: true
+  protected_header_selection:
+    known_kid:
+      required_header_exact_fields: [alg, kid]
+      required_alg: HS256
+      action: verify_with_exact_selected_key_only
+    unknown_or_malformed_kid:
+      action: reject_before_database
+    missing_kid:
+      accepted_header_exact_fields: [alg]
+      required_alg: HS256
+      when_legacy_no_kid_key_present: verify_with_legacy_key_only
+      when_legacy_no_kid_key_absent: reject_before_database
+    other_header_fields:
+      action: reject
+  trial_all_keys: forbidden
+  unknown_kid_fallback_to_active: forbidden
+  missing_kid_fallback_to_ring: forbidden
+  algorithm_confusion: forbidden
+  failed_signature_or_claim_validation: invalid_token
+
+migration:
+  pre_a15_tokens:
+    protected_header: '{"alg":"HS256"}'
+    maximum_remaining_lifetime_seconds: 900
+    compatibility_slot: SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY
+  first_rollout:
+    - configure active key id and bounded signing keyring
+    - optionally set legacy no-kid key to the pre-A15 signing secret
+    - issue every new token with kid immediately
+    - keep legacy slot only while pre-A15 tokens may remain valid
+  retirement:
+    minimum_wait_after_last_pre_a15_issuance_seconds: 900
+    remove_legacy_slot_after_wait: true
+    no_kid_tokens_rejected_after_removal: true
+  hard_cut_supported:
+    description: omit legacy slot to invalidate pre-A15 tokens deliberately
+
+failure_and_redaction:
+  public_http_behavior:
+    key_selection_failures_indistinguishable_from_invalid_machine_token: true
+  configuration_errors:
+    may_name_invalid_field_or_rule: true
+    may_echo_secret: false
+  runtime_errors_or_logs:
+    may_echo_secret: false
+    may_echo_keyring_json: false
+    may_reveal_legacy_slot_presence: false
+
+required_exports:
+  - createAccessTokenSigningAuthority
+  - issueAccessToken
+  - verifyAccessToken
+  - authenticateAccessToken
+  - createTokenExchangeHandler
+
+required_runtime_changes:
+  config_api_fields:
+    - accessTokenActiveKeyId
+    - accessTokenSigningKeys
+    - accessTokenLegacyNoKidKey
+  api_bootstrap:
+    old_single_signing_key_wiring: forbidden
+    active_keyring_wiring_required: true
+  token_exchange_and_bearer_auth_share_same_validated_authority: true
+
+acceptance_tests:
+  - A15 exports validated signing-authority boundary
+  - config rejects absent malformed duplicate oversized and undersized keyring state without secret echo
+  - config rejects old single-key-only runtime configuration and provides no implicit fallback
+  - authority rejects structural spoofing and caller mutation
+  - issuance uses only active key and exact alg+kid protected header
+  - verification accepts known current and verify-only kid using exactly one selected key
+  - unknown kid rejects without trying active or other keys
+  - malformed kid or extra protected-header fields reject
+  - no-kid token verifies only through explicit legacy slot
+  - no-kid token rejects after legacy slot removal
+  - wrong signature expiration wrong issuer/audience and non-HS256 remain rejected
+  - 900-second TTL and canonical A1 claims remain unchanged
+  - bearer DB revalidation remains required after key verification
+  - A8 credential rotation/revocation behavior remains effective
+  - token endpoint public response remains unchanged
+  - secrets never appear in configuration/JWT/public failure text
+  - API production composition uses keyring authority and no old single-key fallback
+  - A15 adds no DB migration/RPC/provider/network/financial authority
+
+tdd_gate:
+  red_required_before_implementation: true
+  prior_a1_to_a14_contracts_must_remain_green: true
