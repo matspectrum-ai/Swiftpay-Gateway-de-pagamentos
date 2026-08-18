@@ -9,18 +9,18 @@ Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A15 closure remains:
+Conservative risk/effort-weighted readiness after A16 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A15 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse and machine-token signing-key rotation risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
+A10-A16 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, machine-token signing-key rotation and dashboard-cursor HMAC rotation risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete the remaining product/security/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A15 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces, A14 adds hosted fail-closed distributed ingress abuse limiting, and A15 adds bounded `kid`-aware machine access-token signing-key rotation without changing A1 public token semantics.
+K1-K7 and A1-A16 are DONE. A5 remains fixture-only for live-provider authority; A10 makes the default-deny authorization state executable, A11 provides a strict outbound HTTPS primitive that remains unbound from retained PSP adapters, A12 provides safe server-owned runtime correlation plus closed-schema structured logging, A13 adds bounded low-cardinality operational metrics plus loopback-only OpenMetrics scrape surfaces, A14 adds hosted fail-closed distributed ingress abuse limiting, A15 adds bounded `kid`-aware machine access-token signing-key rotation without changing A1 public token semantics, and A16 adds independent `kid`-aware A9 cursor HMAC rotation with an explicit legacy-v0 verification slot and no single-key fallback.
 
 The branch proves:
 
@@ -43,7 +43,30 @@ The branch proves:
 17. safe API/worker JSONL runtime logging with server-owned UUIDv4 request correlation, route-template-only access events, closed event schemas and no arbitrary request/error/secret payload logging;
 18. bounded in-memory API/worker operational metrics with closed label sets, deterministic OpenMetrics rendering and optional `127.0.0.1`-only scrape listeners;
 19. hosted distributed ingress admission control with exact trusted-proxy authority, HMAC-obscured subjects, fixed-window PostgreSQL quotas and fail-closed 429/503 semantics before expensive or mutating boundaries;
-20. bounded machine-token signing authority with active `kid`, exact per-key verification, explicit no-`kid` transition slot and no implicit fallback to the removed single-key runtime configuration.
+20. bounded machine-token signing authority with active `kid`, exact per-key verification, explicit no-`kid` transition slot and no implicit fallback to the removed single-key runtime configuration;
+21. bounded dashboard transaction cursor HMAC authority with active `kid`, exact per-key verification, explicit verify-only `a9v0` migration slot and no implicit fallback to the retired single-key cursor configuration.
+
+## A16 checkpoint — dashboard transaction cursor HMAC rotation
+
+Evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation.md`.
+
+Accepted behavioral head: `8f181d6b3b3c7a43309e4e36061cf193d082c259`.
+
+- Application workflow `32130004275`: **336/336 application contracts PASS**, including **14/14 A16** contracts.
+- Real-database runtime acceptance in the same workflow: GREEN after an isolated rerun of the runtime job; K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 all PASS.
+- Database workflow `32130004397`: **41 files / 1298 pgTAP assertions PASS**, K5 fixtures and K6 topology.
+- A16 Supabase migrations: **none**.
+- A16 retained-provider network calls: **0**.
+- Provider/financial authority changes: **none**.
+- Default A10 runtime-authorized retained-provider operations after A16: **0**.
+
+A16 replaces the A9 single cursor HMAC secret with `SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID` plus a bounded one-to-four entry `SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS` authority. New cursors are `a9v1.<kid>.<payload>.<signature>` and are signed only by the active key. Verification selects exactly the named configured key and does not trial other keys. A retained non-active v1 key supplies deliberate overlap during rotation; removing it invalidates only cursors carrying that `kid`.
+
+Pre-A16 `a9v0` cursors require the explicit verify-only `SWIFTPAY_DASHBOARD_CURSOR_LEGACY_V0_KEY`. The legacy slot never signs new cursors and removal immediately retires remaining v0 tokens through the existing generic `invalid_cursor` contract. The former `SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY` has no implicit fallback authority.
+
+A16 preserves exact A9 merchant/environment/filter/createdAt/paymentId binding, read-only transaction semantics and merchant-safe projections. It intentionally does not rotate A14 abuse HMAC, A15 access-token signing authority, webhook cryptographic authorities, API credential secrets or provider credentials.
+
+The initial runtime attempt on the final Application workflow stopped at the pre-existing A8 concurrent active-credential-limit acceptance race before reaching A9. No A8 or A16 implementation was changed in response; the isolated runtime rerun passed A8, A9 and the complete remaining acceptance chain.
 
 ## A15 checkpoint — machine access-token signing-key rotation
 
@@ -62,7 +85,7 @@ A15 replaces the single production signing secret with `SWIFTPAY_ACCESS_TOKEN_AC
 
 The public A1 token response, issuer, audience, canonical identity claims and exact 900-second lifetime remain unchanged. Successful signature verification still requires current PostgreSQL credential/merchant/environment/secret-version revalidation, and the A8 acceptance path re-proves immediate invalidation after credential secret rotation/revocation.
 
-A15 intentionally does not rotate A9 cursor HMAC, A14 abuse HMAC, webhook cryptographic authorities, API credential secrets or provider credentials.
+A15 intentionally does not rotate A9 cursor HMAC, A14 abuse HMAC, webhook cryptographic authorities, API credential secrets or provider credentials. A9 cursor HMAC rotation was later completed independently in A16.
 
 ## A14 hosted checkpoint — ingress abuse / rate-limit hardening
 
@@ -167,7 +190,7 @@ Behavioral GREEN head: `f846a50f2c8afe8f5561a59aebef8574e22ac6d6`.
 - Hosted `swiftpay_worker`: exact **6**.
 - Security Advisor after A9: **0 lints**.
 
-A9 V0 is dashboard-only and read-only. It adds no Payment status mutation, provider recovery command, reconciliation command or monetary capability.
+A9 V0 is dashboard-only and read-only. It adds no Payment status mutation, provider recovery command, reconciliation command or monetary capability. A16 later replaces only A9's single-key cursor-integrity authority/token issuance format while preserving these read semantics.
 
 ## What remains for V1
 
@@ -184,7 +207,7 @@ The largest unresolved block is production PSP authority:
 - provider webhook ingress and recovery/reconciliation runtime against verified current contracts;
 - deliberate `production_enabled` transition only after production acceptance gates.
 
-There are also remaining merchant/product surfaces outside the completed A1-A15 path:
+There are also remaining merchant/product surfaces outside the completed A1-A16 path:
 
 - dashboard login/session UX and Supabase Auth product configuration;
 - merchant-usable payout/refund operations;
@@ -219,7 +242,7 @@ Therefore A5 fixture conformance + A10 activation safety + A11 strict transport 
 
 ## Next internal action
 
-A15 is **DONE / GREEN / APPLICATION-ONLY**. The living functional checklist is `docs/product/v1-functional-checklist.md` and must remain synchronized after every accepted slice.
+A16 is **DONE / GREEN / APPLICATION-ONLY**. The living functional checklist is `docs/product/v1-functional-checklist.md` and must remain synchronized after every accepted slice.
 
 Provider-owned current technical evidence and authenticated sandbox acquisition remain the highest-value critical path. Do not bridge retained adapters merely because A11 transport exists. If provider evidence becomes available, begin the A5→A11 bridge/activation slice again at Problem Analysis and strict RED before implementation.
 
