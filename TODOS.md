@@ -27,23 +27,22 @@ Living functional checklist: `docs/product/v1-functional-checklist.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A16: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting; A15 is application-only machine access-token signing-key rotation; A16 is application-only dashboard transaction cursor HMAC rotation)
-- A16 Problem Analysis: `docs/design/a16-dashboard-transaction-cursor-hmac-rotation-problem-analysis.md`
-- A16 frozen spec: `docs/specs/dashboard-transaction-cursor-hmac-rotation-v0.yaml`
-- A16 contract: `docs/contracts/dashboard-transaction-cursor-hmac-rotation-v0.md`
-- A16 final evidence: `docs/evidence/application/2026-08-18-a16-dashboard-transaction-cursor-hmac-rotation.md`
-- A16 accepted behavioral head: `8f181d6b3b3c7a43309e4e36061cf193d082c259`
-- A16 Application workflow: `32130004275` — GREEN, **336/336 application contracts**, including **14/14 A16**; isolated runtime rerun passed K7/A1/A2/A3/A4/A6/A7/A8/A9/A14
-- A16 Database workflow: `32130004397` — GREEN, **41 files / 1298 pgTAP assertions** + K5 fixtures + K6 runtime topology
-- A16 hosted migrations: **none**
-- A16 retained-provider network calls: **0**
-- A10 default authorized provider runtime operations after A16: **0**
-- A14 hosted migration remains `20260818054252_ingress_abuse_rate_limit_hardening`
+- A1-A17: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is strict outbound HTTPS and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics; A14 is hosted fail-closed ingress abuse limiting; A15 is application-only machine access-token signing-key rotation; A16 is application-only dashboard transaction cursor HMAC rotation; A17 is hosted RSA-only merchant-webhook signing-secret authority with legacy AES persisted-secret compatibility retired)
+- A17 Problem Analysis: `docs/design/a17-legacy-webhook-aes-secret-retirement-problem-analysis.md`
+- A17 frozen spec: `docs/specs/legacy-webhook-aes-secret-retirement-v0.yaml`
+- A17 contract: `docs/contracts/legacy-webhook-aes-secret-retirement-v0.md`
+- A17 final evidence: `docs/evidence/application/2026-08-18-a17-legacy-webhook-aes-secret-retirement.md`
+- A17 accepted implementation head: `e7c41e9a416cf454724b8167a5d17c9bf1c19e08`
+- A17 Application workflow: `32168309740` — GREEN, **344/344 application contracts**, including **7/7 A17**, with K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance GREEN
+- A17 Database workflow: `32168309894` — GREEN, **42 files / 1304 pgTAP assertions** + K5 fixtures + K6 runtime topology
+- A17 hosted migration: `20260818175935_legacy_webhook_aes_secret_retirement`
+- Hosted webhook endpoints / secret versions / legacy AES rows after A17: **0 / 0 / 0**
 - Hosted `swiftpay_api`: exact **24** `app` EXECUTE capabilities
 - Hosted `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
-- Hosted Security Advisor after A14: **0 lints**
-- Hosted Payment rows after A14: **0**
-- Hosted ProviderAttempt rows after A14: **0**
+- Hosted Security Advisor after A17: **0 lints**
+- Hosted Payment / ProviderAttempt rows after A17: **0 / 0**
+- A17 retained-provider network calls: **0**
+- A17 A10 activation promotions: **0**
 - Core architecture/domain/database/platform estimate: ~99%
 - First end-to-end Pix sandbox MVP estimate: ~97%
 - Production-capable Pix V1 estimate: ~60%
@@ -168,7 +167,7 @@ Hosted migrations:
 - `20260816034121_merchant_webhook_delivery_runtime_foundation.sql`
 - `20260816034224_merchant_webhook_delivery_runtime_behavior.sql`
 
-Accepted: composed Job/WebhookDelivery fencing, worker-only capability, signed HTTP delivery, SSRF-safe destination policy, deterministic retry/terminal semantics, A4 AES secret isolation and zero financial authority.
+Accepted: composed Job/WebhookDelivery fencing, worker-only capability, signed HTTP delivery, SSRF-safe destination policy, deterministic retry/terminal semantics and zero financial authority. A17 later retires the legacy AES persisted-secret compatibility path; merchant webhook delivery now uses explicit versioned RSA history only while preserving A4 signing/retry/fencing behavior.
 
 ---
 
@@ -279,6 +278,7 @@ Canonical refreshes:
 
 - `docs/evidence/providers/2026-08-17-current-provider-revalidation.md`
 - `docs/evidence/providers/2026-08-18-current-provider-contract-critical-path-refresh.md`
+- `docs/evidence/providers/2026-08-18-provider-contract-evidence-acquisition-pack.md`
 
 ### AkkadPag / AkadPay
 
@@ -338,13 +338,14 @@ Problem Analysis: `docs/design/a7-merchant-webhook-endpoint-management-problem-a
 Spec: `docs/specs/merchant-webhook-endpoint-management-v0.yaml`.
 Evidence: `docs/evidence/application/2026-08-16-a7-merchant-webhook-endpoint-management.md`.
 
-Accepted boundary includes dashboard-only member/admin authority, create/list/get/update/disable/enable/rotate-secret, optimistic revision fencing, idempotency/audit, one-time secret disclosure, RSA-OAEP-SHA256 wrapping, immutable delivery snapshots and zero financial authority.
+Accepted boundary includes dashboard-only member/admin authority, create/list/get/update/disable/enable/rotate-secret, optimistic revision fencing, idempotency/audit, one-time secret disclosure, RSA-OAEP-SHA256 wrapping, immutable delivery snapshots and zero financial authority. A17 later retires the pre-A7 AES persisted-secret compatibility path; current hosted persisted secret-version authority is RSA-only.
 
 Hosted migrations:
 
 - `20260816073330_webhook_endpoint_management_foundation.sql`
 - `20260816073500_webhook_endpoint_management_behavior.sql`
 - `20260816073604_webhook_endpoint_management_behavior_fix.sql`
+- A17 follow-up: `20260818175935_legacy_webhook_aes_secret_retirement`
 
 ## A8 — API credential management — `DONE / HOSTED`
 
@@ -498,9 +499,38 @@ Final GREEN proof:
 
 A16 intentionally does not rotate A14 abuse HMAC, A15 access-token signing authority, webhook cryptographic authorities, API credential secrets or provider credentials.
 
-## Security hardening — `PENDING`
+## A17 — legacy webhook AES secret retirement — `DONE / GREEN / HOSTED`
 
-A14 closes ingress/rate limiting, A15 closes machine access-token signing-key rotation and A16 closes dashboard transaction cursor HMAC rotation. Remaining security work includes the other independent cryptographic authorities, dependency/security review, final least-privilege audit, operational audit review and production network/WAF hardening.
+Problem Analysis: `docs/design/a17-legacy-webhook-aes-secret-retirement-problem-analysis.md`.
+Spec: `docs/specs/legacy-webhook-aes-secret-retirement-v0.yaml`.
+Contract: `docs/contracts/legacy-webhook-aes-secret-retirement-v0.md`.
+RED evidence: `docs/evidence/application/2026-08-18-a17-legacy-webhook-aes-secret-retirement-red.md`.
+Final evidence: `docs/evidence/application/2026-08-18-a17-legacy-webhook-aes-secret-retirement.md`.
+
+Accepted: removal of `SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY` and `webhookEncryptionKey`; worker RSA private-keyring authority is mandatory; persisted-secret AES decrypt exports and runtime fallback are removed; delivery accepts only explicit `rsa-oaep-sha256-v1` history with exact `wrappingKeyId`; AES/missing-format/missing-key cases fail terminally before network; A4 signing/retry/concurrency/fencing and A7 secret-version rotation overlap remain intact through RSA version history.
+
+Database hardening is abortive and loss-averse: migration refuses to proceed if any AES secret-version row exists, performs no silent AES-to-RSA conversion/deletion/relabel/expiry, makes `wrapping_key_id` NOT NULL, permits only RSA-OAEP-SHA256 secret-version rows and removes the A7 claim RPC's historical endpoint-mirror AES fallback without changing its signature or grants.
+
+Final GREEN/HOSTED proof:
+
+- accepted implementation head `e7c41e9a416cf454724b8167a5d17c9bf1c19e08`;
+- Application workflow `32168309740`: **344/344 application contracts PASS**, including **7/7 A17**, plus K7/A1/A2/A3/A4/A6/A7/A8/A9/A14 real-database acceptance GREEN;
+- Database workflow `32168309894`: **42 files / 1304 pgTAP assertions PASS**, K5 and K6 GREEN;
+- hosted preflight: webhook endpoints / secret versions / AES rows = **0 / 0 / 0**; Payment / ProviderAttempt = **0 / 0**;
+- hosted migration history: `20260818175935_legacy_webhook_aes_secret_retirement`;
+- hosted claim RPC remains `SECURITY DEFINER`, `VOLATILE`, `search_path=''`, executable only by worker;
+- hosted API/worker direct secret-version table DML authority: **0 / 0**;
+- hosted API/worker `app` EXECUTE capabilities remain **24 / 6**;
+- hosted Security Advisor: **0 lints**;
+- hosted Payment / ProviderAttempt after deployment: **0 / 0**;
+- retained-provider calls: **0**;
+- A10 activation promotions: **0**.
+
+A17 reduces cryptographic compatibility surface but does not close the retained-PSP evidence or launch gates; readiness remains conservatively 99/97/60/75.
+
+## Security hardening — `IN_PROGRESS / A14-A17 FOUNDATION DONE`
+
+A14 closes ingress/rate limiting, A15 closes machine access-token signing-key rotation, A16 closes dashboard transaction cursor HMAC rotation and A17 retires the legacy persisted-webhook AES authority. Remaining security work includes A14 abuse-HMAC operational rotation strategy, dependency/security review, final least-privilege audit, operational audit review and production network/WAF hardening.
 
 ## Performance debt — `PENDING`
 
@@ -549,6 +579,7 @@ Parallel production-hardening path:
   -> A14 ingress abuse/rate-limit hardening              DONE / GREEN / HOSTED
   -> A15 machine access-token signing-key rotation       DONE / GREEN
   -> A16 dashboard cursor HMAC rotation                  DONE / GREEN
+  -> A17 legacy webhook AES secret retirement            DONE / GREEN / HOSTED
   -> external exporters/alerts/SLOs/tracing              PENDING
   -> remaining crypto authorities/security review        PENDING
   -> performance/load/capacity                           PENDING
@@ -557,7 +588,7 @@ Parallel production-hardening path:
 
 ## Immediate next action
 
-A16 is fully GREEN and application-only. The living functional checklist remains the durable feature-level status surface and must be updated after every accepted slice.
+A17 is fully GREEN and hosted. The living functional checklist remains the durable feature-level status surface and must be updated after every accepted slice.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
