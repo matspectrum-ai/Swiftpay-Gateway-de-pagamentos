@@ -1,15 +1,16 @@
 import { createApiAbuseControls, type ApiAbuseControls } from '../../../packages/abuse/dist/index.js';
 import {
   authenticateAccessToken,
+  createAccessTokenSigningAuthority,
   createDashboardApiCredentialManagementService,
   createDashboardAuthorizationService,
   createPrivilegedDashboardSessionVerifier,
   createSupabaseDashboardSessionVerifier,
   createTokenExchangeHandler,
+  type AccessTokenSigningKeyEntry,
   type DashboardApiCredentialManagementService,
   type DashboardAuthorizationService,
   type TokenExchangeHandler,
-  type TokenExchangeServiceOptions,
 } from '@swiftpay/auth';
 import {
   createApiAbuseRateLimitStore,
@@ -43,7 +44,12 @@ import type {
 
 type ApiRuntimePool = Parameters<typeof verifyRuntimeBoundary>[0];
 
-export interface ApiRuntimeServicesOptions extends TokenExchangeServiceOptions {
+export interface ApiRuntimeServicesOptions {
+  readonly accessTokenActiveKeyId: string;
+  readonly accessTokenSigningKeys: readonly AccessTokenSigningKeyEntry[];
+  readonly accessTokenLegacyNoKidKey?: string;
+  readonly nowSeconds?: () => number;
+  readonly jti?: () => string;
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
   readonly dashboardCursorHmacKey: string;
@@ -79,6 +85,13 @@ export function createApiRuntimeServices(
       createApiAbuseRateLimitStore(pool),
       { trustedProxyIps: options.trustedProxyIps ?? [], hmacKey: options.abuseHmacKey },
     );
+  const signingAuthority = createAccessTokenSigningAuthority({
+    activeKeyId: options.accessTokenActiveKeyId,
+    keys: options.accessTokenSigningKeys,
+    ...(options.accessTokenLegacyNoKidKey === undefined
+      ? {}
+      : { legacyNoKidKey: options.accessTokenLegacyNoKidKey }),
+  });
   const authStore = createApiCredentialAuthStore(pool);
   const dashboardContextStore = createDashboardMerchantContextStore(pool);
   const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({
@@ -134,10 +147,14 @@ export function createApiRuntimeServices(
   return {
     readinessProbe: () => verifyRuntimeBoundary(pool, 'api'),
     ...(abuseControls === undefined ? {} : { abuseControls }),
-    tokenExchange: createTokenExchangeHandler(authStore, options),
+    tokenExchange: createTokenExchangeHandler(authStore, {
+      signingAuthority,
+      ...(options.nowSeconds === undefined ? {} : { nowSeconds: options.nowSeconds }),
+      ...(options.jti === undefined ? {} : { jti: options.jti }),
+    }),
     authenticateBearer: (token) => authenticateAccessToken(
       token,
-      options.signingKey,
+      signingAuthority,
       authStore,
       options.nowSeconds?.(),
     ),
