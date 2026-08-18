@@ -98,6 +98,8 @@ The remaining production gap is disproportionately concentrated in live PSP cont
 
 ## Retained PSP conformance — A5
 
+Current public-evidence refresh: `docs/evidence/providers/2026-08-18-current-provider-contract-critical-path-refresh.md`.
+
 - [x] Retained AkkadPag legacy-lineage fixture adapter
 - [x] Retained FlevoPay legacy-lineage fixture adapter
 - [x] Capability matrix frozen
@@ -105,7 +107,18 @@ The remaining production gap is disproportionately concentrated in live PSP cont
 - [x] No synthesized customer identity
 - [x] Ambiguous monetary transport maps to `execution_unknown`
 - [x] Unsupported operations fail locally
-- [x] All checked-in provider evidence marked fixture-only
+- [x] All checked-in provider fixture evidence marked fixture-only
+- [x] Current AkadPay provider-owned PIX-IN create endpoint/schema captured
+- [x] Current AkadPay provider-owned PIX-OUT create + same-key/same-data idempotency semantics captured
+- [x] Current AkadPay PIX-OUT webhook replay identifiers captured
+- [x] Current FlevoPay provider-owned base API host/capability surface captured
+- [x] Current FlevoPay Basic `PUBLIC_KEY:SECRET_KEY` auth evidence captured
+- [x] FlevoPay current auth drift from retained historical `X-API-Key` adapter explicitly identified
+- [ ] Provider-owned AkkadPag → AkadPay lineage/equivalence established
+- [ ] Current AkadPay query/recovery contract complete
+- [ ] Current AkadPay webhook cryptographic authentication contract complete
+- [ ] Current FlevoPay exact endpoint/request/response contract complete
+- [ ] Current FlevoPay idempotency/recovery/webhook contract complete
 - [ ] Live AkkadPag/AkadPay contract authority
 - [ ] Live FlevoPay contract authority
 
@@ -290,9 +303,9 @@ These items are the primary production blocker and must remain ahead of optional
 
 - [ ] Accepted current provider-owned technical contract for AkkadPag/AkadPay lineage
 - [ ] Accepted current provider-owned technical contract for FlevoPay lineage
-- [ ] Exact current authentication semantics proven
+- [ ] Exact current authentication semantics proven for the selected executable contract
 - [ ] Exact current create/query/recovery semantics proven
-- [ ] Exact current provider idempotency semantics proven
+- [ ] Exact current provider idempotency semantics proven for all monetary create paths
 - [ ] Exact current webhook/authentication semantics proven
 - [ ] Authenticated current PSP sandbox acceptance
 - [ ] Applicable A10 tuples promoted to `sandbox_proven`
