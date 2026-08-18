@@ -22,12 +22,15 @@ function verifierFor(secret, salt = Buffer.from('00112233445566778899aabbccddeef
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
 const SIGNING_KEY_ID = 'machine-a1-test';
+const CURSOR_KEY = 'a9-dashboard-cursor-test-key-0123456789abcdef';
+const CURSOR_KEY_ID = 'dashboard-a16-a1-test';
 const validConfigSource = {
   SWIFTPAY_ENVIRONMENT: 'sandbox',
   SWIFTPAY_API_DATABASE_URL: 'postgresql://api:test@127.0.0.1:5432/postgres',
   SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID: SIGNING_KEY_ID,
   SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS: JSON.stringify([{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }]),
-  SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY: 'a9-dashboard-cursor-test-key-0123456789abcdef',
+  SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID: CURSOR_KEY_ID,
+  SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS: JSON.stringify([{ id: CURSOR_KEY_ID, secret: CURSOR_KEY }]),
   SWIFTPAY_ABUSE_HMAC_KEY: 'a14-abuse-test-key-0123456789abcdef0123456789abcdef',
   SWIFTPAY_SUPABASE_URL: 'https://project-a6.supabase.co',
   SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_a6_test_key',
