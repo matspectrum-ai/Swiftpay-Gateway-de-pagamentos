@@ -380,8 +380,34 @@ Current state: **DONE / GREEN / HOSTED**. Final evidence: `docs/evidence/applica
 - [x] Hosted Security Advisor: **0 lints**
 - [x] Hosted Payment/ProviderAttempt counts remain **0/0** after deploy
 - [x] Retained-PSP calls and A10 activation promotions introduced by A17: **0**
+- [x] Evidence-head `99d46a4`: Application `32169293332` GREEN with **344/344** and runtime chain GREEN; Database `32169293403` GREEN with **42/1304**, K5/K6 GREEN
 
 A17 retires only AES encryption-at-rest compatibility for merchant webhook signing secrets. The outbound merchant webhook HMAC-SHA256 protocol remains unchanged. This hardening does not authorize provider traffic or change the conservative readiness percentages.
+
+## Abuse subject HMAC key rotation — A18
+
+Current state: **PROBLEM_ANALYSIS / NO IMPLEMENTATION AUTHORITY**. Problem Analysis: `docs/design/a18-abuse-subject-hmac-key-rotation-problem-analysis.md`.
+
+- [x] Current A14 single-key authority inventoried
+- [x] Quota-reset risk from naive key replacement identified
+- [x] Raw-subject persistence/re-hashing rejected as a privacy regression
+- [x] Two independent quota RPC calls rejected as non-atomic transition semantics
+- [x] Bounded active + previous HMAC continuity identified as the strongest candidate direction
+- [x] Requirement for one atomic database quota decision across one/two pseudonyms identified
+- [x] Mixed-replica/rolling-deployment risk identified as a first-class design constraint
+- [ ] Exact dual-pseudonym quota algorithm frozen
+- [ ] Exact active/previous key configuration schema frozen
+- [ ] Exact overlap/deployment invariant frozen
+- [ ] Exact database RPC transition strategy frozen
+- [ ] YAML specification frozen
+- [ ] Contract frozen
+- [ ] Fail-first RED proof
+- [ ] Implementation
+- [ ] Real-database concurrency/rotation acceptance
+- [ ] Hosted migration/audit, if the final spec requires a database change
+- [ ] Final evidence
+
+A18 must not be implemented as a superficial keyring that hashes only with the active key: that would reset effective quota state during rotation. Until the spec/contract freezes atomic continuity semantics, A14 continues using the existing single-key authority.
 
 ## Existing domain/database foundations not yet full product workflows
 
@@ -422,6 +448,7 @@ These items are the primary production blocker and must remain ahead of optional
 
 ## Production operations and hardening backlog
 
+- [ ] A18 abuse-subject HMAC rotation protocol
 - [ ] External metrics collection/export
 - [ ] Production dashboards and alerting
 - [ ] SLI/SLO policy
