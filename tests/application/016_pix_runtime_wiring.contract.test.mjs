@@ -5,6 +5,7 @@ import test from 'node:test';
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
 const SIGNING_KEY_ID = 'machine-a2-runtime';
 const CURSOR_KEY = 'a9-dashboard-cursor-test-key-0123456789abcdef';
+const CURSOR_KEY_ID = 'cursor-a2-runtime';
 const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
 const CREDENTIAL_ID = '61000000-0000-0000-0000-000000000001';
@@ -125,7 +126,8 @@ test('A2 API runtime composes A1 Bearer revalidation with trusted Pix store serv
     accessTokenSigningKeys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
     supabaseUrl: 'https://project-a6.supabase.co',
     supabasePublishableKey: 'sb_publishable_a6_test_key',
-    dashboardCursorHmacKey: CURSOR_KEY,
+    dashboardCursorActiveKeyId: CURSOR_KEY_ID,
+    dashboardCursorHmacKeys: [{ id: CURSOR_KEY_ID, secret: CURSOR_KEY }],
     nowSeconds: () => NOW_SECONDS + 1,
     jti: () => JTI,
   });
