@@ -57,7 +57,6 @@ jobs:
       SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID: a16-ci-active
       SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS: '[{"id":"a16-ci-active","secret":"a9-dashboard-cursor-ci-key-0123456789abcdef"}]'
       SWIFTPAY_ABUSE_HMAC_KEY: a14-abuse-ci-key-0123456789abcdef0123456789abcdef
-      SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
       SWIFTPAY_SUPABASE_URL: https://project-a6.supabase.co
       SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: sb_publishable_a6_ci_key
     steps:
