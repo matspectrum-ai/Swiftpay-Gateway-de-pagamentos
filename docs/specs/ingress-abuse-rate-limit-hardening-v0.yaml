@@ -1,0 +1,400 @@
+feature: ingress-abuse-rate-limit-hardening-v0
+status: frozen_for_tdd
+phase: 7
+
+problem:
+  statement: >-
+    A1 has a correct distributed successful-token-issuance quota, but invalid-secret
+    work, protected machine requests, dashboard online-auth amplification and the
+    unauthenticated readiness probe still lack one coherent production abuse-control
+    boundary. IP-based controls cannot be safely added until SwiftPay defines which
+    direct proxy peers may supply forwarded client identity.
+
+objectives:
+  - Preserve A1 successful token issuance quota semantics exactly.
+  - Add an explicit single-hop trusted-ingress identity resolver without enabling generic Fastify trustProxy.
+  - Add distributed fixed-window request admission through PostgreSQL for a closed set of API policy classes.
+  - Bound unauthenticated token-exchange scrypt work before credential lookup/secret verification.
+  - Bound invalid/valid machine bearer request amplification before DB revalidation and bound authenticated machine business traffic by merchant/environment.
+  - Bound dashboard online Supabase Auth amplification before any dashboard service invocation.
+  - Bound unauthenticated readiness database probes while leaving liveness cheap and independent.
+  - Persist only opaque HMAC-derived subject keys, never raw IP/token/secret/merchant identifiers in abuse-window state.
+  - Preserve A12/A13 privacy/cardinality boundaries and all payment/provider/financial invariants.
+
+non_goals:
+  - CAPTCHA or browser fingerprinting.
+  - Choosing or integrating a CDN/WAF/load-balancer vendor.
+  - Multi-hop proxy chains.
+  - CIDR trusted-proxy configuration.
+  - Per-user dashboard post-auth quotas.
+  - Pricing/plan/merchant entitlement quotas.
+  - Changing A1 token TTL, scrypt parameters or successful issuance quota.
+  - Provider adapter bridging, provider activation or live PSP calls.
+  - Payment idempotency, ledger, payout, refund or reconciliation behavior changes.
+  - Distributed tracing/exporter/dashboard/SLO implementation.
+
+trusted_ingress_contract:
+  fastify_trust_proxy:
+    value: false
+    invariant: >-
+      A14 MUST NOT set trustProxy=true, a hop count, or otherwise make all
+      X-Forwarded-* metadata authoritative.
+  config:
+    env: SWIFTPAY_TRUSTED_PROXY_IPS
+    required: false
+    encoding: JSON array
+    item: exact IP address string
+    maximum_items: 16
+    duplicates: rejected
+    cidr: rejected_v0
+    wildcard: rejected
+    malformed: startup_failure_without_echo
+  resolver:
+    inputs:
+      - socket.remoteAddress
+      - x-forwarded-for
+      - trusted_proxy_ips
+    direct_peer:
+      validation: canonical_ip_required
+    untrusted_peer:
+      forwarded_header: ignored_even_if_present
+      authoritative_client_ip: canonical_direct_peer
+    trusted_peer:
+      x_forwarded_for:
+        required: true
+        exactly_one_address: true
+        comma_separated_chain: rejected
+        canonical_ip_required: true
+      authoritative_client_ip: canonical_forwarded_address
+    failure:
+      status: 400
+      code: invalid_request_origin
+      side_effects_before_failure: forbidden
+  canonical_ip:
+    ipv4:
+      validation: node_net_isIP_equals_4
+      representation: normalized dotted decimal
+    ipv6:
+      validation: node_net_isIP_equals_6
+      representation: WHATWG_URL_normalized_lowercase_without_brackets
+    a1_allowlist_integration: >-
+      Request and stored exact-IP entries are compared after the same canonical
+      normalization. Wildcards/CIDR remain forbidden and malformed stored policy
+      remains fail-closed.
+
+subject_key_contract:
+  env: SWIFTPAY_ABUSE_HMAC_KEY
+  required_for_api_runtime: true
+  minimum_utf8_bytes: 32
+  primitive: HMAC-SHA256
+  encoding: lowercase_hex_64
+  canonical_input: "a14v0\n<subject-class>\n<canonical-subject>"
+  subject_classes:
+    network:
+      source: canonical_authoritative_client_ip
+    machine_merchant_environment:
+      source_vector: [merchant_id_uuid, environment]
+      serialization: "<merchantId>\n<environment>"
+  forbidden_in_persisted_key:
+    - raw_ip
+    - bearer_token
+    - secret_key
+    - supabase_access_token
+    - public_key
+    - merchant_id_plaintext
+    - credential_id_plaintext
+    - user_id_plaintext
+    - customer_data
+    - payment_id
+    - provider_payload
+
+policy_contract:
+  algorithm: fixed_window
+  window_seconds: 60
+  policies:
+    token_exchange_pre_auth:
+      subject_class: network
+      limit: 30
+      admission_point: before_token_request_validation_credential_lookup_and_scrypt
+    machine_request_pre_auth:
+      subject_class: network
+      limit: 12000
+      admission_point: before_bearer_parse_verification_and_database_revalidation
+    machine_read:
+      subject_class: machine_merchant_environment
+      limit: 6000
+      routes:
+        - GET /v1/transactions/:id
+        - GET /v1/balance
+      admission_point: after_successful_bearer_revalidation_before_business_service
+    machine_mutation:
+      subject_class: machine_merchant_environment
+      limit: 3000
+      routes:
+        - POST /v1/transactions
+      admission_point: after_successful_bearer_revalidation_before_idempotency_or_payment_service
+    dashboard_request_pre_auth:
+      subject_class: network
+      limit: 300
+      route_prefix: /dashboard/v1/
+      admission_point: before_any_dashboard_service_or_supabase_auth_transport
+    readiness_probe:
+      subject_class: network
+      limit: 120
+      routes:
+        - GET /health/ready
+      admission_point: before_database_readiness_probe
+  explicitly_unlimited_by_a14:
+    - GET /health/live
+    - A13 loopback metrics listener
+  semantics: >-
+    These are V0 hard safety ceilings, not merchant pricing/plan entitlements.
+    They may only be changed by a later frozen contract and tests.
+
+http_contract:
+  general_rate_limit_denial:
+    status: 429
+    code: rate_limit_exceeded
+    message: Request rate limit exceeded.
+    retry_after_header: required_integer_seconds
+    retry_after_range: [1, 60]
+    body:
+      error:
+        code: rate_limit_exceeded
+        message: Request rate limit exceeded.
+        requestId: server_owned_a12_uuid
+    secret_or_key_disclosure: forbidden
+  limiter_unavailable:
+    status: 503
+    code: request_admission_unavailable
+    message: Request admission is unavailable.
+    retry_after_header: forbidden
+    failure_mode: fail_closed_for_all_a14_controlled_routes
+  invalid_request_origin:
+    status: 400
+    code: invalid_request_origin
+    message: Request origin is invalid.
+  existing_a1_quota:
+    status: 429
+    code: auth_rate_limit_exceeded
+    change: none
+    ordering: after_valid_credential_secret_and_ip_policy
+  caching:
+    throttled_authenticated_or_dashboard_response: private_no_store
+    token_and_readiness_errors: no_store
+
+ordering_contract:
+  token_exchange:
+    - resolve_trusted_ingress_identity
+    - consume_token_exchange_pre_auth
+    - existing_A1_request_validation
+    - existing_A1_credential_lookup_and_status
+    - existing_A1_scrypt_verification
+    - existing_A1_exact_ip_policy_using_canonical_client_ip
+    - existing_A1_successful_issuance_quota
+    - existing_A1_JWT_issue
+  machine:
+    - resolve_trusted_ingress_identity
+    - consume_machine_request_pre_auth
+    - existing_bearer_parse_verify_and_DB_revalidate
+    - derive_machine_merchant_environment_subject
+    - consume_machine_read_or_machine_mutation
+    - existing_business_handler
+  dashboard:
+    - resolve_trusted_ingress_identity
+    - consume_dashboard_request_pre_auth
+    - existing_dashboard_service
+    - existing_online_supabase_auth
+    - existing_K4_authorization
+    - existing_dashboard_behavior
+  readiness:
+    - resolve_trusted_ingress_identity
+    - consume_readiness_probe
+    - existing_readiness_probe
+  liveness:
+    - existing_liveness_only
+
+existing_a1_quota_preservation:
+  scope: credential_id
+  limit: 10
+  window_seconds: 3600
+  source_of_truth: PostgreSQL
+  consume_after:
+    - active_credential
+    - active_merchant
+    - correct_secret
+    - accepted_exact_ip_policy
+  invalid_secret_consumes_quota: false
+  public_error: auth_rate_limit_exceeded
+  retry_after: existing_behavior
+
+application_contract:
+  new_package:
+    name: "@swiftpay/abuse"
+    responsibilities:
+      - canonical IP validation/normalization
+      - single-hop trusted-ingress resolution
+      - HMAC subject-key derivation
+      - closed A14 policy constants/types
+      - admission service over an injected store
+    forbidden:
+      - HTTP listeners
+      - direct PostgreSQL
+      - provider network
+      - financial mutation
+      - logging arbitrary input
+  db_package:
+    factory: createApiAbuseRateLimitStore
+    access: trusted_rpc_only
+  api:
+    BuildAppOptions_addition: abuseControls_optional_for_injected_unit_harnesses
+    production_bootstrap: abuseControls_required_and_wired
+    trustProxy_change: forbidden
+    route_classification: compile_time_closed
+
+postgres_contract:
+  new_private_table:
+    name: app.api_abuse_windows
+    primary_key: [policy, subject_hash]
+    columns:
+      policy: text_closed_check
+      subject_hash: text_lowercase_sha256_hex_check
+      window_started_at: timestamptz
+      request_count: positive_integer_or_zero
+      updated_at: timestamptz
+    direct_runtime_table_privileges: forbidden
+    indexes:
+      - updated_at_for_bounded_pruning
+  policy_values:
+    - token_exchange_pre_auth
+    - machine_request_pre_auth
+    - machine_read
+    - machine_mutation
+    - dashboard_request_pre_auth
+    - readiness_probe
+  trusted_api_function:
+    name: app.consume_api_abuse_quota
+    signature: [text, text]
+    language: plpgsql
+    volatility: volatile
+    security_definer: true
+    fixed_search_path: true
+    execute_allowlist: [swiftpay_api]
+    execute_denied: [PUBLIC, anon, authenticated, service_role, swiftpay_worker]
+    behavior:
+      - validate exact policy and lowercase 64-hex subject hash before mutation
+      - atomically create_or_lock one window row
+      - reset count to one when now >= window_started_at + 60 seconds
+      - increment when below the policy limit
+      - deny without increment when at limit
+      - return allowed remaining retry_after_seconds
+      - opportunistically prune at most 32 rows whose updated_at is older than 24 hours
+    concurrency: row_lock_serializes_same_policy_subject_across_api_instances
+    retention:
+      stale_after_seconds: 86400
+      delete_batch_max_per_consume: 32
+      rationale: bound historical attacker-key accumulation without an unbounded cleanup scan
+  capability_delta:
+    swiftpay_api_execute: plus_1
+    swiftpay_worker_execute: no_change
+
+failure_semantics:
+  store_or_validation_failure:
+    controlled_routes: fail_closed_503_request_admission_unavailable
+    domain_or_financial_side_effect: forbidden
+  denied_quota:
+    controlled_routes: 429_before_protected_side_effect
+  telemetry_failure:
+    behavior_change: forbidden
+  provider_state_change: forbidden
+
+privacy_and_observability:
+  a12_logs:
+    existing_http_completion: retained
+    raw_ip: forbidden
+    subject_hash: forbidden
+    bearer_or_secret: forbidden
+    new_dynamic_abuse_event: not_required_v0
+  a13_metrics:
+    existing_http_status_class_visibility: sufficient_v0
+    new_metric_family: none
+    subject_hash_or_ip_label: forbidden
+    public_key_or_identity_label: forbidden
+  postgres:
+    raw_ip: forbidden
+    plaintext_principal_identifier: forbidden_in_abuse_table
+
+requirements:
+  - id: A14-R1
+    statement: A14 never enables generic Fastify trustProxy and ignores X-Forwarded-For from untrusted direct peers.
+  - id: A14-R2
+    statement: A trusted direct proxy is an explicitly configured exact IP and may provide exactly one canonical X-Forwarded-For client IP; malformed/multi-hop input fails before controlled side effects.
+  - id: A14-R3
+    statement: Raw network/principal identities are HMAC-derived into opaque fixed-length subject hashes before persistence.
+  - id: A14-R4
+    statement: Token pre-auth requests are limited to 30/minute per network identity before credential lookup or scrypt while invalid secrets never consume the A1 10/hour successful issuance quota.
+  - id: A14-R5
+    statement: Machine requests have a 12000/minute network pre-auth ceiling and post-auth merchant/environment ceilings of 6000 read and 3000 mutation requests per minute.
+  - id: A14-R6
+    statement: Dashboard requests are limited to 300/minute per network identity before any Supabase Auth transport call.
+  - id: A14-R7
+    statement: Readiness is limited to 120/minute per network identity before DB probing; liveness remains independent.
+  - id: A14-R8
+    statement: All A14 authoritative counters are atomic and distributed in PostgreSQL through one trusted API routine; no per-process limiter is authoritative.
+  - id: A14-R9
+    statement: Denial is deterministic 429 with bounded Retry-After; limiter failure fails closed as sanitized 503.
+  - id: A14-R10
+    statement: Machine mutation admission occurs before Payment/idempotency side effects and dashboard admission occurs before Supabase/K4/business work.
+  - id: A14-R11
+    statement: Abuse-state retention is age-bounded and cleanup work per request is capped.
+  - id: A14-R12
+    statement: A14 adds no provider/financial authority, no live PSP call and no A5-to-A11 bridge.
+  - id: A14-R13
+    statement: Existing A1-A13 application/database/runtime acceptance remains GREEN.
+
+acceptance_criteria:
+  - Direct untrusted client supplying X-Forwarded-For is keyed by socket peer, not header value.
+  - Configured trusted proxy with one valid forwarded address resolves that address; missing, malformed or comma-separated forwarded address fails 400 before limiter/business work.
+  - Equivalent canonical IPv6 forms resolve to one A14 subject identity and A1 exact-IP comparison uses the same canonicalization.
+  - Thirty token attempts in a 60-second network window are allowed and the thirty-first returns 429 before credential lookup/scrypt.
+  - Repeated wrong-secret attempts leave the A1 credential issuance counter unchanged.
+  - Machine network pre-auth denial happens before bearer DB revalidation.
+  - Authenticated machine read/mutation quota is shared by two credentials for the same merchant/environment and by independent API instances.
+  - Machine mutation denial invokes no Pix create/idempotency service.
+  - Dashboard network denial invokes no Supabase Auth transport and no K4 store.
+  - Readiness denial invokes no database readiness probe while liveness remains 200 and does not consume quota.
+  - The same policy/subject raced concurrently never admits more than the frozen limit.
+  - Denied calls return integer Retry-After 1..60 and never expose subject hash/IP/token/secret.
+  - Abuse table contains only policy + opaque hash + bounded counter/timestamps and stale rows are pruned only in capped batches.
+  - swiftpay_api gains exactly one app EXECUTE capability; worker gains none; no direct protected-table grants appear.
+  - A12 logs/A13 metrics contain no IP or limiter subject canary.
+  - No provider registry record changes and no retained-provider network call occurs.
+
+edge_cases:
+  - socket remoteAddress missing or malformed.
+  - trusted proxy list malformed, duplicated, wildcarded, CIDR or more than 16 entries.
+  - untrusted peer supplies syntactically valid forwarded IP.
+  - trusted peer supplies an array/multiple x-forwarded-for values.
+  - IPv4-mapped IPv6 and expanded IPv6 representation.
+  - undersized abuse HMAC key.
+  - malformed subject hash returned to DB adapter.
+  - quota store returns malformed allowed/remaining/retry metadata.
+  - two API instances race at limit-1/limit/limit+1.
+  - fixed-window rollover exactly at boundary.
+  - limiter DB failure before bearer/Supabase/business side effects.
+  - A1 successful token quota and A14 pre-auth quota both near exhaustion.
+
+out_of_scope:
+  - Multi-hop proxy chain parsing.
+  - CIDR proxy trust.
+  - Per-user dashboard quotas across multiple source networks.
+  - Global fleet-wide anonymous request ceiling.
+  - Adaptive/reputation/risk scoring.
+  - Merchant-configurable or commercial rate plans.
+  - WAF/CDN vendor rules.
+  - Redis or external rate-limit store.
+  - Provider-specific rate limiting.
+
+implementation_authority_after_freeze:
+  next_step: contracts_then_red_tests
+  code_before_red: forbidden
