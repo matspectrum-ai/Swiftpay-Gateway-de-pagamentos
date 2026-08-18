@@ -1,4 +1,4 @@
-import { normalizeCanonicalIp } from '@swiftpay/abuse';
+import { normalizeCanonicalIp } from '../../abuse/dist/index.js';
 
 export type SwiftpayEnvironment = 'sandbox' | 'production';
 
