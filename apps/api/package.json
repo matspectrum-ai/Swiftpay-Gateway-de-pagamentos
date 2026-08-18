@@ -3,13 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "swiftpayInternalBoundaries": ["@swiftpay/abuse"],
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@swiftpay/abuse": "workspace:*",
     "@swiftpay/auth": "workspace:*",
     "@swiftpay/config": "workspace:*",
     "@swiftpay/db": "workspace:*",
