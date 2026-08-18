@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const SIGNING_KEY = '0123456789abcdef0123456789abcdef';
+const SIGNING_KEY_ID = 'machine-a2-runtime';
 const CURSOR_KEY = 'a9-dashboard-cursor-test-key-0123456789abcdef';
 const NOW_SECONDS = 1_900_000_000;
 const MERCHANT_ID = '60000000-0000-0000-0000-000000000001';
@@ -60,6 +61,10 @@ test('A2 API runtime composes A1 Bearer revalidation with trusted Pix store serv
     import('../../packages/auth/dist/index.js'),
   ]);
 
+  const signingAuthority = auth.createAccessTokenSigningAuthority({
+    activeKeyId: SIGNING_KEY_ID,
+    keys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
+  });
   const token = await auth.issueAccessToken({
     merchantId: MERCHANT_ID,
     credentialId: CREDENTIAL_ID,
@@ -67,7 +72,7 @@ test('A2 API runtime composes A1 Bearer revalidation with trusted Pix store serv
     secretVersion: 3,
     jti: JTI,
     nowSeconds: NOW_SECONDS,
-  }, SIGNING_KEY);
+  }, signingAuthority);
 
   const calls = [];
   const pool = {
@@ -116,7 +121,10 @@ test('A2 API runtime composes A1 Bearer revalidation with trusted Pix store serv
   };
 
   const services = runtime.createApiRuntimeServices(pool, {
-    signingKey: SIGNING_KEY,
+    accessTokenActiveKeyId: SIGNING_KEY_ID,
+    accessTokenSigningKeys: [{ id: SIGNING_KEY_ID, secret: SIGNING_KEY }],
+    supabaseUrl: 'https://project-a6.supabase.co',
+    supabasePublishableKey: 'sb_publishable_a6_test_key',
     dashboardCursorHmacKey: CURSOR_KEY,
     nowSeconds: () => NOW_SECONDS + 1,
     jti: () => JTI,
