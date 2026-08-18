@@ -1,6 +1,6 @@
 # SwiftPay V2 — Canonical Work Ledger
 
-Updated: 2026-08-17
+Updated: 2026-08-18
 
 This is the durable backlog and handoff ledger for the reconstruction. Repository artifacts are the source of truth. Detailed proof lives in specs, migrations, tests and `docs/evidence/**`; Git history preserves checkpoint chronology.
 
@@ -26,18 +26,19 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A11: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is a strict outbound HTTPS primitive and remains unbound from retained PSP adapters)
-- A11 Problem Analysis: `docs/design/a11-strict-provider-http-transport-problem-analysis.md`
-- A11 frozen spec: `docs/specs/strict-provider-http-transport-v0.yaml`
-- A11 contract: `docs/contracts/strict-provider-http-transport-v0.md`
-- A11 RED evidence: `docs/evidence/application/2026-08-17-a11-strict-provider-http-transport-red.md`
-- A11 final evidence: `docs/evidence/application/2026-08-17-a11-strict-provider-http-transport.md`
-- A11 behavioral GREEN head: `7f3b373fe0bdfe32ae9f1924e9e461071abeea6d`
-- Final A11 Application workflow: `32014646148` — GREEN, **265/265 application contracts** + K7/A1/A2/A3/A4/A6/A7/A8/A9 real-database acceptance
-- Final A11 Database workflow: `32014646143` — GREEN, **40 files / 1292 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
-- A11 hosted migrations: **none**
-- A11 retained-provider network calls in CI: **0**
-- A10 default authorized provider runtime operations after A11: **0**
+- A1-A13: `DONE` (`A5` remains fixture-only for live-provider authority; A10 is executable default-deny; A11 is a strict outbound HTTPS primitive and remains unbound from retained PSP adapters; A12 is safe runtime logging/correlation; A13 is bounded runtime-only metrics/OpenMetrics)
+- A13 Problem Analysis: `docs/design/a13-operational-metrics-health-signals-problem-analysis.md`
+- A13 frozen spec: `docs/specs/operational-metrics-health-signals-v0.yaml`
+- A13 contract: `docs/contracts/operational-metrics-health-signals-v0.md`
+- A13 RED evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals-red.md`
+- A13 final evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals.md`
+- A13 behavioral GREEN head: `9393fda1cee8a0ceaf3b215d3efc8063ee5cd390`
+- Behavioral A13 Application workflow: `32094346060` — GREEN, **288/288 application contracts**, including **12/12 A13**, + K7/A1-A9 real-database acceptance
+- Behavioral A13 Database workflow: `32094346105` — GREEN, **40 files / 1292 pgTAP assertions** + deterministic sandbox fixtures + runtime topology
+- Evidence-head workflows: Application `32094504874` — GREEN; Database `32094504849` — GREEN
+- A13 hosted migrations: **none**
+- A13 retained-provider network calls: **0**
+- A10 default authorized provider runtime operations after A13: **0**
 - Hosted post-A9 `swiftpay_api`: exact **23** `app` EXECUTE capabilities
 - Hosted post-A9 `swiftpay_worker`: exact **6** `app` EXECUTE capabilities
 - Hosted Security Advisor after A9: **0 lints**
@@ -46,7 +47,7 @@ Executive readiness checkpoint: `docs/product/v1-readiness-status.md`.
 - Production-capable Pix V1 estimate: ~60%
 - Weighted V1 engineering estimate: ~75%
 - Current external critical blocker: exact current PSP contract/lineage/idempotency/recovery/webhook-auth evidence plus authenticated current sandbox proof for the selected retained contract
-- Next internal action: choose the next risk-weighted V1 slice and restart at `PROBLEM_ANALYSIS`; do not bridge A5 retained adapters to A11 until the applicable exact current-contract and sandbox evidence gates close
+- Next internal action: start the next highest risk-adjusted unblocked production-hardening slice at `PROBLEM_ANALYSIS`; current candidate is abuse/rate-limit hardening. Do not bridge A5 retained adapters to A11 until the applicable exact current-contract and sandbox evidence gates close.
 
 ## Non-negotiable delivery method
 
@@ -391,13 +392,43 @@ Other merchant/admin work:
 
 # Phase 7 — Production hardening and launch
 
-## Observability — `PENDING`
+## A12 — structured runtime logging & correlation — `DONE / GREEN / RUNTIME-ONLY`
 
-Structured redacted logs, auth/Pix/provider/job/webhook/reconciliation metrics, correlation tracing, alerts, dashboards and SLOs.
+Problem Analysis: `docs/design/a12-structured-runtime-logging-correlation-problem-analysis.md`.
+Spec: `docs/specs/structured-runtime-logging-correlation-v0.yaml`.
+Contract: `docs/contracts/structured-runtime-logging-correlation-v0.md`.
+Evidence: `docs/evidence/application/2026-08-17-a12-structured-runtime-logging-correlation.md`.
+
+Accepted: server-owned UUIDv4 request correlation, closed-schema redacted JSONL logging, matched-route-template access events, no raw Error forwarding and no hidden network/database exporter authority. Behavioral proof: Application `32019551464` — **276/276 PASS**; Database `32019551475` — **40 files / 1292 assertions PASS**.
+
+Known compatibility debt remains explicit: Fastify 5.11 emits `FSTDEP023` for the top-level `disableRequestLogging` option; migrate before Fastify 6 in a dedicated compatibility slice.
+
+## A13 — operational metrics & health signals — `DONE / GREEN / RUNTIME-ONLY`
+
+Problem Analysis: `docs/design/a13-operational-metrics-health-signals-problem-analysis.md`.
+Spec: `docs/specs/operational-metrics-health-signals-v0.yaml`.
+Contract: `docs/contracts/operational-metrics-health-signals-v0.md`.
+Evidence: `docs/evidence/application/2026-08-17-a13-operational-metrics-health-signals.md`.
+
+Accepted: dependency-free `@swiftpay/metrics`, closed low-cardinality metric methods, HTTP count/duration, readiness and worker-batch outcomes, deterministic bounded OpenMetrics rendering, optional workload-specific scrape ports and loopback-only `127.0.0.1` listeners. Dynamic IDs, money, PII, raw URLs, SQL, errors, secrets and provider payloads are excluded from labels/output. Telemetry failure cannot change payment/domain/readiness/worker semantics.
+
+Final GREEN proof:
+
+- behavioral head `9393fda1cee8a0ceaf3b215d3efc8063ee5cd390`;
+- Application workflow `32094346060`: **288/288 application contracts PASS**, including **12/12 A13**, + K7/A1-A9 real-database acceptance;
+- Database workflow `32094346105`: **40 files / 1292 pgTAP assertions PASS**, K5 and K6 GREEN;
+- evidence-head workflows `32094504874` / `32094504849`: GREEN;
+- hosted Supabase changes: none;
+- retained-provider calls: none;
+- provider/financial authority changes: none.
+
+Remaining observability work — `PENDING`: external collection/export, alerting, dashboards, SLO policy and distributed tracing. These are not implicit in A13.
 
 ## Security hardening — `PENDING`
 
 Final secret inventory/rotation, signing-key rotation architecture, dependency/security review, least-privilege audit, abuse/rate-limit review and operational audit review.
+
+Highest current unblocked risk-adjusted candidate: abuse/rate-limit hardening across public machine and dashboard boundaries. It must begin at `PROBLEM_ANALYSIS`; no A14 behavior is authorized yet.
 
 ## Performance debt — `PENDING`
 
@@ -439,17 +470,21 @@ Parallel internal product path:
   -> A9 merchant transaction operations                  DONE / HOSTED
   -> broader admin/KYC/payout operations                 PENDING
 
-Then:
-  -> production hardening / observability / cutover      PENDING
+Parallel production-hardening path:
+  -> A12 safe runtime logging/correlation                DONE / GREEN
+  -> A13 bounded operational metrics/OpenMetrics         DONE / GREEN
+  -> abuse/rate-limit hardening                          NEXT PROBLEM_ANALYSIS
+  -> external exporters/alerts/SLOs/tracing              PENDING
+  -> security/cutover/rollback                           PENDING
 ```
 
 ## Immediate next action
 
-A11 is fully GREEN and intentionally unbound from retained provider adapters. The next new behavior must begin again at `PROBLEM_ANALYSIS`.
+A13 is fully GREEN and runtime-only. The next new behavior must begin again at `PROBLEM_ANALYSIS`.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
 3. if provider evidence closes first, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
-4. otherwise choose the highest risk-adjusted internal V1 slice from merchant/admin, checkout/link, observability, security or cutover work and freeze its Problem Analysis;
+4. otherwise freeze a bounded abuse/rate-limit hardening Problem Analysis covering machine and dashboard public boundaries without inventing implementation before the contract;
 5. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
 6. do not call AkkadPag, AkadPay or FlevoPay monetarily until the exact current-contract, sandbox and activation gates are closed.
