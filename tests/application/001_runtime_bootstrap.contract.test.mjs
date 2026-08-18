@@ -64,6 +64,8 @@ test('bootstrap source names only workload-specific database URLs', async () => 
     'apps/api/src/index.ts',
     'apps/worker/src/index.ts',
     'packages/config/src/index.ts',
+    'packages/config/src/core.ts',
+    'packages/config/src/a16-api-config.ts',
     'packages/db/src/index.ts',
   ];
   const source = (await Promise.all(candidatePaths.map(async (path) => (await exists(path)) ? text(path) : ''))).join('\n');
