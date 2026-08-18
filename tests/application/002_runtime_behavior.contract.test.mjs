@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const secretUrl = 'postgresql://swiftpay_api_runtime:do-not-leak-this@127.0.0.1:54322/postgres';
+const apiSigningConfig = {
+  SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID: 'machine-k7-test',
+  SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS: JSON.stringify([
+    { id: 'machine-k7-test', secret: '0123456789abcdef0123456789abcdef' },
+  ]),
+};
 
 async function imports() {
   const [config, db, api] = await Promise.all([
@@ -23,6 +29,7 @@ test('K7 API config rejects malformed/non-PostgreSQL database URLs without leaki
       () => config.loadApiConfig({
         SWIFTPAY_ENVIRONMENT: 'sandbox',
         SWIFTPAY_API_DATABASE_URL: databaseUrl,
+        ...apiSigningConfig,
       }),
       (error) => {
         assert.equal(error?.name, 'ConfigurationError');
@@ -57,6 +64,7 @@ test('K7 workload config never falls back to the other workload database URL', a
   assert.throws(() => config.loadApiConfig({
     SWIFTPAY_ENVIRONMENT: 'sandbox',
     SWIFTPAY_WORKER_DATABASE_URL: secretUrl,
+    ...apiSigningConfig,
   }), /SWIFTPAY_API_DATABASE_URL/);
 
   assert.throws(() => config.loadWorkerConfig({
