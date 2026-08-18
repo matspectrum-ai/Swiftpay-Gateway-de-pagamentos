@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import {
-  createCipheriv,
   generateKeyPairSync,
   publicEncrypt,
   constants,
@@ -15,16 +14,6 @@ const DELIVERY_ID = '71000000-0000-0000-0000-0000000000a7';
 const EVENT_ID = '72000000-0000-0000-0000-0000000000a7';
 const JOB_ID = '73000000-0000-0000-0000-0000000000a7';
 const LEASE = '74000000-0000-0000-0000-0000000000a7';
-const LEGACY_KEY = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
-
-function legacyCiphertext(secret, version = 1) {
-  const nonce = Buffer.alloc(12, 7);
-  const aad = Buffer.from(`swiftpay-webhook-secret-v1\n${ENDPOINT_ID}\n${version}`, 'utf8');
-  const cipher = createCipheriv('aes-256-gcm', LEGACY_KEY, nonce);
-  cipher.setAAD(aad);
-  const encrypted = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
-  return `aes-256-gcm-v1$${nonce.toString('base64url')}$${encrypted.toString('base64url')}$${cipher.getAuthTag().toString('base64url')}`;
-}
 
 function rsaFixture(secret, version = 2, keyId = 'webhook-wrap-a7-v1') {
   const pair = generateKeyPairSync('rsa', {
@@ -83,7 +72,6 @@ async function runOne({ deliveryClaim, privateKeyring = {} }) {
       claim: async () => [deliveryClaim],
       resolve: async (input) => { resolutions.push(input); return true; },
     },
-    encryptionKey: LEGACY_KEY,
     privateKeyring,
     endpointPolicy: {
       resolveAndValidate: async (url) => ({ url, hostname: 'snapshot.merchant.example', port: 443, pinnedAddress: '93.184.216.34' }),
@@ -97,13 +85,20 @@ async function runOne({ deliveryClaim, privateKeyring = {} }) {
   return { result, resolutions, requests };
 }
 
-test('A7 worker keeps A4 legacy AES delivery compatibility while extending claim projection', async () => {
-  const secret = 'legacy-secret-material-0123456789abcdef';
+test('A7/A17 worker rejects historical AES delivery material before endpoint policy or transport', async () => {
   const outcome = await runOne({
-    deliveryClaim: claim({ version: 1, ciphertext: legacyCiphertext(secret), format: 'aes-256-gcm-v1', wrappingKeyId: null }),
+    deliveryClaim: claim({
+      version: 1,
+      ciphertext: 'aes-256-gcm-v1$historical$fixture$only',
+      format: 'aes-256-gcm-v1',
+      wrappingKeyId: null,
+    }),
   });
-  assert.equal(outcome.result.succeeded, 1);
-  assert.equal(outcome.requests.length, 1);
+  assert.deepEqual(outcome.result, { claimed: 1, succeeded: 0, retried: 0, terminal: 1 });
+  assert.equal(outcome.requests.length, 0);
+  assert.equal(outcome.resolutions[0].outcome, 'terminal');
+  assert.equal(outcome.resolutions[0].errorClass, 'configuration');
+  assert.match(outcome.resolutions[0].errorCode, /^signing_secret_(unavailable|invalid)$/);
 });
 
 test('A7 worker decrypts RSA-OAEP-SHA256 historical/current secret rows and emits immutable signature version header', async () => {
@@ -119,17 +114,43 @@ test('A7 worker decrypts RSA-OAEP-SHA256 historical/current secret rows and emit
   assert.equal(outcome.requests[0].headers['x-swiftpay-signature-version'], '2');
 });
 
+test('A7/A17 old and new retained RSA keys are selected only by exact persisted key ID', async () => {
+  const oldRsa = rsaFixture('whsec_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC', 2, 'webhook-wrap-a7-old');
+  const newRsa = rsaFixture('whsec_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD', 3, 'webhook-wrap-a7-new');
+  const retained = { ...oldRsa.privateKeyring, ...newRsa.privateKeyring };
+
+  const oldOutcome = await runOne({
+    deliveryClaim: claim({ version: 2, ciphertext: oldRsa.ciphertext, format: 'rsa-oaep-sha256-v1', wrappingKeyId: oldRsa.keyId }),
+    privateKeyring: retained,
+  });
+  assert.equal(oldOutcome.result.succeeded, 1);
+
+  const newOutcome = await runOne({
+    deliveryClaim: claim({ version: 3, ciphertext: newRsa.ciphertext, format: 'rsa-oaep-sha256-v1', wrappingKeyId: newRsa.keyId }),
+    privateKeyring: retained,
+  });
+  assert.equal(newOutcome.result.succeeded, 1);
+
+  const mismatched = await runOne({
+    deliveryClaim: claim({ version: 2, ciphertext: oldRsa.ciphertext, format: 'rsa-oaep-sha256-v1', wrappingKeyId: newRsa.keyId }),
+    privateKeyring: retained,
+  });
+  assert.equal(mismatched.requests.length, 0);
+  assert.equal(mismatched.result.terminal, 1);
+});
+
 test('A7 effective delivery database claim reads endpoint_url_snapshot rather than mutable endpoint url', async () => {
   const source = await readFile('supabase/migrations/20260816073604_webhook_endpoint_management_behavior_fix.sql', 'utf8');
   assert.match(source, /endpoint_url_snapshot/);
   assert.doesNotMatch(source, /ep\.url\s+as\s+endpoint_url/i);
 });
 
-test('A7 RSA unwrap failure remains terminal before HTTP and never downgrades to legacy AES trial-decrypt', async () => {
+test('A7 RSA unwrap failure remains terminal before HTTP and never trial-decrypts another retained key', async () => {
   const rsa = rsaFixture('whsec_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', 2);
+  const unrelated = rsaFixture('whsec_EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE', 2, 'webhook-wrap-a7-other');
   const outcome = await runOne({
     deliveryClaim: claim({ version: 2, ciphertext: rsa.ciphertext, format: 'rsa-oaep-sha256-v1', wrappingKeyId: rsa.keyId }),
-    privateKeyring: {},
+    privateKeyring: unrelated.privateKeyring,
   });
   assert.equal(outcome.requests.length, 0);
   assert.equal(outcome.result.terminal, 1);
