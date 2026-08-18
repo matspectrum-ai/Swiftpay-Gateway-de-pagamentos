@@ -1,4 +1,5 @@
 import { normalizeCanonicalIp } from '../../abuse/dist/index.js';
+import { parseWebhookWrappingPrivateKeyring } from '../../webhooks/dist/index.js';
 
 export type SwiftpayEnvironment = 'sandbox' | 'production';
 
@@ -9,7 +10,6 @@ export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
 export const MAX_ACCESS_TOKEN_SIGNING_KEYS = 4;
 export const DASHBOARD_CURSOR_HMAC_KEY_ENV = 'SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY';
 export const MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES = 32;
-export const WEBHOOK_SECRET_ENCRYPTION_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY';
 export const WEBHOOK_SECRET_WRAP_KEY_ID_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID';
 export const WEBHOOK_SECRET_WRAP_PUBLIC_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY';
 export const WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV = 'SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS';
@@ -47,8 +47,7 @@ export interface ApiConfig {
 export interface WorkerConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
-  readonly webhookSecretEncryptionKey: string;
-  readonly webhookSecretWrapPrivateKeys?: string;
+  readonly webhookSecretWrapPrivateKeys: string;
   readonly metricsPort?: number;
 }
 
@@ -257,23 +256,6 @@ function supabasePublishableKey(source: EnvironmentSource): string {
   return value;
 }
 
-function webhookSecretEncryptionKey(source: EnvironmentSource): string {
-  const value = required(source, WEBHOOK_SECRET_ENCRYPTION_KEY_ENV);
-  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.includes('=')) {
-    throw new ConfigurationError(`${WEBHOOK_SECRET_ENCRYPTION_KEY_ENV} must be a valid 32-byte base64url-no-padding key`);
-  }
-
-  try {
-    const decoded = Buffer.from(value, 'base64url');
-    if (decoded.length !== 32 || decoded.toString('base64url') !== value) {
-      throw new Error('invalid webhook encryption key');
-    }
-  } catch {
-    throw new ConfigurationError(`${WEBHOOK_SECRET_ENCRYPTION_KEY_ENV} must be a valid 32-byte base64url-no-padding key`);
-  }
-  return value;
-}
-
 function webhookSecretWrapKeyId(source: EnvironmentSource): string {
   const value = required(source, WEBHOOK_SECRET_WRAP_KEY_ID_ENV);
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value)) {
@@ -298,27 +280,15 @@ function canonicalBase64Url(source: EnvironmentSource, name: string): string {
   return value;
 }
 
-function optionalPrivateKeyring(source: EnvironmentSource): string | undefined {
-  const raw = source[WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV]?.trim();
-  if (!raw) return undefined;
+function requiredPrivateKeyring(source: EnvironmentSource): string {
+  const raw = required(source, WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV);
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid keyring');
-    const entries = Object.entries(parsed as Record<string, unknown>);
-    if (entries.length < 1 || entries.length > 16) throw new Error('invalid keyring');
-    for (const [keyId, encoded] of entries) {
-      if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(keyId)
-        || typeof encoded !== 'string'
-        || !/^[A-Za-z0-9_-]+$/.test(encoded)
-        || encoded.includes('=')) {
-        throw new Error('invalid keyring');
-      }
-      const decoded = Buffer.from(encoded, 'base64url');
-      if (decoded.length === 0 || decoded.toString('base64url') !== encoded) throw new Error('invalid keyring');
-    }
+    parseWebhookWrappingPrivateKeyring(raw);
     return raw;
   } catch {
-    throw new ConfigurationError(`${WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV} must be a JSON keyId-to-base64url private-key object`);
+    throw new ConfigurationError(
+      `${WEBHOOK_SECRET_WRAP_PRIVATE_KEYS_ENV} must be a JSON keyId-to-base64url PKCS#8 RSA private-key object with 1..16 entries`,
+    );
   }
 }
 
@@ -352,15 +322,13 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
 export function loadWorkerConfig(source: EnvironmentSource = process.env): WorkerConfig {
   const resolvedEnvironment = environment(source);
   const databaseUrl = postgresUrl(source, 'SWIFTPAY_WORKER_DATABASE_URL');
-  const encryptionKey = webhookSecretEncryptionKey(source);
-  const privateKeys = optionalPrivateKeyring(source);
+  const privateKeys = requiredPrivateKeyring(source);
   const metricsPort = optionalMetricsPort(source, WORKER_METRICS_PORT_ENV);
 
   return {
     environment: resolvedEnvironment,
     databaseUrl,
-    webhookSecretEncryptionKey: encryptionKey,
-    ...(privateKeys === undefined ? {} : { webhookSecretWrapPrivateKeys: privateKeys }),
+    webhookSecretWrapPrivateKeys: privateKeys,
     ...(metricsPort === undefined ? {} : { metricsPort }),
   };
 }
