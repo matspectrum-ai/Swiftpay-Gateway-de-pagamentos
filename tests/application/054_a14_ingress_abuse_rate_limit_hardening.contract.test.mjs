@@ -222,7 +222,7 @@ test('A14 admission unavailability fails closed as sanitized 503 without limiter
 
 test('A14 config freezes exact trusted proxies plus dedicated HMAC authority without generic trustProxy', async () => {
   const [configSource, appSource] = await Promise.all([
-    readFile(path.join(ROOT, 'packages/config/src/index.ts'), 'utf8'),
+    readFile(path.join(ROOT, 'packages/config/src/core.ts'), 'utf8'),
     readFile(path.join(ROOT, 'apps/api/src/app.ts'), 'utf8'),
   ]);
   assert.match(configSource, /SWIFTPAY_TRUSTED_PROXY_IPS/);
