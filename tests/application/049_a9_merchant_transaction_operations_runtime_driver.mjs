@@ -6,7 +6,8 @@ import * as db from '../../packages/db/dist/index.js';
 import * as payments from '../../packages/payments/dist/index.js';
 
 const DATABASE_URL = process.env.SWIFTPAY_API_DATABASE_URL;
-const CURSOR_KEY = process.env.SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY;
+const CURSOR_ACTIVE_KEY_ID = process.env.SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID;
+const CURSOR_KEYS_RAW = process.env.SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS;
 const ADMIN_DB_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
 const MERCHANT_A = '29000000-0000-0000-0000-000000000901';
@@ -38,12 +39,23 @@ function check(condition, message) {
   if (!condition) fail(message);
 }
 if (!DATABASE_URL) fail('SWIFTPAY_API_DATABASE_URL is required');
-if (!CURSOR_KEY) fail('SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY is required');
+if (!CURSOR_ACTIVE_KEY_ID) fail('SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID is required');
+if (!CURSOR_KEYS_RAW) fail('SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS is required');
+
+let cursorKeys;
+try {
+  cursorKeys = JSON.parse(CURSOR_KEYS_RAW);
+} catch {
+  fail('SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS must be valid JSON');
+}
 
 const pool = db.createRuntimePool({ databaseUrl: DATABASE_URL, workload: 'api' });
 const contextStore = db.createDashboardMerchantContextStore(pool);
 const store = db.createDashboardTransactionStore(pool);
-const cursorCodec = payments.createDashboardTransactionCursorCodec({ key: CURSOR_KEY });
+const cursorCodec = payments.createDashboardTransactionCursorCodec({
+  activeKeyId: CURSOR_ACTIVE_KEY_ID,
+  keys: cursorKeys,
+});
 
 const sessionVerifier = async (authorization) => {
   const token = typeof authorization === 'string' ? authorization.replace(/^Bearer /, '') : '';
@@ -167,6 +179,7 @@ try {
   const page1Body = page1.json();
   assert.deepEqual(page1Body.items.map((item) => item.id), [PAYMENT.paid, PAYMENT.pending]);
   assert.equal(typeof page1Body.nextCursor, 'string');
+  assert.match(page1Body.nextCursor, /^a9v1\./);
 
   adminSql(`
     insert into app.payments (
@@ -232,8 +245,10 @@ try {
   assert.deepEqual(bounded.json().items.map((item) => item.id), [PAYMENT.creating]);
 
   const tamperedParts = page1Body.nextCursor.split('.');
-  const signature = tamperedParts[2];
-  tamperedParts[2] = `${signature.slice(0, -1)}${signature.endsWith('A') ? 'B' : 'A'}`;
+  assert.equal(tamperedParts.length, 4);
+  const signatureIndex = tamperedParts.length - 1;
+  const signature = tamperedParts[signatureIndex];
+  tamperedParts[signatureIndex] = `${signature.slice(0, -1)}${signature.endsWith('A') ? 'B' : 'A'}`;
   const tampered = await list({ query: { limit: 2, cursor: tamperedParts.join('.') } });
   assert.equal(tampered.statusCode, 400);
   assert.equal(tampered.json().error.code, 'validation_error');
