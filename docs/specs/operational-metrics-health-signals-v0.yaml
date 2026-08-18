@@ -1,0 +1,187 @@
+version: 0
+feature: a13-operational-metrics-health-signals
+status: frozen
+implementation_authority: tests_red_first
+
+scope:
+  workloads: [api, worker]
+  goals:
+    - bounded vendor-neutral in-memory operational metrics
+    - machine-readable OpenMetrics scrape for trusted local infrastructure
+    - preserve existing liveness and readiness semantics
+    - keep observability failure independent from payment/domain outcomes
+  non_goals:
+    - provider activation or provider adapter bridging
+    - live PSP traffic
+    - payment ledger payout refund or reconciliation mutation
+    - merchant analytics GMV revenue conversion or amount metrics
+    - distributed tracing
+    - external telemetry vendor integration
+    - metrics persistence in PostgreSQL or Supabase
+    - arbitrary labels or metadata bags
+
+metrics:
+  namespace: swiftpay
+  registry:
+    storage: process_memory_only
+    workload_isolation: separate_registry_per_process
+    unknown_metric: reject_before_mutation
+    unknown_label: reject_before_mutation
+    invalid_label_value: reject_before_mutation
+    recording_failure: must_not_change_domain_or_http_outcome
+  route_values:
+    - /health/live
+    - /health/ready
+    - /v1/auth/token
+    - /v1/transactions
+    - /v1/transactions/:id
+    - /v1/balance
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints/:endpointId
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints/:endpointId/disable
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints/:endpointId/enable
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints/:endpointId/rotate-secret
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/api-credentials
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/api-credentials/:credentialId
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/api-credentials/:credentialId/rotate-secret
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/api-credentials/:credentialId/revoke
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/transactions
+    - /dashboard/v1/merchants/:merchantId/environments/:environment/transactions/:transactionId
+    - <unmatched>
+  methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD]
+  status_classes: [1xx, 2xx, 3xx, 4xx, 5xx]
+  readiness_outcomes: [ok, failed]
+  worker_batches: [merchant_webhook_delivery]
+  worker_batch_outcomes: [success, failure]
+  families:
+    - name: swiftpay_http_requests_total
+      type: counter
+      workload: api
+      labels: [method, route, status_class]
+      increments: exactly_once_per_completed_http_response
+    - name: swiftpay_http_request_duration_ms
+      type: histogram
+      workload: api
+      labels: [method, route]
+      buckets_ms: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
+      observations: exactly_once_per_completed_http_response
+      duration_bounds_ms: [0, 86400000]
+    - name: swiftpay_readiness_checks_total
+      type: counter
+      workload: [api, worker]
+      labels: [workload, outcome]
+      increments:
+        api: exactly_once_per_health_ready_attempt
+        worker: exactly_once_per_startup_or_check_readiness_attempt
+    - name: swiftpay_worker_batches_total
+      type: counter
+      workload: worker
+      labels: [batch, outcome]
+      increments: exactly_once_per_webhook_run_batch_attempt
+
+http_instrumentation:
+  route_source: fastify_matched_route_template_or_unmatched_sentinel
+  concrete_url_forbidden: true
+  query_string_forbidden: true
+  request_id_label_forbidden: true
+  status_class_mapping:
+    100-199: 1xx
+    200-299: 2xx
+    300-399: 3xx
+    400-499: 4xx
+    500-599: 5xx
+  metric_failure_handling: absorb_without_changing_selected_response
+
+worker_instrumentation:
+  webhook_batch:
+    success: runBatch_resolves
+    failure: runBatch_throws
+    no_work: counted_as_success
+  metric_failure_handling: absorb_without_retry_or_worker_behavior_change
+
+scrape:
+  protocol: HTTP/1.1
+  path: /metrics
+  method: GET
+  format: OpenMetrics_text_1_0
+  content_type: 'application/openmetrics-text; version=1.0.0; charset=utf-8'
+  cache_control: no-store
+  max_response_bytes: 262144
+  exposure:
+    listener: separate_from_public_api
+    host: 127.0.0.1
+    auth: none_loopback_only
+    forwarded_headers: ignored
+    enabled_by:
+      api: SWIFTPAY_API_METRICS_PORT
+      worker: SWIFTPAY_WORKER_METRICS_PORT
+    disabled_when_port_absent: true
+    port_range: [1, 65535]
+  unsupported_path: 404
+  unsupported_method: 404
+  exporter_failure:
+    response: sanitized_500
+    affects_readiness: false
+    affects_domain: false
+
+openmetrics:
+  deterministic_order:
+    families: lexical_metric_name
+    series: lexical_label_tuple
+    histogram_buckets: ascending_numeric_then_inf
+  escaping: openmetrics_label_value_rules
+  final_marker: '# EOF\n'
+  include_help: true
+  include_type: true
+  exemplars: forbidden
+  timestamps: forbidden
+
+security:
+  forbidden_metric_content:
+    - merchant_id
+    - payment_id
+    - credential_id
+    - endpoint_id
+    - external_id
+    - request_id
+    - provider_transaction_id
+    - customer_name
+    - customer_document
+    - customer_email
+    - exact_amount
+    - raw_url
+    - query_string
+    - request_or_response_body
+    - authorization
+    - cookie
+    - api_key
+    - secret
+    - database_url
+    - sql
+    - error_message
+    - stack_trace
+    - provider_payload
+  provider_dimension: forbidden_in_v0
+  database_queries_for_metrics: forbidden
+  database_migrations: none
+  provider_network_authority_change: none
+
+health:
+  health_live_semantics: unchanged_process_liveness_only
+  health_ready_semantics: unchanged_required_dependency_readiness_only
+  metrics_listener_health_dependency: false
+  telemetry_backend_dependency: none
+
+acceptance:
+  - exact metric names types labels and buckets are frozen
+  - unknown labels and label values fail before registry mutation
+  - sensitive and dynamic identifier canaries never appear in scrape output
+  - matched route templates are used and concrete URLs collapse to frozen route labels
+  - each completed HTTP response records one counter increment and one histogram observation
+  - each readiness attempt records exactly one bounded outcome
+  - each worker webhook batch attempt records exactly one success or failure
+  - telemetry recording and scrape failures cannot alter business outcomes or readiness
+  - scrape listener is loopback only and absent unless the workload-specific port is configured
+  - no provider activation network or financial authority changes
+  - no database migration or protected-table access
+  - all prior application and database regression gates remain green
