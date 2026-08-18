@@ -28,6 +28,7 @@ import {
   createDashboardTransactionReadService,
   createDeterministicPixEmulator,
   createPixPaymentService,
+  type DashboardTransactionCursorHmacKey,
 } from '../../../packages/payments/dist/index.js';
 import {
   createDashboardWebhookEndpointManagementService,
@@ -52,7 +53,9 @@ export interface ApiRuntimeServicesOptions {
   readonly jti?: () => string;
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
-  readonly dashboardCursorHmacKey: string;
+  readonly dashboardCursorActiveKeyId: string;
+  readonly dashboardCursorHmacKeys: readonly DashboardTransactionCursorHmacKey[];
+  readonly dashboardCursorLegacyV0Key?: string;
   readonly trustedProxyIps?: readonly string[];
   readonly abuseHmacKey?: string;
   readonly webhookSecretWrapKeyId?: string;
@@ -111,7 +114,11 @@ export function createApiRuntimeServices(
   });
   const dashboardTransactionStore = createDashboardTransactionStore(pool);
   const dashboardTransactionCursorCodec = createDashboardTransactionCursorCodec({
-    key: options.dashboardCursorHmacKey,
+    activeKeyId: options.dashboardCursorActiveKeyId,
+    keys: options.dashboardCursorHmacKeys,
+    ...(options.dashboardCursorLegacyV0Key === undefined
+      ? {}
+      : { legacyV0Key: options.dashboardCursorLegacyV0Key }),
   });
   const dashboardTransactionReadService = createDashboardTransactionReadService({
     sessionVerifier: dashboardSessionVerifier,
