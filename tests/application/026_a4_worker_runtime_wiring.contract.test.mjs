@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const WEBHOOK_KEY = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8';
 const DELIVERY_ID = 'b6100000-0000-0000-0000-000000000001';
 const JOB_ID = 'b6200000-0000-0000-0000-000000000001';
 const LEASE_TOKEN = 'b6300000-0000-0000-0000-000000000001';
+const WRAPPING_KEY_ID = 'webhook-wrap-a4-runtime-v1';
+const pair = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'der' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'der' },
+});
+const privateKeyring = { [WRAPPING_KEY_ID]: pair.privateKey.toString('base64url') };
 
 const claim = {
   jobId: JOB_ID,
@@ -20,6 +27,8 @@ const claim = {
     environment: 'sandbox',
     signingSecretVersion: 7,
     signingSecretCiphertext: null,
+    signingSecretCiphertextFormat: null,
+    signingSecretWrappingKeyId: null,
   },
   event: {
     id: 'b6500000-0000-0000-0000-000000000001',
@@ -68,7 +77,7 @@ test('A4 worker runtime composes webhook delivery through composed worker-only D
   const clock = { nowUnixSeconds: () => 1_893_456_000 };
 
   const services = runtime.createWorkerRuntimeServices(pool, {
-    webhookEncryptionKey: WEBHOOK_KEY,
+    webhookPrivateKeyring: privateKeyring,
     webhookEndpointPolicy: endpointPolicy,
     webhookTransport: transport,
     clock,
@@ -91,20 +100,15 @@ test('A4 worker runtime never uses generic claim_jobs for webhook delivery sched
   assert.doesNotMatch(source, /claimJobs|claim_jobs/);
 });
 
-test('A4 worker config names a worker-only webhook encryption key without fallback or secret echo', async () => {
+test('A4/A17 worker config requires validated RSA private-keyring authority without fallback or secret echo', async () => {
   const source = await readFile('packages/config/src/core.ts', 'utf8');
-  assert.match(source, /SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY/);
-
-  const helperMatch = source.match(/function webhookSecretEncryptionKey\([\s\S]*?\n}\n/);
-  assert.ok(helperMatch, 'webhook key validator must be explicit and independently auditable');
-  assert.doesNotMatch(
-    helperMatch[0],
-    /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY|ACCESS_TOKEN_SIGNING_KEY_ENV/,
-    'webhook key validation must never fall back to the access-token signing key',
-  );
+  assert.match(source, /SWIFTPAY_WEBHOOK_SECRET_WRAP_PRIVATE_KEYS/);
+  assert.match(source, /parseWebhookWrappingPrivateKeyring/);
+  assert.doesNotMatch(source, /SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY|webhookSecretEncryptionKey/);
 
   const runtimeSource = await readFile('apps/worker/src/runtime.ts', 'utf8');
-  assert.doesNotMatch(runtimeSource, /console\.(log|error).*WEBHOOK_SECRET|process\.stdout.*webhookEncryptionKey/i);
+  assert.match(runtimeSource, /webhookPrivateKeyring/);
+  assert.doesNotMatch(runtimeSource, /console\.(log|error).*WEBHOOK_SECRET|process\.stdout.*webhookPrivateKeyring/i);
 });
 
 test('A4 worker bootstrap runs the composed webhook batch loop instead of the old no-job-loop placeholder', async () => {
