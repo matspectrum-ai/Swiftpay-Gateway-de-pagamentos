@@ -2,8 +2,11 @@ import { normalizeCanonicalIp } from '../../abuse/dist/index.js';
 
 export type SwiftpayEnvironment = 'sandbox' | 'production';
 
-export const ACCESS_TOKEN_SIGNING_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEY';
+export const ACCESS_TOKEN_ACTIVE_KEY_ID_ENV = 'SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID';
+export const ACCESS_TOKEN_SIGNING_KEYS_ENV = 'SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS';
+export const ACCESS_TOKEN_LEGACY_NO_KID_KEY_ENV = 'SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY';
 export const MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES = 32;
+export const MAX_ACCESS_TOKEN_SIGNING_KEYS = 4;
 export const DASHBOARD_CURSOR_HMAC_KEY_ENV = 'SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY';
 export const MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES = 32;
 export const WEBHOOK_SECRET_ENCRYPTION_KEY_ENV = 'SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY';
@@ -18,10 +21,17 @@ export const TRUSTED_PROXY_IPS_ENV = 'SWIFTPAY_TRUSTED_PROXY_IPS';
 export const ABUSE_HMAC_KEY_ENV = 'SWIFTPAY_ABUSE_HMAC_KEY';
 export const MIN_ABUSE_HMAC_KEY_BYTES = 32;
 
+export interface AccessTokenSigningKeyConfig {
+  readonly id: string;
+  readonly secret: string;
+}
+
 export interface ApiConfig {
   readonly environment: SwiftpayEnvironment;
   readonly databaseUrl: string;
-  readonly accessTokenSigningKey: string;
+  readonly accessTokenActiveKeyId: string;
+  readonly accessTokenSigningKeys: readonly AccessTokenSigningKeyConfig[];
+  readonly accessTokenLegacyNoKidKey?: string;
   readonly dashboardCursorHmacKey: string;
   readonly supabaseUrl: string;
   readonly supabasePublishableKey: string;
@@ -43,6 +53,8 @@ export interface WorkerConfig {
 }
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>;
+
+const ACCESS_TOKEN_KEY_ID_SHAPE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export class ConfigurationError extends Error {
   constructor(message: string) {
@@ -101,14 +113,67 @@ function optionalMetricsPort(source: EnvironmentSource, name: string): number | 
   return parsed;
 }
 
-function accessTokenSigningKey(source: EnvironmentSource): string {
-  const value = source[ACCESS_TOKEN_SIGNING_KEY_ENV];
-  if (value === undefined) {
-    throw new ConfigurationError(`Missing required environment variable: ${ACCESS_TOKEN_SIGNING_KEY_ENV}`);
+function accessTokenActiveKeyId(source: EnvironmentSource): string {
+  const value = required(source, ACCESS_TOKEN_ACTIVE_KEY_ID_ENV);
+  if (!ACCESS_TOKEN_KEY_ID_SHAPE.test(value)) {
+    throw new ConfigurationError(`${ACCESS_TOKEN_ACTIVE_KEY_ID_ENV} must be a valid access-token key identifier`);
   }
+  return value;
+}
+
+function hasExactFields(value: object, fields: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  return actual.length === expected.length && actual.every((field, index) => field === expected[index]);
+}
+
+function accessTokenSigningKeys(source: EnvironmentSource): readonly AccessTokenSigningKeyConfig[] {
+  const raw = source[ACCESS_TOKEN_SIGNING_KEYS_ENV];
+  if (raw === undefined) {
+    throw new ConfigurationError(`Missing required environment variable: ${ACCESS_TOKEN_SIGNING_KEYS_ENV}`);
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > MAX_ACCESS_TOKEN_SIGNING_KEYS) {
+      throw new Error('invalid keyring');
+    }
+    const ids = new Set<string>();
+    const secrets = new Set<string>();
+    const keys: AccessTokenSigningKeyConfig[] = [];
+    for (const entry of parsed) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry) || !hasExactFields(entry, ['id', 'secret'])) {
+        throw new Error('invalid keyring');
+      }
+      const candidate = entry as Record<string, unknown>;
+      if (
+        typeof candidate.id !== 'string'
+        || !ACCESS_TOKEN_KEY_ID_SHAPE.test(candidate.id)
+        || ids.has(candidate.id)
+        || typeof candidate.secret !== 'string'
+        || Buffer.byteLength(candidate.secret, 'utf8') < MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES
+        || secrets.has(candidate.secret)
+      ) {
+        throw new Error('invalid keyring');
+      }
+      ids.add(candidate.id);
+      secrets.add(candidate.secret);
+      keys.push(Object.freeze({ id: candidate.id, secret: candidate.secret }));
+    }
+    return Object.freeze(keys);
+  } catch {
+    throw new ConfigurationError(
+      `${ACCESS_TOKEN_SIGNING_KEYS_ENV} must be a JSON array of 1..${MAX_ACCESS_TOKEN_SIGNING_KEYS} unique valid access-token signing keys`,
+    );
+  }
+}
+
+function accessTokenLegacyNoKidKey(source: EnvironmentSource): string | undefined {
+  const value = source[ACCESS_TOKEN_LEGACY_NO_KID_KEY_ENV];
+  if (value === undefined) return undefined;
   if (Buffer.byteLength(value, 'utf8') < MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES) {
     throw new ConfigurationError(
-      `${ACCESS_TOKEN_SIGNING_KEY_ENV} must contain at least ${MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES} UTF-8 bytes`,
+      `${ACCESS_TOKEN_LEGACY_NO_KID_KEY_ENV} must contain at least ${MIN_ACCESS_TOKEN_SIGNING_KEY_BYTES} UTF-8 bytes`,
     );
   }
   return value;
@@ -259,10 +324,18 @@ function optionalPrivateKeyring(source: EnvironmentSource): string | undefined {
 
 export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfig {
   const metricsPort = optionalMetricsPort(source, API_METRICS_PORT_ENV);
+  const activeKeyId = accessTokenActiveKeyId(source);
+  const signingKeys = accessTokenSigningKeys(source);
+  if (!signingKeys.some((entry) => entry.id === activeKeyId)) {
+    throw new ConfigurationError(`${ACCESS_TOKEN_ACTIVE_KEY_ID_ENV} must identify exactly one configured access-token signing key`);
+  }
+  const legacyNoKidKey = accessTokenLegacyNoKidKey(source);
   return {
     environment: environment(source),
     databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
-    accessTokenSigningKey: accessTokenSigningKey(source),
+    accessTokenActiveKeyId: activeKeyId,
+    accessTokenSigningKeys: signingKeys,
+    ...(legacyNoKidKey === undefined ? {} : { accessTokenLegacyNoKidKey: legacyNoKidKey }),
     dashboardCursorHmacKey: dashboardCursorHmacKey(source),
     supabaseUrl: supabaseUrl(source),
     supabasePublishableKey: supabasePublishableKey(source),
