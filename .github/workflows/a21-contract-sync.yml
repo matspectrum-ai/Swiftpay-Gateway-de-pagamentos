@@ -1,0 +1,65 @@
+name: A21 contract sync
+
+on:
+  push:
+    branches: [agent/foundation-phase-0]
+    paths:
+      - ".github/workflows/a21-contract-sync.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Synchronize frozen A21 allowlists and exports
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"anchor mismatch {path}: {text.count(old)}")
+              p.write_text(text.replace(old, new))
+
+          replace(
+              'packages/auth/src/index.ts',
+              "export * from './dashboard-context-discovery.js';",
+              "export { createDashboardContextDiscoveryService } from './dashboard-context-discovery.js';\nexport type {\n  DashboardContextDiscoveryItem,\n  DashboardContextDiscoveryResult,\n  DashboardContextDiscoveryService,\n  DashboardContextDiscoveryStorePort,\n  DashboardContextLifecycleStatus,\n  DashboardContextMembershipRole,\n} from './dashboard-context-discovery.js';",
+          )
+
+          for path in [
+              'supabase/tests/database/028_trusted_runtime_database_boundary_schema.test.sql',
+              'supabase/tests/database/034_paid_transition_ledger_balance_schema.test.sql',
+          ]:
+              replace(path, 'select count(*) = 24', 'select count(*) = 25')
+              replace(
+                  path,
+                  "to_regprocedure('app.list_dashboard_api_credentials(uuid,uuid,text)')::oid,\n",
+                  "to_regprocedure('app.list_dashboard_api_credentials(uuid,uuid,text)')::oid,\n               to_regprocedure('app.list_dashboard_merchant_contexts(uuid)')::oid,\n" if '/028_' in path else "to_regprocedure('app.list_dashboard_api_credentials(uuid,uuid,text)')::oid,\n        to_regprocedure('app.list_dashboard_merchant_contexts(uuid)')::oid,\n",
+              )
+
+          replace(
+              'supabase/tests/database/028_trusted_runtime_database_boundary_schema.test.sql',
+              "swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 A14 allowlist",
+              "swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 A14 A21 allowlist",
+          )
+          replace(
+              'supabase/tests/database/034_paid_transition_ledger_balance_schema.test.sql',
+              "A3 financial read remains inside the exact A14 twenty-four-routine API allowlist",
+              "A3 financial read remains inside the exact A21 twenty-five-routine API allowlist",
+          )
+      - name: Commit synchronized contracts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/auth/src/index.ts supabase/tests/database/028_trusted_runtime_database_boundary_schema.test.sql supabase/tests/database/034_paid_transition_ledger_balance_schema.test.sql
+          git commit -m "test(a21): synchronize exact api capability allowlists"
+          git push origin HEAD:agent/foundation-phase-0
