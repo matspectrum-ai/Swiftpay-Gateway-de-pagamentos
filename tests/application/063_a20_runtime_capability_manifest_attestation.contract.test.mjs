@@ -49,9 +49,20 @@ function assertSortedUnique(values) {
   assert.equal(new Set(values).size, values.length, 'capability signatures must be unique');
 }
 
-test('A20 canonical runtime capability manifest freezes exact API/worker signatures', async () => {
+async function loadManifest() {
   const raw = await readFile(MANIFEST_PATH, 'utf8');
-  const manifest = JSON.parse(raw);
+  return { raw, manifest: JSON.parse(raw) };
+}
+
+function extractSqlManifest(sql) {
+  const roles = { swiftpay_api: [], swiftpay_worker: [] };
+  const pattern = /\('(swiftpay_api|swiftpay_worker)'\s*,\s*'(app\.[^']+)'\)/g;
+  for (const match of sql.matchAll(pattern)) roles[match[1]].push(match[2]);
+  return roles;
+}
+
+test('A20 canonical runtime capability manifest freezes exact API/worker signatures', async () => {
+  const { manifest } = await loadManifest();
   assert.deepEqual(Object.keys(manifest).sort(), ['canonicalSchema', 'roles', 'schemaVersion']);
   assert.equal(manifest.schemaVersion, 'swiftpay-runtime-capabilities-v0');
   assert.equal(manifest.canonicalSchema, 'app');
@@ -70,24 +81,23 @@ test('A20 canonical runtime capability manifest freezes exact API/worker signatu
   }
 });
 
-test('A20 runtime pgTAP asserts exact nominal sets rather than capability counts alone', async () => {
-  const sql = await readFile(SQL_PATH, 'utf8');
+test('A20 runtime pgTAP mirrors the manifest and asserts exact nominal sets rather than counts alone', async () => {
+  const [{ manifest }, sql] = await Promise.all([loadManifest(), readFile(SQL_PATH, 'utf8')]);
 
   assert.match(sql, /swiftpay_api/);
   assert.match(sql, /swiftpay_worker/);
   assert.match(sql, /regprocedure/);
   assert.match(sql, /array_agg/i);
   assert.match(sql, /order by/i);
-  assert.match(sql, /security definer|prosecdef/i);
+  assert.match(sql, /prosecdef/i);
   assert.match(sql, /search_path/i);
   assert.match(sql, /anon/);
   assert.match(sql, /authenticated/);
   assert.match(sql, /service_role/);
 
-  for (const signature of [...API, ...WORKER]) {
-    assert.match(sql, new RegExp(signature.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  }
-
+  const sqlManifest = extractSqlManifest(sql);
+  assert.deepEqual(sqlManifest.swiftpay_api, manifest.roles.swiftpay_api.signatures);
+  assert.deepEqual(sqlManifest.swiftpay_worker, manifest.roles.swiftpay_worker.signatures);
   assert.doesNotMatch(sql, /specific_name\s*=|_[0-9]{4,}/i);
 });
 
@@ -98,11 +108,8 @@ test('A20 existing database workflow already executes all runtime topology pgTAP
 });
 
 test('A20 guardrail introduces no migration, provider, application or financial runtime authority', async () => {
-  const [manifestRaw, sql] = await Promise.all([
-    readFile(MANIFEST_PATH, 'utf8'),
-    readFile(SQL_PATH, 'utf8'),
-  ]);
-  const combined = `${manifestRaw}\n${sql}`;
+  const [{ raw }, sql] = await Promise.all([loadManifest(), readFile(SQL_PATH, 'utf8')]);
+  const combined = `${raw}\n${sql}`;
   assert.doesNotMatch(combined, /grant\s+execute|revoke\s+execute|create\s+function|alter\s+function/i);
   assert.doesNotMatch(combined, /ProviderAttempt|createPayment|post_ledger_transaction|retained-provider/i);
 });
