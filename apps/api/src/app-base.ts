@@ -1,0 +1,907 @@
+import type {
+  DashboardApiCredentialManagementService,
+  MachinePrincipal,
+  TokenExchangeHandler,
+  TokenExchangeRequest,
+} from '@swiftpay/auth';
+import type {
+  MetricsHttpMethod,
+  MetricsRoute,
+  OperationalMetricsRegistry,
+  ReadinessOutcome,
+} from '@swiftpay/metrics';
+import {
+  createSafeRuntimeLogger,
+  type RuntimeEvent,
+  type RuntimeHttpMethod,
+  type SafeRuntimeLogger,
+} from '@swiftpay/observability';
+import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import Fastify, {
+  LogController,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from 'fastify';
+import { admitA14MachineRequest, installA14NetworkAdmission } from './a14-admission.js';
+
+export type ReadinessProbe = () => Promise<void>;
+
+export type BearerAuthenticator = (token: string) => Promise<MachinePrincipal | null>;
+
+interface PixCreateSuccess {
+  readonly ok: true;
+  readonly httpStatus: 201 | 202;
+  readonly payment: unknown;
+  readonly replayed: boolean;
+}
+
+interface PixCreateFailure {
+  readonly ok: false;
+  readonly httpStatus: 400 | 403 | 409 | 500;
+  readonly error: {
+    readonly code: 'validation_error' | 'operation_forbidden' | 'idempotency_key_reused' | 'internal_error';
+    readonly message: string;
+  };
+}
+
+export interface PixPaymentsHttpService {
+  create(input: {
+    readonly principal: MachinePrincipal;
+    readonly idempotencyKey: unknown;
+    readonly request: unknown;
+  }): Promise<PixCreateSuccess | PixCreateFailure>;
+  get(input: {
+    readonly principal: MachinePrincipal;
+    readonly paymentId: string;
+  }): Promise<unknown | null>;
+}
+
+export interface MerchantBalanceHttpService {
+  get(input: {
+    readonly principal: MachinePrincipal;
+  }): Promise<unknown>;
+}
+
+interface DashboardWebhookListInput {
+  readonly authorization?: string;
+  readonly merchantId: string;
+  readonly environment: string;
+}
+
+interface DashboardWebhookItemInput extends DashboardWebhookListInput {
+  readonly endpointId: string;
+}
+
+interface DashboardWebhookMutationInput extends DashboardWebhookItemInput {
+  readonly idempotencyKey?: string;
+  readonly request: unknown;
+}
+
+interface DashboardWebhookCreateInput extends DashboardWebhookListInput {
+  readonly idempotencyKey?: string;
+  readonly request: unknown;
+}
+
+export interface DashboardWebhookEndpointsHttpService {
+  list?(input: DashboardWebhookListInput): Promise<Record<string, unknown>>;
+  get?(input: DashboardWebhookItemInput): Promise<Record<string, unknown>>;
+  create?(input: DashboardWebhookCreateInput): Promise<Record<string, unknown>>;
+  update?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+  disable?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+  enable?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+  rotateSecret?(input: DashboardWebhookMutationInput): Promise<Record<string, unknown>>;
+}
+
+interface DashboardTransactionListInput {
+  readonly authorization?: string;
+  readonly merchantId: string;
+  readonly environment: string;
+  readonly query: unknown;
+}
+
+interface DashboardTransactionItemInput {
+  readonly authorization?: string;
+  readonly merchantId: string;
+  readonly environment: string;
+  readonly transactionId: string;
+}
+
+export interface DashboardTransactionsHttpService {
+  list?(input: DashboardTransactionListInput): Promise<Record<string, unknown>>;
+  get?(input: DashboardTransactionItemInput): Promise<Record<string, unknown>>;
+}
+
+export interface DashboardContextDiscoveryHttpService {
+  list(authorization?: string): Promise<Record<string, unknown>>;
+}
+
+export interface BuildAppOptions {
+  readonly readinessProbe: ReadinessProbe;
+  readonly abuseControls?: Parameters<typeof installA14NetworkAdmission>[1];
+  readonly tokenExchange?: TokenExchangeHandler;
+  readonly authenticateBearer?: BearerAuthenticator;
+  readonly pixPayments?: PixPaymentsHttpService;
+  readonly merchantBalance?: MerchantBalanceHttpService;
+  readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
+  readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
+  readonly dashboardContextDiscovery?: DashboardContextDiscoveryHttpService;
+  readonly dashboardTransactions?: DashboardTransactionsHttpService;
+  readonly runtimeLogger?: SafeRuntimeLogger;
+  readonly metrics?: OperationalMetricsRegistry;
+  readonly monotonicNow?: () => number;
+}
+
+const defaultRuntimeLogger = createSafeRuntimeLogger({
+  sink: {
+    stdout: (line) => process.stdout.write(line),
+    stderr: (line) => process.stderr.write(line),
+  },
+});
+
+function emitRuntime(options: BuildAppOptions, event: RuntimeEvent): void {
+  try {
+    (options.runtimeLogger ?? defaultRuntimeLogger).log(event);
+  } catch {
+    // Observability degradation must never alter HTTP or domain behavior.
+  }
+}
+
+function recordHttpMetric(
+  options: BuildAppOptions,
+  input: {
+    readonly method: MetricsHttpMethod;
+    readonly route: MetricsRoute;
+    readonly statusCode: number;
+    readonly durationMs: number;
+  },
+): void {
+  try {
+    options.metrics?.recordHttp(input);
+  } catch {
+    // Metrics degradation must never alter the selected HTTP response.
+  }
+}
+
+function recordReadinessMetric(options: BuildAppOptions, outcome: ReadinessOutcome): void {
+  try {
+    options.metrics?.recordReadiness(outcome);
+  } catch {
+    // Telemetry is not a readiness dependency.
+  }
+}
+
+function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
+  switch (code) {
+    case 'validation_error':
+      return 400;
+    case 'invalid_credentials':
+      return 401;
+    case 'ip_not_allowed':
+      return 403;
+    case 'auth_rate_limit_exceeded':
+      return 429;
+    default:
+      return 500;
+  }
+}
+
+function paymentInternalError(requestId: string) {
+  return {
+    error: {
+      code: 'internal_error' as const,
+      message: 'Payment operation failed.',
+      requestId,
+    },
+  };
+}
+
+function invalidAccessToken(requestId: string) {
+  return {
+    error: {
+      code: 'invalid_access_token' as const,
+      message: 'Invalid access token.',
+      requestId,
+    },
+  };
+}
+
+function resourceNotFound(requestId: string) {
+  return {
+    error: {
+      code: 'resource_not_found' as const,
+      message: 'Payment was not found.',
+      requestId,
+    },
+  };
+}
+
+function parseBearerToken(authorization: unknown): string | null {
+  if (typeof authorization !== 'string') return null;
+  const match = /^Bearer ([^\s]+)$/i.exec(authorization);
+  return match?.[1] ?? null;
+}
+
+async function authenticateBearerRequest(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: BuildAppOptions,
+): Promise<MachinePrincipal | null> {
+  if (!options.authenticateBearer) {
+    emitRuntime(options, {
+      level: 'warn',
+      event: 'bearer_authentication_unavailable',
+      workload: 'api',
+      requestId: request.id,
+    });
+    await reply.code(500).send(paymentInternalError(request.id));
+    return null;
+  }
+
+  const token = parseBearerToken(request.headers.authorization);
+  if (token === null) {
+    await reply.code(401).send(invalidAccessToken(request.id));
+    return null;
+  }
+
+  try {
+    const principal = await options.authenticateBearer(token);
+    if (principal === null) {
+      await reply.code(401).send(invalidAccessToken(request.id));
+      return null;
+    }
+    return principal;
+  } catch {
+    emitRuntime(options, {
+      level: 'error',
+      event: 'payment_authentication_failed',
+      workload: 'api',
+      requestId: request.id,
+    });
+    await reply.code(500).send(paymentInternalError(request.id));
+    return null;
+  }
+}
+
+async function authenticatePaymentRequest(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: BuildAppOptions,
+): Promise<MachinePrincipal | null> {
+  if (!options.pixPayments) {
+    emitRuntime(options, {
+      level: 'warn',
+      event: 'payment_services_unavailable',
+      workload: 'api',
+      requestId: request.id,
+    });
+    await reply.code(500).send(paymentInternalError(request.id));
+    return null;
+  }
+
+  return authenticateBearerRequest(request, reply, options);
+}
+
+function dashboardAuthorizationHeader(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function idempotencyHeader(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function resultKind(result: Record<string, unknown>): string {
+  return typeof result.kind === 'string' ? result.kind : 'internal_error';
+}
+
+function dashboardWebhookError(kind: string, requestId: string): {
+  status: 400 | 401 | 403 | 404 | 409 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid webhook endpoint request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'Webhook endpoint was not found.', requestId } } };
+    case 'resource_conflict':
+      return { status: 409, body: { error: { code: 'resource_conflict', message: 'Webhook endpoint state changed.', requestId } } };
+    case 'idempotency_conflict':
+      return { status: 409, body: { error: { code: 'idempotency_conflict', message: 'Idempotency key conflicts with another request.', requestId } } };
+    case 'idempotency_in_progress':
+      return { status: 409, body: { error: { code: 'idempotency_in_progress', message: 'Idempotent request is still in progress.', requestId } } };
+    case 'endpoint_limit_reached':
+      return { status: 409, body: { error: { code: 'endpoint_limit_reached', message: 'Webhook endpoint limit reached.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Webhook endpoint operation failed.', requestId } } };
+  }
+}
+
+async function sendDashboardWebhookResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+  successKind: 'list' | 'item' | 'create' | 'mutation' | 'rotate',
+) {
+  const kind = resultKind(result);
+  if (kind !== 'ok' && kind !== 'created') {
+    const failure = dashboardWebhookError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+
+  if (successKind === 'list') {
+    return reply.code(200).send({ object: 'list', data: result.endpoints ?? [] });
+  }
+  if (successKind === 'item' || successKind === 'mutation') {
+    return reply.code(200).send(result.endpoint);
+  }
+  if (successKind === 'create') {
+    const replayed = result.replayed === true;
+    return reply.code(replayed ? 200 : 201).send({
+      ...(result.endpoint as Record<string, unknown>),
+      signingSecret: result.signingSecret ?? null,
+      secretAvailable: result.secretAvailable === true,
+      replayed,
+    });
+  }
+  return reply.code(200).send({
+    ...(result.endpoint as Record<string, unknown>),
+    signingSecret: result.signingSecret ?? null,
+    secretAvailable: result.secretAvailable === true,
+    replayed: result.replayed === true,
+  });
+}
+
+function dashboardApiCredentialError(kind: string, requestId: string): {
+  status: 400 | 401 | 403 | 404 | 409 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'step_up_required':
+      return { status: 403, body: { error: { code: 'step_up_required', message: 'Additional authentication is required.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid API credential request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'API credential was not found.', requestId } } };
+    case 'resource_conflict':
+      return { status: 409, body: { error: { code: 'resource_conflict', message: 'API credential state changed.', requestId } } };
+    case 'idempotency_conflict':
+      return { status: 409, body: { error: { code: 'idempotency_conflict', message: 'Idempotency key conflicts with another request.', requestId } } };
+    case 'idempotency_in_progress':
+      return { status: 409, body: { error: { code: 'idempotency_in_progress', message: 'Idempotent request is still in progress.', requestId } } };
+    case 'credential_limit_reached':
+      return { status: 409, body: { error: { code: 'credential_limit_reached', message: 'API credential limit reached.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'API credential operation failed.', requestId } } };
+  }
+}
+
+async function sendDashboardApiCredentialResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+  successKind: 'list' | 'item' | 'create' | 'mutation',
+) {
+  const kind = resultKind(result);
+  if (kind !== 'ok' && kind !== 'created') {
+    const failure = dashboardApiCredentialError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+  if (successKind === 'list') {
+    return reply.code(200).send({ object: 'list', data: result.credentials ?? [] });
+  }
+  if (successKind === 'item') return reply.code(200).send(result.credential);
+
+  const replayed = result.replayed === true;
+  const body: Record<string, unknown> = {
+    credential: result.credential,
+    replayed,
+  };
+  if ('secretAvailable' in result || 'secretKey' in result) {
+    body.secretAvailable = result.secretAvailable === true;
+    body.secretKey = result.secretKey ?? null;
+  }
+  return reply.code(successKind === 'create' && !replayed ? 201 : 200).send(body);
+}
+
+function dashboardContextError(kind: string, requestId: string): {
+  status: 401 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Dashboard context discovery failed.', requestId } } };
+  }
+}
+
+async function sendDashboardContextResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+) {
+  reply.header('Cache-Control', 'private, no-store');
+  const kind = resultKind(result);
+  if (kind !== 'ok') {
+    const failure = dashboardContextError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+  return reply.code(200).send({ object: 'list', data: result.contexts ?? [] });
+}
+
+function dashboardTransactionError(kind: string, requestId: string): {
+  status: 400 | 401 | 403 | 404 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid transaction request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'Transaction was not found.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Transaction operation failed.', requestId } } };
+  }
+}
+
+async function sendDashboardTransactionResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+  successKind: 'list' | 'item',
+) {
+  reply.header('cache-control', 'private, no-store');
+  const kind = resultKind(result);
+  if (kind !== 'ok') {
+    const failure = dashboardTransactionError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+  if (successKind === 'list') {
+    return reply.code(200).send({ items: result.items ?? [], nextCursor: result.nextCursor ?? null });
+  }
+  return reply.code(200).send(result.transaction);
+}
+
+function readMonotonic(clock: () => number): number {
+  try {
+    const value = clock();
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function boundedDuration(start: number, end: number): number {
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.min(86_400_000, Math.max(0, Math.trunc(end - start)));
+}
+
+export function buildApp(options: BuildAppOptions): FastifyInstance {
+  const monotonicNow = options.monotonicNow ?? (() => performance.now());
+  const requestStarts = new WeakMap<FastifyRequest, number>();
+  const app = Fastify({
+    logger: false,
+    logController: new LogController({
+      disableRequestLogging: true,
+    }),
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
+  });
+  const admission = installA14NetworkAdmission(app, options.abuseControls);
+
+  app.addHook('onRequest', async (request, reply) => {
+    requestStarts.set(request, readMonotonic(monotonicNow));
+    reply.header('x-request-id', request.id);
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const start = requestStarts.get(request) ?? 0;
+    const end = readMonotonic(monotonicNow);
+    const route = request.routeOptions?.url ?? '<unmatched>';
+    const durationMs = boundedDuration(start, end);
+    emitRuntime(options, {
+      level: 'info',
+      event: 'http_request_completed',
+      workload: 'api',
+      requestId: request.id,
+      method: request.method as RuntimeHttpMethod,
+      route,
+      statusCode: reply.statusCode,
+      durationMs,
+    });
+    recordHttpMetric(options, {
+      method: request.method as MetricsHttpMethod,
+      route: route as MetricsRoute,
+      statusCode: reply.statusCode,
+      durationMs,
+    });
+  });
+
+  app.get('/health/live', async () => ({ status: 'live' as const }));
+
+  app.get('/health/ready', async (request, reply) => {
+    try {
+      await options.readinessProbe();
+      recordReadinessMetric(options, 'ok');
+      return { status: 'ready' as const, workload: 'api' as const };
+    } catch {
+      recordReadinessMetric(options, 'failed');
+      emitRuntime(options, {
+        level: 'warn',
+        event: 'database_readiness_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(503).send({ status: 'unavailable', workload: 'api' });
+    }
+  });
+
+  app.post('/v1/auth/token', async (request, reply) => {
+    if (!options.tokenExchange) {
+      emitRuntime(options, {
+        level: 'warn',
+        event: 'token_exchange_unavailable',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(500).send({
+        error: {
+          code: 'internal_error',
+          message: 'Authentication is unavailable.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    try {
+      const result = await options.tokenExchange(
+        request.body as TokenExchangeRequest,
+        { clientIp: admission.clientIp(request) ?? request.ip, requestId: request.id },
+      );
+
+      if (result.ok) {
+        return reply.code(200).send(result.value);
+      }
+
+      const status = tokenStatus(result.error.code);
+      if (
+        status === 429
+        && Number.isSafeInteger(result.error.retryAfterSeconds)
+        && (result.error.retryAfterSeconds ?? 0) > 0
+      ) {
+        reply.header('retry-after', String(result.error.retryAfterSeconds));
+      }
+
+      return reply.code(status).send({
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          requestId: request.id,
+        },
+      });
+    } catch {
+      emitRuntime(options, {
+        level: 'error',
+        event: 'token_exchange_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(500).send({
+        error: {
+          code: 'internal_error',
+          message: 'Authentication is unavailable.',
+          requestId: request.id,
+        },
+      });
+    }
+  });
+
+  app.post('/v1/transactions', async (request, reply) => {
+    const principal = await authenticatePaymentRequest(request, reply, options);
+    if (principal === null) return reply;
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, 'machine_mutation'))) return reply;
+
+    try {
+      const result = await options.pixPayments!.create({
+        principal,
+        idempotencyKey: request.headers['idempotency-key'],
+        request: request.body,
+      });
+
+      if (result.ok) {
+        return reply.code(result.httpStatus).send(result.payment);
+      }
+
+      return reply.code(result.httpStatus).send({
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          requestId: request.id,
+        },
+      });
+    } catch {
+      emitRuntime(options, {
+        level: 'error',
+        event: 'pix_create_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(500).send(paymentInternalError(request.id));
+    }
+  });
+
+  app.get('/v1/transactions/:id', async (request, reply) => {
+    const principal = await authenticatePaymentRequest(request, reply, options);
+    if (principal === null) return reply;
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, 'machine_read'))) return reply;
+
+    try {
+      const { id } = request.params as { readonly id: string };
+      const payment = await options.pixPayments!.get({ principal, paymentId: id });
+      if (payment === null) {
+        return reply.code(404).send(resourceNotFound(request.id));
+      }
+      return reply.code(200).send(payment);
+    } catch {
+      emitRuntime(options, {
+        level: 'error',
+        event: 'payment_get_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(500).send(paymentInternalError(request.id));
+    }
+  });
+
+  app.get('/v1/balance', async (request, reply) => {
+    const principal = await authenticateBearerRequest(request, reply, options);
+    if (principal === null) return reply;
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, 'machine_read'))) return reply;
+
+    if (!options.merchantBalance) {
+      emitRuntime(options, {
+        level: 'warn',
+        event: 'balance_service_unavailable',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(500).send(paymentInternalError(request.id));
+    }
+
+    try {
+      const balance = await options.merchantBalance.get({ principal });
+      return reply.code(200).send(balance);
+    } catch {
+      emitRuntime(options, {
+        level: 'error',
+        event: 'balance_get_failed',
+        workload: 'api',
+        requestId: request.id,
+      });
+      return reply.code(500).send(paymentInternalError(request.id));
+    }
+  });
+
+  const dashboardWebhookBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/webhook-endpoints';
+
+  app.get(dashboardWebhookBase, async (request, reply) => {
+    const service = options.dashboardWebhookEndpoints?.list;
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        merchantId,
+        environment,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, 'list');
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    }
+  });
+
+  app.get(`${dashboardWebhookBase}/:endpointId`, async (request, reply) => {
+    const service = options.dashboardWebhookEndpoints?.get;
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    const { merchantId, environment, endpointId } = request.params as { merchantId: string; environment: string; endpointId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }), merchantId, environment, endpointId,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, 'item');
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    }
+  });
+
+  app.post(dashboardWebhookBase, async (request, reply) => {
+    const service = options.dashboardWebhookEndpoints?.create;
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, request: request.body,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, 'create');
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    }
+  });
+
+  async function mutationRoute(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operation: 'update' | 'disable' | 'enable' | 'rotateSecret',
+    successKind: 'mutation' | 'rotate',
+  ) {
+    const service = options.dashboardWebhookEndpoints?.[operation];
+    if (!service) return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, successKind);
+    const { merchantId, environment, endpointId } = request.params as { merchantId: string; environment: string; endpointId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, endpointId, request: request.body,
+      });
+      return sendDashboardWebhookResult(reply, request.id, result, successKind);
+    } catch {
+      return sendDashboardWebhookResult(reply, request.id, { kind: 'internal_error' }, successKind);
+    }
+  }
+
+  app.patch(`${dashboardWebhookBase}/:endpointId`, (request, reply) => mutationRoute(request, reply, 'update', 'mutation'));
+  app.post(`${dashboardWebhookBase}/:endpointId/disable`, (request, reply) => mutationRoute(request, reply, 'disable', 'mutation'));
+  app.post(`${dashboardWebhookBase}/:endpointId/enable`, (request, reply) => mutationRoute(request, reply, 'enable', 'mutation'));
+  app.post(`${dashboardWebhookBase}/:endpointId/rotate-secret`, (request, reply) => mutationRoute(request, reply, 'rotateSecret', 'rotate'));
+
+  const dashboardCredentialBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/api-credentials';
+
+  app.get(dashboardCredentialBase, async (request, reply) => {
+    const service = options.dashboardApiCredentials?.list;
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({ ...(authorization === undefined ? {} : { authorization }), merchantId, environment });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'list');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    }
+  });
+
+  app.get(`${dashboardCredentialBase}/:credentialId`, async (request, reply) => {
+    const service = options.dashboardApiCredentials?.get;
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    const { merchantId, environment, credentialId } = request.params as { merchantId: string; environment: string; credentialId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({ ...(authorization === undefined ? {} : { authorization }), merchantId, environment, credentialId });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'item');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    }
+  });
+
+  app.post(dashboardCredentialBase, async (request, reply) => {
+    const service = options.dashboardApiCredentials?.create;
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, request: request.body,
+      });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'create');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'create');
+    }
+  });
+
+  async function credentialMutationRoute(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operation: 'rotateSecret' | 'revoke',
+  ) {
+    const service = options.dashboardApiCredentials?.[operation];
+    if (!service) return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'mutation');
+    const { merchantId, environment, credentialId } = request.params as { merchantId: string; environment: string; credentialId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    const idempotencyKey = idempotencyHeader(request.headers['idempotency-key']);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        merchantId, environment, credentialId, request: request.body,
+      });
+      return sendDashboardApiCredentialResult(reply, request.id, result, 'mutation');
+    } catch {
+      return sendDashboardApiCredentialResult(reply, request.id, { kind: 'internal_error' }, 'mutation');
+    }
+  }
+
+  app.post(`${dashboardCredentialBase}/:credentialId/rotate-secret`, (request, reply) => credentialMutationRoute(request, reply, 'rotateSecret'));
+  app.post(`${dashboardCredentialBase}/:credentialId/revoke`, (request, reply) => credentialMutationRoute(request, reply, 'revoke'));
+
+  app.get('/dashboard/v1/contexts', async (request, reply) => {
+    const service = options.dashboardContextDiscovery?.list;
+    if (!service) return sendDashboardContextResult(reply, request.id, { kind: 'internal_error' });
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service(authorization);
+      return sendDashboardContextResult(reply, request.id, result);
+    } catch {
+      return sendDashboardContextResult(reply, request.id, { kind: 'internal_error' });
+    }
+  });
+
+  const dashboardTransactionBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/transactions';
+
+  app.get(dashboardTransactionBase, async (request, reply) => {
+    const service = options.dashboardTransactions?.list;
+    if (!service) return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    const { merchantId, environment } = request.params as { merchantId: string; environment: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        merchantId,
+        environment,
+        query: request.query,
+      });
+      return sendDashboardTransactionResult(reply, request.id, result, 'list');
+    } catch {
+      return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'list');
+    }
+  });
+
+  app.get(`${dashboardTransactionBase}/:transactionId`, async (request, reply) => {
+    const service = options.dashboardTransactions?.get;
+    if (!service) return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    const { merchantId, environment, transactionId } = request.params as { merchantId: string; environment: string; transactionId: string };
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service({
+        ...(authorization === undefined ? {} : { authorization }),
+        merchantId,
+        environment,
+        transactionId,
+      });
+      return sendDashboardTransactionResult(reply, request.id, result, 'item');
+    } catch {
+      return sendDashboardTransactionResult(reply, request.id, { kind: 'internal_error' }, 'item');
+    }
+  });
+
+  return app;
+}
