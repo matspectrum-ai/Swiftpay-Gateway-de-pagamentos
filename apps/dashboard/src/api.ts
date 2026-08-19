@@ -1,146 +1,93 @@
-export type DashboardEnvironment = 'sandbox' | 'production';
-export type MerchantLifecycleStatus = 'draft' | 'active' | 'suspended' | 'closed';
-export type MembershipRole = 'member' | 'admin' | 'owner';
-export type TransactionStatus = 'creating' | 'pending' | 'paid' | 'expired' | 'failed' | 'cancelled';
-export type DashboardApiErrorCategory = 'session' | 'forbidden' | 'not_found' | 'unavailable' | 'validation' | 'step_up' | 'conflict' | 'error';
+export * from './api-base.js';
 
-export interface MerchantContext {
-  readonly merchantId: string;
-  readonly merchantName: string;
-  readonly lifecycleStatus: MerchantLifecycleStatus;
-  readonly membershipRole: MembershipRole;
-  readonly environments: readonly ['sandbox', 'production'];
-}
+import {
+  DashboardApiError,
+  type DashboardEnvironment,
+} from './api-base.js';
 
-export interface TransactionListItem {
+export interface PaymentLink {
   readonly id: string;
-  readonly externalId: string | null;
-  readonly method: 'pix';
-  readonly source: 'api' | 'checkout' | 'payment_link' | 'quick_pix';
-  readonly amount: number;
-  readonly fee: number;
-  readonly netAmount: number;
-  readonly refundedAmount: number;
-  readonly currency: 'BRL';
-  readonly status: TransactionStatus;
-  readonly description: string | null;
-  readonly environment: DashboardEnvironment;
-  readonly expiresAt: string | null;
-  readonly paidAt: string | null;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-export interface TransactionDetail extends TransactionListItem {
-  readonly pix: {
-    readonly txId: string;
-    readonly qrCode: string;
-    readonly copyAndPaste: string;
-    readonly expiresAt: string;
-  } | null;
-}
-
-export interface ApiCredential {
-  readonly id: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly name: string;
-  readonly publicKey: string;
-  readonly status: 'active' | 'revoked';
-  readonly secretVersion: number;
-  readonly revision: number;
-  readonly ipAllowlist: readonly string[] | null;
-  readonly lastUsedAt: string | null;
-  readonly createdAt: string;
-  readonly rotatedAt: string | null;
-  readonly revokedAt: string | null;
-}
-
-export interface ApiCredentialMutationResult {
-  readonly credential: ApiCredential;
-  readonly replayed: boolean;
-  readonly secretAvailable: boolean;
-  readonly secretKey: string | null;
-}
-
-export interface WebhookEndpoint {
-  readonly id: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly url: string;
+  readonly publicToken: string;
+  readonly checkoutPath: string;
   readonly status: 'active' | 'disabled';
-  readonly subscribedEvents: readonly string[];
-  readonly secretVersion: number;
-  readonly revision: number;
+  readonly amount: number;
+  readonly currency: 'BRL';
+  readonly description: string | null;
+  readonly pixExpirationMinutes: number;
   readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-export interface WebhookMutationResult {
-  readonly endpoint: WebhookEndpoint;
-  readonly replayed: boolean;
-  readonly secretAvailable: boolean;
-  readonly signingSecret: string | null;
-}
-
-export class DashboardApiError extends Error {
-  constructor(readonly category: DashboardApiErrorCategory) {
-    super('Dashboard request failed.');
-    this.name = 'DashboardApiError';
-  }
+  readonly disabledAt: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function publicErrorCode(value: unknown): string | null {
-  if (!isRecord(value) || !isRecord(value.error) || typeof value.error.code !== 'string') return null;
-  return value.error.code;
+function publicCode(value: unknown): string | null {
+  return isRecord(value) && isRecord(value.error) && typeof value.error.code === 'string'
+    ? value.error.code
+    : null;
 }
 
-async function responseBody(response: Response): Promise<unknown> {
-  try { return await response.json(); } catch { return null; }
-}
-
-function responseError(status: number, code: string | null): DashboardApiError {
+function mappedError(status: number, code: string | null): DashboardApiError {
   if (status === 401) return new DashboardApiError('session');
-  if (status === 403 && code === 'step_up_required') return new DashboardApiError('step_up');
   if (status === 403) return new DashboardApiError('forbidden');
   if (status === 404) return new DashboardApiError('not_found');
-  if (status === 400 || code === 'validation_error') return new DashboardApiError('validation');
+  if (status === 400) return new DashboardApiError('validation');
   if (status === 409) return new DashboardApiError('conflict');
   if (status === 503) return new DashboardApiError('unavailable');
+  if (code === 'validation_error') return new DashboardApiError('validation');
   return new DashboardApiError('error');
 }
 
-async function requestJson(accessToken: string, path: string): Promise<unknown> {
+async function parse(response: Response): Promise<unknown> {
+  try { return await response.json(); } catch { return null; }
+}
+
+function paymentLink(value: unknown): PaymentLink {
+  if (!isRecord(value)
+      || typeof value.id !== 'string'
+      || typeof value.publicToken !== 'string'
+      || typeof value.checkoutPath !== 'string'
+      || (value.status !== 'active' && value.status !== 'disabled')
+      || typeof value.amount !== 'number' || !Number.isSafeInteger(value.amount) || value.amount < 1
+      || value.currency !== 'BRL'
+      || !(value.description === null || typeof value.description === 'string')
+      || typeof value.pixExpirationMinutes !== 'number'
+      || typeof value.createdAt !== 'string'
+      || !(value.disabledAt === null || typeof value.disabledAt === 'string')) {
+    throw new DashboardApiError('error');
+  }
+  return value as unknown as PaymentLink;
+}
+
+function base(merchantId: string, environment: DashboardEnvironment): string {
+  return `/api/dashboard/v1/merchants/${encodeURIComponent(merchantId)}/environments/${environment}/payment-links`;
+}
+
+async function read(accessToken: string, path: string): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(path, {
       cache: 'no-store',
       headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     });
-  } catch {
-    throw new DashboardApiError('unavailable');
-  }
-  const body = await responseBody(response);
-  if (!response.ok) throw responseError(response.status, publicErrorCode(body));
+  } catch { throw new DashboardApiError('unavailable'); }
+  const body = await parse(response);
+  if (!response.ok) throw mappedError(response.status, publicCode(body));
   if (body === null) throw new DashboardApiError('error');
   return body;
 }
 
-async function mutateJson(input: {
+async function mutate(input: {
   readonly accessToken: string;
   readonly path: string;
-  readonly method: 'POST' | 'PATCH';
   readonly idempotencyKey: string;
   readonly body: unknown;
 }): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(input.path, {
-      method: input.method,
+      method: 'POST',
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
@@ -150,159 +97,56 @@ async function mutateJson(input: {
       },
       body: JSON.stringify(input.body),
     });
-  } catch {
-    throw new DashboardApiError('unavailable');
-  }
-  const body = await responseBody(response);
-  if (!response.ok) throw responseError(response.status, publicErrorCode(body));
+  } catch { throw new DashboardApiError('unavailable'); }
+  const body = await parse(response);
+  if (!response.ok) throw mappedError(response.status, publicCode(body));
   if (body === null) throw new DashboardApiError('error');
   return body;
 }
 
-function context(value: unknown): MerchantContext {
-  if (!isRecord(value)
-      || typeof value.merchantId !== 'string'
-      || typeof value.merchantName !== 'string'
-      || !['draft', 'active', 'suspended', 'closed'].includes(String(value.lifecycleStatus))
-      || !['member', 'admin', 'owner'].includes(String(value.membershipRole))
-      || !Array.isArray(value.environments)
-      || value.environments.length !== 2
-      || value.environments[0] !== 'sandbox'
-      || value.environments[1] !== 'production') throw new DashboardApiError('error');
-  return value as unknown as MerchantContext;
-}
-
-function transaction(value: unknown): TransactionListItem {
-  if (!isRecord(value)
-      || typeof value.id !== 'string'
-      || value.method !== 'pix'
-      || typeof value.amount !== 'number'
-      || value.currency !== 'BRL'
-      || !['creating', 'pending', 'paid', 'expired', 'failed', 'cancelled'].includes(String(value.status))
-      || (value.environment !== 'sandbox' && value.environment !== 'production')
-      || typeof value.createdAt !== 'string') throw new DashboardApiError('error');
-  return value as unknown as TransactionListItem;
-}
-
-function credential(value: unknown): ApiCredential {
-  if (!isRecord(value)
-      || typeof value.id !== 'string'
-      || typeof value.merchantId !== 'string'
-      || (value.environment !== 'sandbox' && value.environment !== 'production')
-      || typeof value.name !== 'string'
-      || typeof value.publicKey !== 'string'
-      || (value.status !== 'active' && value.status !== 'revoked')
-      || !Number.isInteger(value.secretVersion) || Number(value.secretVersion) < 1
-      || !Number.isInteger(value.revision) || Number(value.revision) < 1
-      || !(value.ipAllowlist === null || (Array.isArray(value.ipAllowlist) && value.ipAllowlist.every((item) => typeof item === 'string')))
-      || !(value.lastUsedAt === null || typeof value.lastUsedAt === 'string')
-      || typeof value.createdAt !== 'string') throw new DashboardApiError('error');
-  return value as unknown as ApiCredential;
-}
-
-function webhookEndpoint(value: unknown): WebhookEndpoint {
-  if (!isRecord(value)
-      || typeof value.id !== 'string'
-      || typeof value.merchantId !== 'string'
-      || (value.environment !== 'sandbox' && value.environment !== 'production')
-      || typeof value.url !== 'string'
-      || (value.status !== 'active' && value.status !== 'disabled')
-      || !Array.isArray(value.subscribedEvents) || !value.subscribedEvents.every((item) => typeof item === 'string')
-      || !Number.isInteger(value.secretVersion) || Number(value.secretVersion) < 1
-      || !Number.isInteger(value.revision) || Number(value.revision) < 1
-      || typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string') throw new DashboardApiError('error');
-  return value as unknown as WebhookEndpoint;
-}
-
-function credentialMutation(value: unknown): ApiCredentialMutationResult {
-  if (!isRecord(value) || !('credential' in value)) throw new DashboardApiError('error');
-  return {
-    credential: credential(value.credential), replayed: value.replayed === true,
-    secretAvailable: value.secretAvailable === true,
-    secretKey: typeof value.secretKey === 'string' ? value.secretKey : null,
-  };
-}
-
-function webhookSecretMutation(value: unknown): WebhookMutationResult {
-  if (!isRecord(value)) throw new DashboardApiError('error');
-  return {
-    endpoint: webhookEndpoint(value), replayed: value.replayed === true,
-    secretAvailable: value.secretAvailable === true,
-    signingSecret: typeof value.signingSecret === 'string' ? value.signingSecret : null,
-  };
-}
-
-function dashboardBase(merchantId: string, environment: DashboardEnvironment): string {
-  return `/api/dashboard/v1/merchants/${encodeURIComponent(merchantId)}/environments/${environment}`;
-}
-
-export async function listContexts(accessToken: string): Promise<readonly MerchantContext[]> {
-  const body = await requestJson(accessToken, '/api/dashboard/v1/contexts');
+export async function listPaymentLinks(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+}): Promise<readonly PaymentLink[]> {
+  const body = await read(input.accessToken, base(input.merchantId, input.environment));
   if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
-  return body.data.map(context);
+  return body.data.map(paymentLink);
 }
 
-export async function listTransactions(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly cursor?: string }): Promise<{ readonly items: readonly TransactionListItem[]; readonly nextCursor: string | null }> {
-  const query = new URLSearchParams({ limit: '25' });
-  if (input.cursor) query.set('cursor', input.cursor);
-  const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/transactions?${query.toString()}`);
-  if (!isRecord(body) || !Array.isArray(body.items) || !(body.nextCursor === null || typeof body.nextCursor === 'string')) throw new DashboardApiError('error');
-  return { items: body.items.map(transaction), nextCursor: body.nextCursor };
+export async function createPaymentLink(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+  readonly idempotencyKey: string;
+  readonly amount: number;
+  readonly description?: string;
+  readonly pixExpirationMinutes?: number;
+}): Promise<PaymentLink> {
+  return paymentLink(await mutate({
+    accessToken: input.accessToken,
+    path: base(input.merchantId, input.environment),
+    idempotencyKey: input.idempotencyKey,
+    body: {
+      amount: input.amount,
+      currency: 'BRL',
+      ...(input.description === undefined ? {} : { description: input.description }),
+      ...(input.pixExpirationMinutes === undefined ? {} : { pixExpirationMinutes: input.pixExpirationMinutes }),
+    },
+  }));
 }
 
-export async function getTransaction(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly transactionId: string }): Promise<TransactionDetail> {
-  const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/transactions/${encodeURIComponent(input.transactionId)}`);
-  const base = transaction(body);
-  if (!isRecord(body) || !('pix' in body)) throw new DashboardApiError('error');
-  return { ...base, pix: body.pix as TransactionDetail['pix'] };
-}
-
-export async function listApiCredentials(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment }): Promise<readonly ApiCredential[]> {
-  const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/api-credentials`);
-  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
-  return body.data.map(credential);
-}
-
-export async function createApiCredential(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly idempotencyKey: string; readonly name: string }): Promise<ApiCredentialMutationResult> {
-  return credentialMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { name: input.name } }));
-}
-
-export async function rotateApiCredentialSecret(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly credentialId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<ApiCredentialMutationResult> {
-  return credentialMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials/${encodeURIComponent(input.credentialId)}/rotate-secret`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } }));
-}
-
-export async function revokeApiCredential(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly credentialId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<ApiCredentialMutationResult> {
-  return credentialMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials/${encodeURIComponent(input.credentialId)}/revoke`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } }));
-}
-
-export async function listWebhookEndpoints(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment }): Promise<readonly WebhookEndpoint[]> {
-  const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints`);
-  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
-  return body.data.map(webhookEndpoint);
-}
-
-export async function createWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly idempotencyKey: string; readonly url: string }): Promise<WebhookMutationResult> {
-  return webhookSecretMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { url: input.url, subscribedEvents: ['payment.paid'] } }));
-}
-
-export async function updateWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string; readonly url: string }): Promise<WebhookEndpoint> {
-  const body = await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}`, method: 'PATCH', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision, url: input.url } });
-  return webhookEndpoint(body);
-}
-
-async function mutateWebhookState(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string; readonly operation: 'disable' | 'enable' }): Promise<WebhookEndpoint> {
-  const body = await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}/${input.operation}`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } });
-  return webhookEndpoint(body);
-}
-
-export async function disableWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<WebhookEndpoint> {
-  return mutateWebhookState({ ...input, operation: 'disable' });
-}
-
-export async function enableWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<WebhookEndpoint> {
-  return mutateWebhookState({ ...input, operation: 'enable' });
-}
-
-export async function rotateWebhookEndpointSecret(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<WebhookMutationResult> {
-  return webhookSecretMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}/rotate-secret`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } }));
+export async function disablePaymentLink(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+  readonly paymentLinkId: string;
+  readonly idempotencyKey: string;
+}): Promise<PaymentLink> {
+  return paymentLink(await mutate({
+    accessToken: input.accessToken,
+    path: `${base(input.merchantId, input.environment)}/${encodeURIComponent(input.paymentLinkId)}/disable`,
+    idempotencyKey: input.idempotencyKey,
+    body: {},
+  }));
 }
