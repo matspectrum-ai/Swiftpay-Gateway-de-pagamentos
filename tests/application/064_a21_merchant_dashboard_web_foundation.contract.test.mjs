@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
+const [auth, db, apiModule] = await Promise.all([
+  import('../../packages/auth/dist/index.js'),
+  import('../../packages/db/dist/index.js'),
+  import('../../apps/api/dist/app.js'),
+]);
+
 async function text(path) {
   return readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 }
@@ -21,6 +27,16 @@ const WEB_FILES = [
   'apps/dashboard/src/api.ts',
   'apps/dashboard/src/styles.css',
 ];
+
+const USER_ID = '21100000-0000-0000-0000-00000000a021';
+const MERCHANT_ID = '21000000-0000-0000-0000-00000000a021';
+const CONTEXT = {
+  merchantId: MERCHANT_ID,
+  merchantName: 'SwiftPay Merchant',
+  lifecycleStatus: 'active',
+  membershipRole: 'owner',
+  environments: ['sandbox', 'production'],
+};
 
 test('A21 frozen spec and contract name the browser-only dashboard boundary', async () => {
   const spec = await text('docs/specs/merchant-dashboard-web-foundation-v0.yaml');
@@ -67,6 +83,62 @@ test('A21 browser source is Auth/API-only and contains no trusted database or pr
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/);
 });
 
+test('A21 dashboard context store uses only the trusted discovery routine and validates its public projection', async () => {
+  assert.equal(typeof db.createDashboardContextDiscoveryStore, 'function');
+  if (typeof db.createDashboardContextDiscoveryStore !== 'function') return;
+
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql: String(sql), params });
+      return {
+        rows: [{
+          merchant_id: MERCHANT_ID,
+          merchant_name: 'SwiftPay Merchant',
+          lifecycle_status: 'active',
+          membership_role: 'owner',
+        }],
+      };
+    },
+  };
+  const store = db.createDashboardContextDiscoveryStore(pool);
+  assert.deepEqual(await store.listForUser(USER_ID), [CONTEXT]);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /app\.list_dashboard_merchant_contexts/);
+  assert.deepEqual(calls[0].params, [USER_ID]);
+  assert.doesNotMatch(calls[0].sql.toLowerCase(), /from\s+app\.merchant_members|from\s+app\.merchants/);
+});
+
+test('A21 context discovery service derives database user authority only from verified A6 session', async () => {
+  assert.equal(typeof auth.createDashboardContextDiscoveryService, 'function');
+  if (typeof auth.createDashboardContextDiscoveryService !== 'function') return;
+
+  const calls = { auth: [], db: [] };
+  const service = auth.createDashboardContextDiscoveryService({
+    sessionVerifier: async (authorization) => {
+      calls.auth.push(authorization);
+      return { kind: 'authenticated', principal: { userId: USER_ID } };
+    },
+    store: {
+      listForUser: async (userId) => {
+        calls.db.push(userId);
+        return [CONTEXT];
+      },
+    },
+  });
+  assert.deepEqual(await service.list('Bearer dashboard-session'), { kind: 'ok', contexts: [CONTEXT] });
+  assert.deepEqual(calls.auth, ['Bearer dashboard-session']);
+  assert.deepEqual(calls.db, [USER_ID]);
+
+  let blockedDbCalls = 0;
+  const invalidService = auth.createDashboardContextDiscoveryService({
+    sessionVerifier: async () => ({ kind: 'invalid_session' }),
+    store: { listForUser: async () => { blockedDbCalls += 1; return []; } },
+  });
+  assert.deepEqual(await invalidService.list('Bearer invalid'), { kind: 'invalid_session' });
+  assert.equal(blockedDbCalls, 0);
+});
+
 test('A21 dashboard API exposes context discovery and wires a dedicated service without machine-auth fallback', async () => {
   const app = await text('apps/api/src/app.ts');
   const runtime = await text('apps/api/src/runtime.ts');
@@ -80,6 +152,43 @@ test('A21 dashboard API exposes context discovery and wires a dedicated service 
   assert.match(runtime, /createDashboardContextDiscoveryStore/);
   assert.match(authIndex, /createDashboardContextDiscoveryService/);
   assert.match(dbIndex, /createDashboardContextDiscoveryStore/);
+});
+
+test('A21 context discovery HTTP maps success and auth/service failures with no-store semantics', async () => {
+  const successApp = apiModule.buildApp({
+    readinessProbe: async () => {},
+    dashboardContextDiscovery: { list: async () => ({ kind: 'ok', contexts: [CONTEXT] }) },
+  });
+  const success = await successApp.inject({
+    method: 'GET',
+    url: '/dashboard/v1/contexts',
+    headers: { authorization: 'Bearer dashboard-session' },
+  });
+  assert.equal(success.statusCode, 200);
+  assert.equal(success.headers['cache-control'], 'private, no-store');
+  assert.deepEqual(success.json(), { object: 'list', data: [CONTEXT] });
+  await successApp.close();
+
+  for (const [kind, status, code] of [
+    ['invalid_session', 401, 'invalid_dashboard_session'],
+    ['authentication_unavailable', 503, 'dashboard_authentication_unavailable'],
+    ['internal_error', 500, 'internal_error'],
+  ]) {
+    const app = apiModule.buildApp({
+      readinessProbe: async () => {},
+      dashboardContextDiscovery: { list: async () => ({ kind }) },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/v1/contexts',
+      headers: { authorization: 'Bearer dashboard-session' },
+    });
+    assert.equal(response.statusCode, status, kind);
+    assert.equal(response.headers['cache-control'], 'private, no-store', kind);
+    assert.equal(response.json().error.code, code, kind);
+    assert.equal(typeof response.json().error.requestId, 'string', kind);
+    await app.close();
+  }
 });
 
 test('A21 exact runtime capability manifest adds only list_dashboard_merchant_contexts to API', async () => {
