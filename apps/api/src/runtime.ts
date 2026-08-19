@@ -58,6 +58,7 @@ export interface ApiRuntimeServicesOptions {
   readonly dashboardCursorLegacyV0Key?: string;
   readonly trustedProxyIps?: readonly string[];
   readonly abuseHmacKey?: string;
+  readonly abuseHmacPreviousKey?: string;
   readonly webhookSecretWrapKeyId?: string;
   readonly webhookSecretWrapPublicKey?: string;
 }
@@ -79,14 +80,23 @@ export function createApiRuntimeServices(
   pool: ApiRuntimePool,
   options: ApiRuntimeServicesOptions,
 ): ApiRuntimeServices {
-  if (options.abuseHmacKey === undefined && options.trustedProxyIps !== undefined) {
+  if (
+    options.abuseHmacKey === undefined
+    && (options.trustedProxyIps !== undefined || options.abuseHmacPreviousKey !== undefined)
+  ) {
     throw new Error('Invalid abuse-control runtime configuration.');
   }
   const abuseControls = options.abuseHmacKey === undefined
     ? undefined
     : createApiAbuseControls(
       createApiAbuseRateLimitStore(pool),
-      { trustedProxyIps: options.trustedProxyIps ?? [], hmacKey: options.abuseHmacKey },
+      {
+        trustedProxyIps: options.trustedProxyIps ?? [],
+        hmacKey: options.abuseHmacKey,
+        ...(options.abuseHmacPreviousKey === undefined
+          ? {}
+          : { previousHmacKey: options.abuseHmacPreviousKey }),
+      },
     );
   const signingAuthority = createAccessTokenSigningAuthority({
     activeKeyId: options.accessTokenActiveKeyId,
