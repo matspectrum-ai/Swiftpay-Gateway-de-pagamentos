@@ -1,0 +1,355 @@
+feature: hosted-pix-checkout-payment-links-v0
+status: frozen_for_tdd
+phase: 6
+date: 2026-08-19
+
+source_of_truth:
+  problem_analysis: docs/design/a23-hosted-pix-checkout-payment-links-problem-analysis.md
+  predecessors:
+    - docs/contracts/payment-and-provider-attempt.md
+    - docs/specs/pix-create-get-emulator-v0.yaml
+    - docs/specs/dashboard-session-authentication-v0.yaml
+    - docs/specs/ingress-abuse-rate-limit-hardening-v0.yaml
+    - docs/specs/abuse-subject-hmac-key-rotation-v0.yaml
+    - docs/specs/runtime-capability-manifest-attestation-v0.yaml
+    - docs/specs/merchant-dashboard-web-foundation-v0.yaml
+    - docs/specs/merchant-dashboard-integration-settings-ui-v0.yaml
+
+objectives:
+  - add fixed-amount Sandbox Pix payment links
+  - add dashboard list/create/disable UI and API
+  - add anonymous hosted checkout SPA
+  - create canonical Sandbox Payment with source=payment_link
+  - reuse A2 deterministic emulator plus claim/resolve semantics without calling prepare_api_pix_payment
+  - preserve Production fail-closed and zero retained-provider authority
+  - protect public checkout with A14-compatible distributed anonymous admission
+
+non_objectives:
+  - production checkout
+  - live PSP traffic
+  - payment link edit
+  - payment link re-enable
+  - payment link delete
+  - link expiry
+  - variable amount
+  - branding/themes
+  - custom domains
+  - payer accounts
+  - customer prefill
+  - real payable QR rendering
+  - redirect after payment
+  - analytics
+  - cards
+  - boleto
+  - subscriptions
+
+payment_link:
+  table: app.payment_links
+  fields:
+    id: uuid_primary_key
+    merchant_id: uuid_not_null_fk_merchants_restrict
+    environment: sandbox
+    public_token: unique_nonempty_text
+    status: active | disabled
+    amount_cents: positive_bigint
+    currency: BRL
+    description: nullable_text
+    pix_expiration_minutes: integer_5_through_1440
+    created_at: timestamptz_not_null_default_now
+    disabled_at: timestamptz_nullable
+  public_token:
+    format: plink_sandbox_<base64url_24_random_bytes_no_padding>
+    generation: trusted_api_node_crypto_randomBytes
+    persisted: true
+    classification: public_shareable_locator
+    browser_generation: forbidden
+  lifecycle:
+    create: active
+    disable:
+      terminal: true
+      sets_disabled_at: database_time
+    enable: forbidden_v0
+    update: forbidden_v0
+    delete: forbidden_v0
+
+link_create_input:
+  strict_unknown_fields: true
+  amount:
+    type: integer
+    minimum: 1
+    maximum: javascript_safe_integer
+    unit: BRL_centavos
+  currency:
+    required: true
+    exact: BRL
+  description:
+    required: false
+    type: string
+    empty_allowed: true
+  pixExpirationMinutes:
+    required: false
+    type: integer
+    minimum: 5
+    maximum: 1440
+    default: 60
+
+merchant_authorization:
+  reads:
+    minimum_role: member
+  sandbox_mutations:
+    minimum_role: admin
+  production:
+    create: operation_forbidden
+    public_execution: impossible_no_production_link
+  browser_role_checks: presentation_only
+  database_recheck: required
+
+http:
+  dashboard:
+    base: /dashboard/v1/merchants/{merchantId}/environments/{environment}/payment-links
+    list:
+      method: GET
+      status: 200
+      response: {object: list, data: payment_link_dashboard_projection_array}
+    create:
+      method: POST
+      idempotency_key_required: true
+      first_status: 201
+      replay_status: 200
+    disable:
+      method: POST
+      path_suffix: /{paymentLinkId}/disable
+      idempotency_key_required: true
+      body:
+        strict_unknown_fields: true
+      status: 200
+  checkout:
+    get_link:
+      method: GET
+      path: /checkout/v1/payment-links/{publicToken}
+      authentication: none
+      success_status: 200
+      unknown_or_disabled_status: 404
+      cache_control: no-store
+    create_payment:
+      method: POST
+      path: /checkout/v1/payment-links/{publicToken}/payments
+      authentication: none
+      idempotency_key_required: true
+      body:
+        strict_unknown_fields: true
+        exact: {}
+      success_status: 201
+      execution_unknown_status: 202
+      replay_status: 201 | 202
+      unknown_or_disabled_status: 404
+      cache_control: no-store
+
+projections:
+  payment_link_dashboard:
+    fields:
+      - id
+      - publicToken
+      - checkoutPath
+      - status
+      - amount
+      - currency
+      - description
+      - pixExpirationMinutes
+      - createdAt
+      - disabledAt
+    forbidden:
+      - merchantId
+      - provider
+      - providerAccount
+  payment_link_public:
+    fields:
+      - merchantName
+      - amount
+      - currency
+      - description
+      - environment
+      - pixExpirationMinutes
+    exact_environment: sandbox
+    forbidden:
+      - merchantId
+      - paymentLinkId
+      - provider
+      - providerAccount
+      - feeInternals
+  payment:
+    authority: A2_PublicPayment
+    provider_invisibility: required
+
+idempotency:
+  dashboard_create:
+    required: true
+    scope: merchant_environment_payment_link_create
+    request_hash_fields: [merchantId, environment, amount, currency, description, pixExpirationMinutes]
+    generated_public_token_excluded_from_hash: true
+    replay_does_not_generate_new_token: true
+  dashboard_disable:
+    required: true
+    scope: merchant_environment_payment_link_disable_resource
+    replay_mutation_again: false
+  checkout_create_payment:
+    required: true
+    client_key_format: normalized_1_through_160_chars
+    database_scope: payment_link_resource_plus_client_key
+    machine_create_payment_scope_collision: forbidden
+    completed_replay_second_payment: forbidden
+
+payment_creation:
+  environment: sandbox_only
+  source: payment_link
+  source_resource_id: payment_link_id
+  pricing:
+    pricingVersion: sandbox-zero-fee-v0
+    roundingPolicyVersion: ceil-bp-v1
+    merchantFeeCents: 0
+  routingPolicyVersion: sandbox-emulator-v0
+  prepare_api_pix_payment_reuse: forbidden
+  may_reuse:
+    - deterministic_pix_emulator
+    - app.claim_api_pix_attempt
+    - app.resolve_api_pix_attempt
+    - canonical_public_payment_projection
+  execution_unknown:
+    http_status: 202
+    payment_status: creating
+    definitive_failure_fabrication: forbidden
+
+abuse_controls:
+  new_policy: checkout_request_pre_auth
+  subject: canonical_client_ip
+  window_seconds: 60
+  limit: 120
+  distributed_store: existing_A14_PostgreSQL_quota
+  trusted_proxy_rules: existing_A14
+  hmac_rotation: existing_A18_active_previous
+  raw_ip_persistence: forbidden
+  admission_unavailable: fail_closed_503
+  applies_to:
+    - GET /checkout/v1/payment-links/{publicToken}
+    - POST /checkout/v1/payment-links/{publicToken}/payments
+
+trusted_database_routines:
+  - signature: app.list_dashboard_payment_links(uuid,uuid,text)
+    execute: swiftpay_api_only
+  - signature: app.create_dashboard_payment_link(uuid,uuid,text,text,text,jsonb)
+    execute: swiftpay_api_only
+  - signature: app.disable_dashboard_payment_link(uuid,uuid,text,uuid,text,text,jsonb)
+    execute: swiftpay_api_only
+  - signature: app.get_public_payment_link(text)
+    execute: swiftpay_api_only
+  - signature: app.prepare_payment_link_pix_payment(text,text,text)
+    execute: swiftpay_api_only
+  common:
+    security_definer: true
+    search_path: empty
+    public_execute: revoked
+    anon_execute: revoked
+    authenticated_execute: revoked
+    service_role_execute: revoked
+    worker_execute: revoked
+
+runtime_capabilities:
+  before_A23:
+    swiftpay_api: 25
+    swiftpay_worker: 6
+  after_A23_expected:
+    swiftpay_api: 30
+    swiftpay_worker: 6
+  direct_table_privileges:
+    swiftpay_api: zero
+    swiftpay_worker: zero
+
+checkout_application:
+  path: apps/checkout
+  rendering: browser_spa
+  stack:
+    react: 19.2.8
+    react_dom: 19.2.8
+    vite: 8.2.1
+  supabase_client: forbidden
+  trusted_config: forbidden
+  api_base: /api
+  visible_states:
+    - loading
+    - not_found_or_disabled
+    - active_link
+    - generating_pix
+    - generated_pending
+    - generated_execution_unknown
+    - request_error
+  sandbox_warning: required
+  primary_action: Gerar Pix de teste
+  generated_output:
+    - amount
+    - status
+    - pix_copy_and_paste_when_available
+    - expiration
+  secret_storage: none
+
+merchant_dashboard_extension:
+  route: /payment-links
+  nav_label: Links de pagamento
+  capabilities:
+    - list
+    - create
+    - copy_hosted_checkout_url
+    - disable
+  production_create_control: disabled_with_explanation
+  public_url_construction:
+    base_origin: browser_location_origin_or_deployment_config_later
+    path: /pay/{publicToken}
+    custom_domain: excluded
+
+security:
+  browser_direct_database: forbidden
+  browser_service_role: forbidden
+  browser_runtime_db_credentials: forbidden
+  browser_provider_credentials: forbidden
+  checkout_supabase_auth: forbidden
+  raw_database_error_exposure: forbidden
+  public_merchant_uuid_exposure: forbidden
+  provider_identity_exposure: forbidden
+  public_token_logs: route_template_only_no_raw_url
+
+financial_invariance:
+  A23_allowed:
+    - sandbox payment_link rows
+    - sandbox Payment source=payment_link on explicit payer action
+    - corresponding sandbox ProviderAttempt through deterministic emulator
+    - request_idempotency rows scoped to A23 actions
+    - audit events for dashboard link mutations
+    - A14 abuse quota rows
+  A23_forbidden:
+    - production Payment
+    - ledger posting by A23 itself
+    - paid transition by A23 itself
+    - payout
+    - refund
+    - financial reservation
+    - live provider call
+    - A10 activation promotion
+
+requirements:
+  - id: A23-R1
+    statement: Dashboard member can list Sandbox payment links; admin/owner can create and disable them through trusted API routines.
+  - id: A23-R2
+    statement: Production payment-link creation and public execution are fail-closed.
+  - id: A23-R3
+    statement: Public checkout exposes only sanitized link metadata and creates canonical source=payment_link Sandbox Payments.
+  - id: A23-R4
+    statement: A23 never calls prepare_api_pix_payment and never changes the A2 machine API source/idempotency contract.
+  - id: A23-R5
+    statement: Checkout payment creation is idempotent per payment-link resource and reuses deterministic emulator claim/resolve behavior.
+  - id: A23-R6
+    statement: Public checkout is protected by fail-closed distributed checkout_request_pre_auth admission using A14/A18 primitives.
+  - id: A23-R7
+    statement: apps/checkout is anonymous, Supabase-free and same-origin API-only.
+  - id: A23-R8
+    statement: Browser/Data API/provider authority does not expand; runtime capability expansion is exactly the five frozen API routines.
+  - id: A23-R9
+    statement: A23 performs zero retained-provider calls, zero A10 promotion and zero Production financial mutation.
