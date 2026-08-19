@@ -100,11 +100,7 @@ function publicErrorCode(value: unknown): string | null {
 }
 
 async function responseBody(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
+  try { return await response.json(); } catch { return null; }
 }
 
 function responseError(status: number, code: string | null): DashboardApiError {
@@ -123,15 +119,11 @@ async function requestJson(accessToken: string, path: string): Promise<unknown> 
   try {
     response = await fetch(path, {
       cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     });
   } catch {
     throw new DashboardApiError('unavailable');
   }
-
   const body = await responseBody(response);
   if (!response.ok) throw responseError(response.status, publicErrorCode(body));
   if (body === null) throw new DashboardApiError('error');
@@ -161,7 +153,6 @@ async function mutateJson(input: {
   } catch {
     throw new DashboardApiError('unavailable');
   }
-
   const body = await responseBody(response);
   if (!response.ok) throw responseError(response.status, publicErrorCode(body));
   if (body === null) throw new DashboardApiError('error');
@@ -177,9 +168,7 @@ function context(value: unknown): MerchantContext {
       || !Array.isArray(value.environments)
       || value.environments.length !== 2
       || value.environments[0] !== 'sandbox'
-      || value.environments[1] !== 'production') {
-    throw new DashboardApiError('error');
-  }
+      || value.environments[1] !== 'production') throw new DashboardApiError('error');
   return value as unknown as MerchantContext;
 }
 
@@ -191,9 +180,7 @@ function transaction(value: unknown): TransactionListItem {
       || value.currency !== 'BRL'
       || !['creating', 'pending', 'paid', 'expired', 'failed', 'cancelled'].includes(String(value.status))
       || (value.environment !== 'sandbox' && value.environment !== 'production')
-      || typeof value.createdAt !== 'string') {
-    throw new DashboardApiError('error');
-  }
+      || typeof value.createdAt !== 'string') throw new DashboardApiError('error');
   return value as unknown as TransactionListItem;
 }
 
@@ -209,9 +196,7 @@ function credential(value: unknown): ApiCredential {
       || !Number.isInteger(value.revision) || Number(value.revision) < 1
       || !(value.ipAllowlist === null || (Array.isArray(value.ipAllowlist) && value.ipAllowlist.every((item) => typeof item === 'string')))
       || !(value.lastUsedAt === null || typeof value.lastUsedAt === 'string')
-      || typeof value.createdAt !== 'string') {
-    throw new DashboardApiError('error');
-  }
+      || typeof value.createdAt !== 'string') throw new DashboardApiError('error');
   return value as unknown as ApiCredential;
 }
 
@@ -222,22 +207,17 @@ function webhookEndpoint(value: unknown): WebhookEndpoint {
       || (value.environment !== 'sandbox' && value.environment !== 'production')
       || typeof value.url !== 'string'
       || (value.status !== 'active' && value.status !== 'disabled')
-      || !Array.isArray(value.subscribedEvents)
-      || !value.subscribedEvents.every((item) => typeof item === 'string')
+      || !Array.isArray(value.subscribedEvents) || !value.subscribedEvents.every((item) => typeof item === 'string')
       || !Number.isInteger(value.secretVersion) || Number(value.secretVersion) < 1
       || !Number.isInteger(value.revision) || Number(value.revision) < 1
-      || typeof value.createdAt !== 'string'
-      || typeof value.updatedAt !== 'string') {
-    throw new DashboardApiError('error');
-  }
+      || typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string') throw new DashboardApiError('error');
   return value as unknown as WebhookEndpoint;
 }
 
 function credentialMutation(value: unknown): ApiCredentialMutationResult {
   if (!isRecord(value) || !('credential' in value)) throw new DashboardApiError('error');
   return {
-    credential: credential(value.credential),
-    replayed: value.replayed === true,
+    credential: credential(value.credential), replayed: value.replayed === true,
     secretAvailable: value.secretAvailable === true,
     secretKey: typeof value.secretKey === 'string' ? value.secretKey : null,
   };
@@ -246,8 +226,7 @@ function credentialMutation(value: unknown): ApiCredentialMutationResult {
 function webhookSecretMutation(value: unknown): WebhookMutationResult {
   if (!isRecord(value)) throw new DashboardApiError('error');
   return {
-    endpoint: webhookEndpoint(value),
-    replayed: value.replayed === true,
+    endpoint: webhookEndpoint(value), replayed: value.replayed === true,
     secretAvailable: value.secretAvailable === true,
     signingSecret: typeof value.signingSecret === 'string' ? value.signingSecret : null,
   };
@@ -259,209 +238,71 @@ function dashboardBase(merchantId: string, environment: DashboardEnvironment): s
 
 export async function listContexts(accessToken: string): Promise<readonly MerchantContext[]> {
   const body = await requestJson(accessToken, '/api/dashboard/v1/contexts');
-  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) {
-    throw new DashboardApiError('error');
-  }
+  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
   return body.data.map(context);
 }
 
-export async function listTransactions(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly cursor?: string;
-}): Promise<{ readonly items: readonly TransactionListItem[]; readonly nextCursor: string | null }> {
+export async function listTransactions(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly cursor?: string }): Promise<{ readonly items: readonly TransactionListItem[]; readonly nextCursor: string | null }> {
   const query = new URLSearchParams({ limit: '25' });
   if (input.cursor) query.set('cursor', input.cursor);
-  const body = await requestJson(
-    input.accessToken,
-    `${dashboardBase(input.merchantId, input.environment)}/transactions?${query.toString()}`,
-  );
-  if (!isRecord(body) || !Array.isArray(body.items)
-      || !(body.nextCursor === null || typeof body.nextCursor === 'string')) {
-    throw new DashboardApiError('error');
-  }
+  const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/transactions?${query.toString()}`);
+  if (!isRecord(body) || !Array.isArray(body.items) || !(body.nextCursor === null || typeof body.nextCursor === 'string')) throw new DashboardApiError('error');
   return { items: body.items.map(transaction), nextCursor: body.nextCursor };
 }
 
-export async function getTransaction(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly transactionId: string;
-}): Promise<TransactionDetail> {
-  const body = await requestJson(
-    input.accessToken,
-    `${dashboardBase(input.merchantId, input.environment)}/transactions/${encodeURIComponent(input.transactionId)}`,
-  );
+export async function getTransaction(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly transactionId: string }): Promise<TransactionDetail> {
+  const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/transactions/${encodeURIComponent(input.transactionId)}`);
   const base = transaction(body);
   if (!isRecord(body) || !('pix' in body)) throw new DashboardApiError('error');
   return { ...base, pix: body.pix as TransactionDetail['pix'] };
 }
 
-export async function listApiCredentials(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-}): Promise<readonly ApiCredential[]> {
+export async function listApiCredentials(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment }): Promise<readonly ApiCredential[]> {
   const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/api-credentials`);
   if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
   return body.data.map(credential);
 }
 
-export async function createApiCredential(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly idempotencyKey: string;
-  readonly name: string;
-}): Promise<ApiCredentialMutationResult> {
-  return credentialMutation(await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials`,
-    method: 'POST',
-    idempotencyKey: input.idempotencyKey,
-    body: { name: input.name },
-  }));
+export async function createApiCredential(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly idempotencyKey: string; readonly name: string }): Promise<ApiCredentialMutationResult> {
+  return credentialMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { name: input.name } }));
 }
 
-export async function rotateApiCredentialSecret(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly credentialId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-}): Promise<ApiCredentialMutationResult> {
-  return credentialMutation(await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials/${encodeURIComponent(input.credentialId)}/rotate-secret`,
-    method: 'POST',
-    idempotencyKey: input.idempotencyKey,
-    body: { expectedRevision: input.expectedRevision },
-  }));
+export async function rotateApiCredentialSecret(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly credentialId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<ApiCredentialMutationResult> {
+  return credentialMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials/${encodeURIComponent(input.credentialId)}/rotate-secret`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } }));
 }
 
-export async function revokeApiCredential(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly credentialId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-}): Promise<ApiCredentialMutationResult> {
-  return credentialMutation(await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials/${encodeURIComponent(input.credentialId)}/revoke`,
-    method: 'POST',
-    idempotencyKey: input.idempotencyKey,
-    body: { expectedRevision: input.expectedRevision },
-  }));
+export async function revokeApiCredential(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly credentialId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<ApiCredentialMutationResult> {
+  return credentialMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/api-credentials/${encodeURIComponent(input.credentialId)}/revoke`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } }));
 }
 
-export async function listWebhookEndpoints(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-}): Promise<readonly WebhookEndpoint[]> {
+export async function listWebhookEndpoints(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment }): Promise<readonly WebhookEndpoint[]> {
   const body = await requestJson(input.accessToken, `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints`);
   if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
   return body.data.map(webhookEndpoint);
 }
 
-export async function createWebhookEndpoint(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly idempotencyKey: string;
-  readonly url: string;
-}): Promise<WebhookMutationResult> {
-  return webhookSecretMutation(await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints`,
-    method: 'POST',
-    idempotencyKey: input.idempotencyKey,
-    body: { url: input.url, subscribedEvents: ['payment.paid'] },
-  }));
+export async function createWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly idempotencyKey: string; readonly url: string }): Promise<WebhookMutationResult> {
+  return webhookSecretMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { url: input.url, subscribedEvents: ['payment.paid'] } }));
 }
 
-export async function updateWebhookEndpoint(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly endpointId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-  readonly url?: string;
-}): Promise<WebhookEndpoint> {
-  const body = await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}`,
-    method: 'PATCH',
-    idempotencyKey: input.idempotencyKey,
-    body: {
-      expectedRevision: input.expectedRevision,
-      ...(input.url === undefined ? {} : { url: input.url }),
-      subscribedEvents: ['payment.paid'],
-    },
-  });
+export async function updateWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string; readonly url: string }): Promise<WebhookEndpoint> {
+  const body = await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}`, method: 'PATCH', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision, url: input.url } });
   return webhookEndpoint(body);
 }
 
-async function mutateWebhookState(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly endpointId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-  readonly operation: 'disable' | 'enable';
-}): Promise<WebhookEndpoint> {
-  const body = await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}/${input.operation}`,
-    method: 'POST',
-    idempotencyKey: input.idempotencyKey,
-    body: { expectedRevision: input.expectedRevision },
-  });
+async function mutateWebhookState(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string; readonly operation: 'disable' | 'enable' }): Promise<WebhookEndpoint> {
+  const body = await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}/${input.operation}`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } });
   return webhookEndpoint(body);
 }
 
-export async function disableWebhookEndpoint(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly endpointId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-}): Promise<WebhookEndpoint> {
+export async function disableWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<WebhookEndpoint> {
   return mutateWebhookState({ ...input, operation: 'disable' });
 }
 
-export async function enableWebhookEndpoint(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly endpointId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-}): Promise<WebhookEndpoint> {
+export async function enableWebhookEndpoint(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<WebhookEndpoint> {
   return mutateWebhookState({ ...input, operation: 'enable' });
 }
 
-export async function rotateWebhookEndpointSecret(input: {
-  readonly accessToken: string;
-  readonly merchantId: string;
-  readonly environment: DashboardEnvironment;
-  readonly endpointId: string;
-  readonly expectedRevision: number;
-  readonly idempotencyKey: string;
-}): Promise<WebhookMutationResult> {
-  return webhookSecretMutation(await mutateJson({
-    accessToken: input.accessToken,
-    path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}/rotate-secret`,
-    method: 'POST',
-    idempotencyKey: input.idempotencyKey,
-    body: { expectedRevision: input.expectedRevision },
-  }));
+export async function rotateWebhookEndpointSecret(input: { readonly accessToken: string; readonly merchantId: string; readonly environment: DashboardEnvironment; readonly endpointId: string; readonly expectedRevision: number; readonly idempotencyKey: string }): Promise<WebhookMutationResult> {
+  return webhookSecretMutation(await mutateJson({ accessToken: input.accessToken, path: `${dashboardBase(input.merchantId, input.environment)}/webhook-endpoints/${encodeURIComponent(input.endpointId)}/rotate-secret`, method: 'POST', idempotencyKey: input.idempotencyKey, body: { expectedRevision: input.expectedRevision } }));
 }
