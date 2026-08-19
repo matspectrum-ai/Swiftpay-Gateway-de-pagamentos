@@ -19,6 +19,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import Fastify, {
+  LogController,
   type FastifyInstance,
   type FastifyReply,
   type FastifyRequest,
@@ -467,7 +468,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   const requestStarts = new WeakMap<FastifyRequest, number>();
   const app = Fastify({
     logger: false,
-    disableRequestLogging: true,
+    logController: new LogController({
+      disableRequestLogging: true,
+    }),
     requestIdHeader: false,
     genReqId: () => randomUUID(),
   });
