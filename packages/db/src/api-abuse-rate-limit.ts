@@ -25,7 +25,7 @@ const POLICIES = new Set<ApiAbusePolicy>([
   'readiness_probe',
 ]);
 const SUBJECT_HASH_RE = /^[0-9a-f]{64}$/;
-const CONSUME_SQL = `select * from app.consume_api_abuse_quota($1::text, $2::text)`;
+const CONSUME_SQL = `select * from app.consume_api_abuse_quota($1::text, $2::text, $3::text)`;
 
 export class ApiAbuseRateLimitStoreError extends Error {
   constructor() {
@@ -63,11 +63,26 @@ function isExactDecisionRow(value: unknown): value is {
 
 export function createApiAbuseRateLimitStore(pool: QueryOnlyPool) {
   return Object.freeze({
-    async consume(input: { readonly policy: string; readonly subjectHash: string }): Promise<ApiAbuseQuotaDecision> {
-      if (!POLICIES.has(input.policy as ApiAbusePolicy) || !SUBJECT_HASH_RE.test(input.subjectHash)) fail();
+    async consume(input: {
+      readonly policy: string;
+      readonly activeSubjectHash: string;
+      readonly previousSubjectHash?: string;
+    }): Promise<ApiAbuseQuotaDecision> {
+      if (!POLICIES.has(input.policy as ApiAbusePolicy) || !SUBJECT_HASH_RE.test(input.activeSubjectHash)) fail();
+      if (
+        input.previousSubjectHash !== undefined
+        && (
+          !SUBJECT_HASH_RE.test(input.previousSubjectHash)
+          || input.previousSubjectHash === input.activeSubjectHash
+        )
+      ) fail();
 
       try {
-        const result = await pool.query(CONSUME_SQL, [input.policy, input.subjectHash]);
+        const result = await pool.query(CONSUME_SQL, [
+          input.policy,
+          input.activeSubjectHash,
+          input.previousSubjectHash ?? null,
+        ]);
         if (result.rows.length !== 1 || !isExactDecisionRow(result.rows[0])) fail();
         const row = result.rows[0];
         return {
