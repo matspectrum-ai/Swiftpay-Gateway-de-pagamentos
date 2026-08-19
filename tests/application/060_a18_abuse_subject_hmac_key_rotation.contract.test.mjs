@@ -211,7 +211,7 @@ test('A18 API runtime wires previous continuity authority while worker gains non
   ]);
 
   assert.match(apiIndex + apiRuntime, /abuseHmacPreviousKey/);
-  assert.match(configIndex, /ABUSE_HMAC_PREVIOUS_KEY_ENV/);
+  assert.match(configIndex, /SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY/);
   assert.doesNotMatch(workerIndex, /ABUSE_HMAC_PREVIOUS_KEY|abuseHmacPreviousKey/);
 });
 
