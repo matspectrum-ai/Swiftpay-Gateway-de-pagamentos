@@ -103,7 +103,7 @@ test('A14 trusted-ingress resolver ignores spoofed forwarding from untrusted pee
   assert.equal(proxied.resolveClientIp({ remoteAddress: '198.51.100.10', xForwardedFor: '203.0.113.99, 192.0.2.1' }), null);
 });
 
-test('A14 persists only deterministic HMAC subject hashes and validates store decisions fail-closed', async () => {
+test('A14 persists only deterministic active HMAC subject hashes and validates store decisions fail-closed', async () => {
   const { createApiAbuseControls } = await requireA14();
   const inputs = [];
   const store = { consume: async (input) => { inputs.push(input); return { allowed: true, remaining: 29, retryAfterSeconds: 0 }; } };
@@ -111,8 +111,10 @@ test('A14 persists only deterministic HMAC subject hashes and validates store de
   const result = await controls.admitNetwork({ policy: 'token_exchange_pre_auth', clientIp: '203.0.113.10' });
   assert.deepEqual(result, { kind: 'allowed', remaining: 29 });
   assert.equal(inputs.length, 1);
-  assert.equal(inputs[0].policy, 'token_exchange_pre_auth');
-  assert.equal(inputs[0].subjectHash, createHmac('sha256', HMAC_KEY).update('a14v0\nnetwork\n203.0.113.10', 'utf8').digest('hex'));
+  assert.deepEqual(inputs[0], {
+    policy: 'token_exchange_pre_auth',
+    activeSubjectHash: createHmac('sha256', HMAC_KEY).update('a14v0\nnetwork\n203.0.113.10', 'utf8').digest('hex'),
+  });
   assert.doesNotMatch(JSON.stringify(inputs), /203\.0\.113\.10|Bearer|secret/i);
 
   const malformed = createApiAbuseControls(
@@ -216,7 +218,7 @@ test('A14 admission unavailability fails closed as sanitized 503 without limiter
     const body = response.json();
     assert.equal(body.error.code, 'request_admission_unavailable');
     const encoded = JSON.stringify(body);
-    assert.doesNotMatch(encoded, /203\.0\.113\.10|subjectHash|HMAC_KEY|secret/i);
+    assert.doesNotMatch(encoded, /203\.0\.113\.10|activeSubjectHash|previousSubjectHash|HMAC_KEY|secret/i);
   } finally { await app.close(); }
 });
 
@@ -258,6 +260,6 @@ test('A14 preserves the exact A1 successful issuance quota and privacy/authority
   assert.match(a1Spec, /window_seconds:\s*3600/);
   assert.match(a1Spec, /Invalid-secret abuse protection remains a deployment\/WAF concern/);
   assert.match(migration, /if v_issued_count < 10/);
-  assert.doesNotMatch(obsSource, /subjectHash|x-forwarded-for|clientIp/);
-  assert.doesNotMatch(metricsSource, /subjectHash|x-forwarded-for|clientIp/);
+  assert.doesNotMatch(obsSource, /activeSubjectHash|previousSubjectHash|x-forwarded-for|clientIp/);
+  assert.doesNotMatch(metricsSource, /activeSubjectHash|previousSubjectHash|x-forwarded-for|clientIp/);
 });
