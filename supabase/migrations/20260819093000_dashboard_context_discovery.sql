@@ -45,7 +45,7 @@ begin
         p_user_id,
         m.id,
         'member'
-    ) ctx
+    ) as ctx(membership_role)
     where mm.user_id = p_user_id
       and mm.status = 'active'
     order by pg_catalog.lower(m.name), m.id;
