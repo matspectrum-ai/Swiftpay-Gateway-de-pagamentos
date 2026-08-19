@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(6);
+select plan(7);
 
 select has_table(
   'app', 'api_abuse_windows',
@@ -21,8 +21,20 @@ select has_index(
 );
 
 select has_function(
-  'app', 'consume_api_abuse_quota', array['text','text'],
-  'A14 trusted API quota routine must exist with exact signature'
+  'app', 'consume_api_abuse_quota', array['text','text','text'],
+  'A14 quota authority must remain available through the A18 backward-compatible RPC'
+);
+
+select is(
+  (
+    select pronargdefaults::integer
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'app'
+      and p.proname = 'consume_api_abuse_quota'
+  ),
+  1,
+  'A14 two-argument callers remain compatible through one defaulted A18 trailing argument'
 );
 
 select is(
@@ -35,7 +47,7 @@ select is(
       and privilege_type = 'EXECUTE'
   ),
   1,
-  'A14 swiftpay_api must receive exactly the quota routine EXECUTE capability'
+  'A14 swiftpay_api must retain exactly one quota-routine EXECUTE capability'
 );
 
 select is(
@@ -48,7 +60,7 @@ select is(
       and privilege_type = 'EXECUTE'
   ),
   0,
-  'A14 quota routine must not be executable by public/Data API/service-role/worker identities'
+  'A14 quota routine must remain unavailable to public/Data API/service-role/worker identities'
 );
 
 select * from finish();
