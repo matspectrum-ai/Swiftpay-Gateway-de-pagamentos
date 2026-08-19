@@ -48,17 +48,31 @@ select is(
   'A21 context discovery routine has explicit safe search_path'
 );
 
-select ok(
-  has_function_privilege('swiftpay_api', 'app.list_dashboard_merchant_contexts(uuid)', 'EXECUTE'),
+select is(
+  has_function_privilege(
+    'swiftpay_api',
+    (select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'app' and p.proname = 'list_dashboard_merchant_contexts' and pg_get_function_identity_arguments(p.oid) = 'p_user_id uuid'),
+    'EXECUTE'
+  ),
+  true,
   'swiftpay_api can execute A21 context discovery'
 );
 
-select ok(
-  not has_function_privilege('swiftpay_worker', 'app.list_dashboard_merchant_contexts(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'app.list_dashboard_merchant_contexts(uuid)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'app.list_dashboard_merchant_contexts(uuid)', 'EXECUTE')
-  and not has_function_privilege('service_role', 'app.list_dashboard_merchant_contexts(uuid)', 'EXECUTE')
-  and not has_function_privilege('public', 'app.list_dashboard_merchant_contexts(uuid)', 'EXECUTE'),
+select is(
+  coalesce((
+    select
+      not has_function_privilege('swiftpay_worker', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')
+      and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and not has_function_privilege('service_role', p.oid, 'EXECUTE')
+      and not has_function_privilege('public', p.oid, 'EXECUTE')
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'app'
+      and p.proname = 'list_dashboard_merchant_contexts'
+      and pg_get_function_identity_arguments(p.oid) = 'p_user_id uuid'
+  ), false),
+  true,
   'worker and Data API roles have no A21 execute authority'
 );
 
