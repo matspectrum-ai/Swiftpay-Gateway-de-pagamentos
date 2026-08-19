@@ -128,7 +128,7 @@ begin
      and grantee = 'swiftpay_worker'
      and privilege_type = 'EXECUTE';
 
-  if v_api_execute_count <> 24 then
+  if v_api_execute_count <> 25 then
     raise exception 'A8 credential boundary inside post-A14 swiftpay_api capability count drift: %', v_api_execute_count;
   end if;
   if v_worker_execute_count <> 6 then
