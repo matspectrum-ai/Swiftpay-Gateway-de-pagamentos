@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(19);
 
 create temporary table a20_expected_runtime_capabilities (
   role_name text not null,
