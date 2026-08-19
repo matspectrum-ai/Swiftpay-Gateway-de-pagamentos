@@ -60,7 +60,9 @@ A19 MUST preserve existing A13 HTTP metrics and readiness metrics with no label/
 
 The runtime MUST solve the deprecated API usage rather than suppress the warning.
 
-A child Node process executed with deprecations promoted to errors MUST be able to import `apps/api/dist/app.js`, call `buildApp({ readinessProbe: async () => {} })`, and close the resulting Fastify instance without failing on `FSTDEP023`.
+An isolated child Node process MUST be able to import `apps/api/dist/app.js`, call `buildApp({ readinessProbe: async () => {} })`, and close the resulting Fastify instance successfully, with stderr containing neither `FSTDEP023` nor a deprecated `disableRequestLogging` warning.
+
+The observed A19 RED establishes that Fastify's `FSTDEP023` warning is not converted into a thrown process error by Node `--throw-deprecation`; therefore process exit status alone is not an authoritative warning gate. Stderr is the explicit acceptance surface for this warning.
 
 No A19 source/config/test may rely on:
 
@@ -90,6 +92,6 @@ RED MUST prove at least:
 
 1. current source still supplies top-level `disableRequestLogging`;
 2. current source lacks the required `logController`/`LogController` construction;
-3. the existing build emits `FSTDEP023` when exercised under deprecation-as-error semantics.
+3. the existing build emits `FSTDEP023` in an isolated child process.
 
 Only after that RED may `apps/api/src/app.ts` be minimally changed.
