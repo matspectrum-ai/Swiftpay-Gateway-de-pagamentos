@@ -27,7 +27,7 @@ Living functional checklist: `docs/product/v1-functional-checklist.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A19: `DONE`
+- A1-A20: `DONE`
 - A5 remains `DONE / FIXTURE-ONLY` for live-provider authority.
 - A10 remains executable default-deny with zero retained-provider operations authorized by repository defaults.
 - A11 remains strict outbound HTTPS and intentionally unbound from retained A5 adapters.
@@ -40,6 +40,8 @@ Current engineering estimates:
 - production-capable Pix V1: **~60%**
 - weighted V1 engineering completion: **~75%**
 
+Important product-surface qualifier: these percentages are engineering/risk-weighted and are not a claim that the merchant-facing visual product is 75-97% complete. There is currently no web dashboard application in `apps/`; the implemented dashboard work is the trusted API/auth/database surface used by a future UI.
+
 Current external critical blocker:
 
 - exact current PSP contract/lineage/auth/create/query/idempotency/recovery/webhook-auth evidence;
@@ -48,6 +50,25 @@ Current external critical blocker:
 Do not bridge A5 retained adapters to A11 and do not promote A10 provider authority until those evidence gates close.
 
 ## Latest accepted slices
+
+### A20 — runtime capability manifest & exact attestation — `DONE / GREEN / HOSTED-ATTESTED`
+
+- Problem Analysis: `docs/design/a20-runtime-capability-manifest-attestation-problem-analysis.md`
+- Spec: `docs/specs/runtime-capability-manifest-attestation-v0.yaml`
+- Contract: `docs/contracts/runtime-capability-manifest-attestation-v0.md`
+- Evidence: `docs/evidence/application/2026-08-19-a20-runtime-capability-manifest-attestation.md`
+- Canonical manifest: `ops/security/runtime-capabilities-v0.json`
+- Accepted implementation head: `b9188cf7954af70f464fbab50f5776c1ee5e9269`
+- RED application workflow `32217764269`: **359/362 PASS**, exactly three expected A20 artifact-absence failures; A1-A19 remained GREEN.
+- GREEN application workflow `32217961040`: **362/362 PASS**, typecheck/build GREEN and full real PostgreSQL runtime regression GREEN.
+- Database workflow `32217961050`: pgTAP/K5/K6+A20 runtime topology all GREEN.
+- Hosted exact `regprocedure` attestation: missing **0**, extra **0**, API **24**, worker **6**.
+- Hosted authorized functions lacking `SECURITY DEFINER`: **0**; lacking explicit `search_path`: **0**.
+- Hosted direct `app` table privileges for API/worker: **0 / 0**.
+- Hosted `anon`/`authenticated`/`service_role` effective `app` EXECUTE capabilities: **0**.
+- Hosted Security Advisor: **0 lints**.
+- Hosted Payment/ProviderAttempt rows: **0 / 0**.
+- A20 introduces no migration, GRANT/REVOKE, provider bridge, route or financial authority.
 
 ### A19 — Fastify LogController compatibility — `DONE / GREEN / APPLICATION-ONLY`
 
@@ -142,8 +163,9 @@ Remaining product execution:
 - K5 deterministic local sandbox fixtures — `DONE`
 - K6 trusted runtime deployment topology — `DONE`
 - K7 executable API/worker runtime bootstrap — `DONE`
+- A20 exact runtime capability manifest/attestation — `DONE / GREEN / HOSTED-ATTESTED`
 
-Runtime identities remain separate and capability-scoped. Current hosted post-A18 capability totals are exactly **24 API / 6 worker** `app` EXECUTEs.
+Runtime identities remain separate and capability-scoped. Current hosted capability set is exactly the versioned **24 API / 6 worker** `app` EXECUTE signatures, with zero public/Data API `app` authority and zero direct app-table privileges for trusted runtime roles.
 
 ---
 
@@ -223,17 +245,26 @@ Current state:
 
 # Phase 5 — Merchant/admin product surfaces
 
-- A6 dashboard session authentication — `DONE`
-- A7 merchant webhook endpoint management — `DONE / HOSTED`
-- A8 API credential management — `DONE / HOSTED`
-- A9 merchant transaction operations — `DONE / HOSTED`
+- A6 dashboard session authentication backend — `DONE`
+- A7 merchant webhook endpoint management API — `DONE / HOSTED`
+- A8 API credential management API — `DONE / HOSTED`
+- A9 merchant transaction operations API — `DONE / HOSTED`
 - A16 dashboard transaction cursor HMAC rotation — `DONE / GREEN`
+
+Current visual-product reality:
+
+- there is **no merchant dashboard web application yet**; `apps/` currently contains only API and worker workloads;
+- the existing dashboard work is the server/API/security substrate for that future web application.
 
 Remaining product surfaces:
 
-- Dashboard login/session UX and Supabase Auth product configuration — `PENDING`
+- Merchant dashboard web app and login/session UX — `PENDING`
+- Dashboard transaction UI — `PENDING`
+- Dashboard API credential UI — `PENDING`
+- Dashboard webhook endpoint UI — `PENDING`
 - KYC/compliance operations UI — `PENDING`
 - Payout/refund operational API/UI — `PENDING`
+- Reporting/analytics merchant UI — `PENDING`
 
 ---
 
@@ -255,6 +286,7 @@ Remaining product surfaces:
 - A17 legacy webhook AES secret retirement — `DONE / GREEN / HOSTED`
 - A18 abuse-subject HMAC key rotation — `DONE / GREEN / HOSTED`
 - A19 Fastify LogController compatibility — `DONE / GREEN / APPLICATION-ONLY`
+- A20 exact runtime capability manifest/attestation — `DONE / GREEN / HOSTED-ATTESTED`
 
 ## Security hardening — `IN_PROGRESS`
 
@@ -265,12 +297,12 @@ Completed foundations:
 - dashboard cursor HMAC rotation;
 - merchant webhook persisted-secret AES retirement;
 - abuse-subject HMAC rotation;
-- Fastify request-log compatibility debt.
+- Fastify request-log compatibility debt;
+- exact nominal runtime capability/least-privilege attestation.
 
 Remaining:
 
-- final dependency/security review;
-- final least-privilege audit;
+- dependency/supply-chain final review;
 - operational audit review;
 - production network/WAF hardening;
 - secret/key rotation runbooks and drills.
@@ -314,6 +346,7 @@ Foundation contracts / architecture                       DONE
   -> K5 deterministic sandbox fixtures                   DONE
   -> K6 trusted runtime topology                         DONE
   -> K7 executable API/worker runtime                    DONE
+  -> A20 exact runtime capability attestation            DONE / GREEN / HOSTED-ATTESTED
   -> A1 API credential token authentication              DONE
   -> A2 authenticated Pix create/get + emulator          DONE
   -> A3 paid transition + ledger + balance               DONE
@@ -329,12 +362,13 @@ Foundation contracts / architecture                       DONE
        -> provider recovery/reconciliation               BLOCKED
 
 Parallel merchant/admin path:
-  -> A6 dashboard session authentication                 DONE
-  -> A7 webhook endpoint management                      DONE / HOSTED
-  -> A8 API credential management                        DONE / HOSTED
-  -> A9 merchant transaction operations                  DONE / HOSTED
+  -> A6 dashboard session authentication backend         DONE
+  -> A7 webhook endpoint management API                  DONE / HOSTED
+  -> A8 API credential management API                    DONE / HOSTED
+  -> A9 merchant transaction operations API              DONE / HOSTED
   -> A16 dashboard cursor HMAC rotation                  DONE / GREEN
-  -> broader admin/KYC/payout operations                 PENDING
+  -> merchant dashboard web application                 PENDING
+  -> KYC/payout/refund/reporting UI                      PENDING
 
 Parallel production-hardening path:
   -> A12 safe runtime logging/correlation                DONE / GREEN
@@ -345,19 +379,21 @@ Parallel production-hardening path:
   -> A17 legacy webhook AES secret retirement            DONE / GREEN / HOSTED
   -> A18 abuse-subject HMAC key rotation                 DONE / GREEN / HOSTED
   -> A19 Fastify LogController compatibility             DONE / GREEN
+  -> A20 exact runtime capability attestation            DONE / GREEN / HOSTED-ATTESTED
   -> external exporters/alerts/SLOs/tracing              PENDING
-  -> security/least-privilege/rotation drills            PENDING
+  -> dependency review/rotation drills/WAF               PENDING
   -> performance/load/capacity                           PENDING
   -> deployment/backup/cutover/rollback                  PENDING
 ```
 
 ## Immediate next action
 
-A19 is fully GREEN. The living functional checklist and readiness checkpoint are the durable feature/readiness surfaces and must remain aligned after every accepted slice.
+A20 is fully GREEN and hosted-attested. Provider activation remains externally blocked by current-contract and authenticated-sandbox evidence.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
 3. if provider evidence closes, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
 4. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
-5. in parallel, proceed only with bounded launch-hardening work that does not obscure the PSP blocker: security/least-privilege review, secret/key rotation drills, measured performance/load, deployment/backup/rollback contracts, or explicitly prioritized merchant product surfaces;
-6. do not call AkkadPag, AkadPay or FlevoPay monetarily until exact current-contract, sandbox and activation gates are closed.
+5. in parallel, prioritize the merchant-facing product gap: freeze the first dashboard web-application slice using the already-proven A6/A7/A8/A9 backend contracts, rather than continuing invisible hardening indefinitely;
+6. retain launch-hardening work only where bounded and evidence-driven: dependency/supply-chain review, rotation drills, measured performance/load, deployment/backup/rollback contracts and production WAF/network policy;
+7. do not call AkkadPag, AkadPay or FlevoPay monetarily until exact current-contract, sandbox and activation gates are closed.
