@@ -24,6 +24,9 @@ const services = {
       : { dashboardCursorLegacyV0Key: config.dashboardCursorLegacyV0Key }),
     trustedProxyIps: config.trustedProxyIps,
     abuseHmacKey: config.abuseHmacKey,
+    ...(config.abuseHmacPreviousKey === undefined
+      ? {}
+      : { abuseHmacPreviousKey: config.abuseHmacPreviousKey }),
     webhookSecretWrapKeyId: config.webhookSecretWrapKeyId,
     webhookSecretWrapPublicKey: config.webhookSecretWrapPublicKey,
   }),
