@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "swiftpay-runtime-capabilities-v0",
+  "canonicalSchema": "app",
+  "roles": {
+    "swiftpay_api": {
+      "expectedCount": 24,
+      "signatures": [
+        "app.claim_api_pix_attempt(uuid,text,uuid,uuid)",
+        "app.consume_api_abuse_quota(text,text,text)",
+        "app.consume_api_token_issuance(uuid)",
+        "app.create_dashboard_api_credential(uuid,uuid,text,text,text,jsonb)",
+        "app.create_dashboard_webhook_endpoint(uuid,uuid,text,text,text,jsonb)",
+        "app.disable_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)",
+        "app.enable_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)",
+        "app.get_api_balance(uuid,text)",
+        "app.get_api_credential_auth_state(uuid)",
+        "app.get_api_payment(uuid,text,uuid)",
+        "app.get_dashboard_api_credential(uuid,uuid,text,uuid)",
+        "app.get_dashboard_transaction(uuid,uuid,text,uuid)",
+        "app.get_dashboard_webhook_endpoint(uuid,uuid,text,uuid)",
+        "app.list_dashboard_api_credentials(uuid,uuid,text)",
+        "app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,uuid,integer)",
+        "app.list_dashboard_webhook_endpoints(uuid,uuid,text)",
+        "app.lookup_api_credential_for_token(text)",
+        "app.prepare_api_pix_payment(uuid,text,text,text,jsonb,jsonb,text)",
+        "app.require_dashboard_merchant_context(uuid,uuid,text,text)",
+        "app.resolve_api_pix_attempt(uuid,text,uuid,uuid,uuid,jsonb)",
+        "app.revoke_dashboard_api_credential(uuid,uuid,text,uuid,text,text,jsonb)",
+        "app.rotate_dashboard_api_credential_secret(uuid,uuid,text,uuid,text,text,jsonb)",
+        "app.rotate_dashboard_webhook_endpoint_secret(uuid,uuid,text,uuid,text,text,jsonb)",
+        "app.update_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)"
+      ]
+    },
+    "swiftpay_worker": {
+      "expectedCount": 6,
+      "signatures": [
+        "app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamp with time zone)",
+        "app.claim_jobs(text,integer,integer)",
+        "app.claim_merchant_webhook_deliveries(text,integer,integer)",
+        "app.complete_job(uuid,uuid)",
+        "app.reschedule_job(uuid,uuid,text,text,integer)",
+        "app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)"
+      ]
+    }
+  }
+}
