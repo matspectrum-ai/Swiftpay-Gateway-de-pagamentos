@@ -1,0 +1,300 @@
+feature: merchant-dashboard-integration-settings-ui-v0
+status: frozen_for_tdd
+phase: 5
+date: 2026-08-19
+
+problem:
+  statement: >-
+    A21 provides the first merchant-facing dashboard shell but API Credentials
+    and Webhooks remain disabled placeholders even though A8 and A7 already
+    expose hosted trusted dashboard management APIs. A22 must make those
+    capabilities usable from the browser without adding backend authority,
+    persisting plaintext secrets, weakening A8 AAL2 step-up, bypassing A7
+    endpoint policy, or creating provider/financial authority.
+
+source_of_truth:
+  problem_analysis:
+    - docs/design/a22-merchant-dashboard-integration-settings-ui-problem-analysis.md
+  predecessors:
+    - docs/specs/merchant-dashboard-web-foundation-v0.yaml
+    - docs/specs/api-credential-management-v0.yaml
+    - docs/specs/merchant-webhook-endpoint-management-v0.yaml
+    - docs/specs/legacy-webhook-aes-secret-retirement-v0.yaml
+    - docs/specs/dashboard-session-authentication-v0.yaml
+
+precedence:
+  - A21 remains authoritative for Supabase Auth/session refresh, merchant/environment context and browser trust boundary.
+  - A8 remains authoritative for API credential projections, roles, AAL2 mutation step-up, idempotency and one-time Secret Key disclosure.
+  - A7 remains authoritative for webhook endpoint projections, roles, URL policy, lifecycle, idempotency and one-time signing-secret disclosure.
+  - A17 remains authoritative for persisted merchant webhook secret format/rotation authority.
+  - Client-side role visibility is UX only and never authorization.
+
+architecture:
+  workload: apps/dashboard
+  rendering: browser_spa
+  backend_changes: forbidden
+  database_changes: forbidden
+  new_runtime_capabilities: forbidden
+  same_origin_api_prefix: /api
+  browser_direct_database_access: forbidden
+  provider_network_authority: forbidden
+  financial_authority: forbidden
+
+navigation:
+  routes:
+    transactions: /transactions
+    api_credentials: /settings/api-credentials
+    webhooks: /settings/webhooks
+  secret_in_url: forbidden
+  context_selector_shared_across_views: true
+
+api_client:
+  allowed_dashboard_resources:
+    - /api/dashboard/v1/contexts
+    - /api/dashboard/v1/merchants/{merchantId}/environments/{environment}/transactions
+    - /api/dashboard/v1/merchants/{merchantId}/environments/{environment}/api-credentials
+    - /api/dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints
+  request_headers:
+    authorization: Bearer existing Supabase access token
+    accept: application/json
+    mutation_content_type: application/json
+    mutation_idempotency_header: Idempotency-Key
+  mutation_methods: [POST, PATCH]
+  forbidden_methods: [PUT, DELETE]
+  cache: no-store
+  raw_error_body_exposure: forbidden
+  sanitized_errors:
+    validation: 400
+    session: 401
+    step_up: '403 with exact public code step_up_required'
+    forbidden: 'other 403'
+    not_found: 404
+    conflict: 409
+    unavailable: '503 or transport failure'
+    error: other
+
+session_retry:
+  existing_A21_behavior_reused: true
+  retry_only_after: 401_session_failure
+  maximum_refresh_retries_per_operation: 1
+  mutation_idempotency_key_reused_across_refresh_retry: required
+  new_key_on_retry: forbidden
+
+idempotency:
+  generator: browser_crypto_randomUUID
+  secret: false
+  one_key_per_user_action: true
+  same_key_for_exact_session_refresh_retry: true
+  reuse_across_distinct_actions: forbidden
+  persistence_across_page_reload: not_required
+  maximum_backend_length_compatibility: 160
+
+one_time_secrets:
+  credential_secret_key:
+    predecessor: A8
+    revealed_only_when: winning_create_or_rotate_response_secretAvailable_true
+  webhook_signing_secret:
+    predecessor: A7
+    revealed_only_when: winning_create_or_rotate_response_secretAvailable_true
+  browser_storage:
+    react_component_memory: allowed_while_reveal_open
+    localStorage: forbidden
+    sessionStorage: forbidden
+    indexedDB: forbidden
+    url_path_query_hash: forbidden
+    console_or_telemetry: forbidden
+    automatic_clipboard_write: forbidden
+  manual_copy_after_explicit_user_action: allowed
+  clear_on:
+    - explicit_dismiss
+    - context_change
+    - navigation_away_from_relevant_settings_view
+    - logout
+    - session_loss
+  completed_idempotency_replay_redisclosure: forbidden
+
+api_credentials_view:
+  base_path: /api/dashboard/v1/merchants/{merchantId}/environments/{environment}/api-credentials
+  list:
+    method: GET
+    minimum_backend_role: member
+    fields:
+      - id
+      - name
+      - publicKey
+      - status
+      - secretVersion
+      - revision
+      - ipAllowlist
+      - lastUsedAt
+      - createdAt
+      - rotatedAt
+      - revokedAt
+  create:
+    method: POST
+    idempotency: required
+    body: [name, ipAllowlist_optional]
+    first_status: 201
+    replay_status: 200
+    one_time_secret_field: secretKey
+  rotate_secret:
+    method: POST
+    suffix: /{credentialId}/rotate-secret
+    idempotency: required
+    body: [expectedRevision]
+    one_time_secret_field: secretKey
+  revoke:
+    method: POST
+    suffix: /{credentialId}/revoke
+    idempotency: required
+    body: [expectedRevision]
+    explicit_confirmation: required
+  mutation_roles_for_ux_only:
+    sandbox: [admin, owner]
+    production: [owner]
+  aal2:
+    backend_authority: required
+    local_jwt_claim_authority: forbidden
+    exact_step_up_code: step_up_required
+    ui_state: Autenticação adicional necessária
+    enrollment_or_challenge_ui_in_A22: forbidden
+  limits:
+    active_credentials: 10
+    backend_code: credential_limit_reached
+  plaintext_secret_persistence: forbidden
+
+webhooks_view:
+  base_path: /api/dashboard/v1/merchants/{merchantId}/environments/{environment}/webhook-endpoints
+  list:
+    method: GET
+    minimum_backend_role: member
+    fields: [id, url, status, subscribedEvents, secretVersion, revision, createdAt, updatedAt]
+  create:
+    method: POST
+    idempotency: required
+    body:
+      url: required
+      subscribedEvents: [payment.paid]
+    first_status: 201
+    replay_status: 200
+    one_time_secret_field: signingSecret
+  update:
+    method: PATCH
+    suffix: /{endpointId}
+    idempotency: required
+    body:
+      expectedRevision: required
+      url: optional
+      subscribedEvents: optional
+    url_edit_ui_enabled_only_when_status: disabled
+    backend_authority_remains_required: true
+  disable:
+    method: POST
+    suffix: /{endpointId}/disable
+    body: [expectedRevision]
+    idempotency: required
+  enable:
+    method: POST
+    suffix: /{endpointId}/enable
+    body: [expectedRevision]
+    idempotency: required
+  rotate_secret:
+    method: POST
+    suffix: /{endpointId}/rotate-secret
+    body: [expectedRevision]
+    idempotency: required
+    one_time_secret_field: signingSecret
+  mutation_roles_for_ux_only: [admin, owner]
+  supported_events_exact_v0: [payment.paid]
+  manual_test_or_redelivery: forbidden
+  history_api: forbidden
+  plaintext_secret_persistence: forbidden
+
+ui_states:
+  shared:
+    - loading
+    - empty
+    - session_expired
+    - forbidden
+    - validation_error
+    - conflict
+    - unavailable
+    - internal_error
+  api_credentials:
+    - read_only_role
+    - step_up_required
+    - active_limit_reached
+    - one_time_secret_reveal
+    - revoked
+  webhooks:
+    - read_only_role
+    - endpoint_limit_reached
+    - one_time_secret_reveal
+    - active
+    - disabled
+
+security:
+  client_role_checks_authoritative: false
+  decode_session_jwt_for_authority: forbidden
+  service_role: forbidden
+  supabase_secret_key: forbidden
+  database_url: forbidden
+  api_secret_verifier: forbidden
+  provider_credentials: forbidden
+  webhook_wrapping_private_keys: forbidden
+  financial_mutation_endpoints: forbidden
+  dangerously_set_inner_html: forbidden
+
+runtime_capability_invariance:
+  manifest: ops/security/runtime-capabilities-v0.json
+  swiftpay_api_expected_count: 25
+  swiftpay_worker_expected_count: 6
+  A22_signature_delta: []
+  supabase_migration_expected: false
+
+non_objectives:
+  - MFA enrollment/challenge/factor-management/recovery UI
+  - new A7 or A8 backend behavior
+  - provider account credential management
+  - provider webhook ingress
+  - manual webhook test/redelivery/history
+  - Pix create/payment mutation
+  - refunds
+  - payouts
+  - hosted checkout
+  - Payment Links
+  - analytics
+  - database migration
+
+application_tests:
+  required:
+    - spec_and_contract_exist
+    - settings_navigation_is_active
+    - typed_api_credential_read_and_mutation_client
+    - typed_webhook_read_and_mutation_client
+    - sanitized_step_up_and_conflict_mapping
+    - mutation_idempotency_header_and_JSON_body
+    - same_idempotency_key_survives_one_session_refresh_retry
+    - one_time_secrets_are_not_persisted
+    - client_role_visibility_is_not_server_authority
+    - no_provider_or_financial_browser_authority
+    - runtime_manifest_remains_25_6
+    - no_A22_migration
+
+requirements:
+  - id: A22-R1
+    statement: Activate API Credentials and Webhooks as real dashboard views backed only by existing A8/A7 routes.
+  - id: A22-R2
+    statement: Preserve A8 online AAL2 authority for API credential mutations and surface exact step_up_required without local bypass.
+  - id: A22-R3
+    statement: Generate one browser idempotency key per mutation action and reuse it across the single A21 session-refresh retry.
+  - id: A22-R4
+    statement: Plaintext credential/webhook secrets exist only in ephemeral reveal state and are never persisted, logged, embedded in URLs or automatically copied.
+  - id: A22-R5
+    statement: Client-side role gating is UX only; A6/K4/A7/A8 remain authoritative server-side.
+  - id: A22-R6
+    statement: Webhook UI preserves payment.paid-only subscriptions and URL edit only while disabled, with backend enforcement still authoritative.
+  - id: A22-R7
+    statement: A22 adds no database migration, runtime capability, provider authority or financial mutation surface.
+  - id: A22-R8
+    statement: Existing A1-A21 behavior remains GREEN; A21's POST/PATCH prohibition is narrowed only to its enduring no-financial/no-provider browser-authority invariant.
