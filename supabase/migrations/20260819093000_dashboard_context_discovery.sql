@@ -1,4 +1,5 @@
 -- SwiftPay V2 A21: trusted merchant dashboard context discovery.
+-- Contract authority: merchant-dashboard-web-foundation-v0.
 --
 -- Adds one read-only SECURITY DEFINER routine for the API runtime so an
 -- already verified Supabase dashboard user can discover their active merchant
