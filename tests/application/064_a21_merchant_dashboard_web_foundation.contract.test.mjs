@@ -216,11 +216,13 @@ test('A21 dashboard web shell freezes visible login, context, list, detail and f
   }
 });
 
-test('A21 changes no provider bridge or browser financial mutation authority', async () => {
-  const api = await text('apps/dashboard/src/api.ts');
-  assert.doesNotMatch(api, /method:\s*['"]POST['"]/);
-  assert.doesNotMatch(api, /method:\s*['"]PATCH['"]/);
-  assert.doesNotMatch(api, /method:\s*['"]PUT['"]/);
-  assert.doesNotMatch(api, /method:\s*['"]DELETE['"]/);
-  assert.doesNotMatch(api, /\/v1\/transactions['"`]/);
+test('A21 preserves no provider or financial browser mutation authority as later dashboard administration views are added', async () => {
+  const source = (await Promise.all([
+    text('apps/dashboard/src/app.tsx'),
+    text('apps/dashboard/src/api.ts'),
+  ])).join('\n');
+
+  assert.doesNotMatch(source, /\/v1\/(?:payments|pix|refunds|payouts|balance)(?:\b|\/)/i);
+  assert.doesNotMatch(source, /\/provider(?:s)?\//i);
+  assert.doesNotMatch(source, /akkad|akadpay|flevopay/i);
 });
