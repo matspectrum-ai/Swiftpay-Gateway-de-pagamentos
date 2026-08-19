@@ -23,6 +23,7 @@ const API = Object.freeze([
   'app.get_dashboard_transaction(uuid,uuid,text,uuid)',
   'app.get_dashboard_webhook_endpoint(uuid,uuid,text,uuid)',
   'app.list_dashboard_api_credentials(uuid,uuid,text)',
+  'app.list_dashboard_merchant_contexts(uuid)',
   'app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,uuid,integer)',
   'app.list_dashboard_webhook_endpoints(uuid,uuid,text)',
   'app.lookup_api_credential_for_token(text)',
@@ -68,7 +69,7 @@ test('A20 canonical runtime capability manifest freezes exact API/worker signatu
   assert.equal(manifest.canonicalSchema, 'app');
   assert.deepEqual(Object.keys(manifest.roles).sort(), ['swiftpay_api', 'swiftpay_worker']);
 
-  assert.equal(manifest.roles.swiftpay_api.expectedCount, 24);
+  assert.equal(manifest.roles.swiftpay_api.expectedCount, 25);
   assert.equal(manifest.roles.swiftpay_worker.expectedCount, 6);
   assert.deepEqual(manifest.roles.swiftpay_api.signatures, API);
   assert.deepEqual(manifest.roles.swiftpay_worker.signatures, WORKER);

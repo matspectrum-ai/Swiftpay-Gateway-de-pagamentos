@@ -113,6 +113,10 @@ export interface DashboardTransactionsHttpService {
   get?(input: DashboardTransactionItemInput): Promise<Record<string, unknown>>;
 }
 
+export interface DashboardContextDiscoveryHttpService {
+  list(authorization?: string): Promise<Record<string, unknown>>;
+}
+
 export interface BuildAppOptions {
   readonly readinessProbe: ReadinessProbe;
   readonly abuseControls?: Parameters<typeof installA14NetworkAdmission>[1];
@@ -122,6 +126,7 @@ export interface BuildAppOptions {
   readonly merchantBalance?: MerchantBalanceHttpService;
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
+  readonly dashboardContextDiscovery?: DashboardContextDiscoveryHttpService;
   readonly dashboardTransactions?: DashboardTransactionsHttpService;
   readonly runtimeLogger?: SafeRuntimeLogger;
   readonly metrics?: OperationalMetricsRegistry;
@@ -409,6 +414,34 @@ async function sendDashboardApiCredentialResult(
     body.secretKey = result.secretKey ?? null;
   }
   return reply.code(successKind === 'create' && !replayed ? 201 : 200).send(body);
+}
+
+function dashboardContextError(kind: string, requestId: string): {
+  status: 401 | 500 | 503;
+  body: { error: { code: string; message: string; requestId: string } };
+} {
+  switch (kind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Dashboard context discovery failed.', requestId } } };
+  }
+}
+
+async function sendDashboardContextResult(
+  reply: FastifyReply,
+  requestId: string,
+  result: Record<string, unknown>,
+) {
+  reply.header('Cache-Control', 'private, no-store');
+  const kind = resultKind(result);
+  if (kind !== 'ok') {
+    const failure = dashboardContextError(kind, requestId);
+    return reply.code(failure.status).send(failure.body);
+  }
+  return reply.code(200).send({ object: 'list', data: result.contexts ?? [] });
 }
 
 function dashboardTransactionError(kind: string, requestId: string): {
@@ -819,6 +852,18 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
 
   app.post(`${dashboardCredentialBase}/:credentialId/rotate-secret`, (request, reply) => credentialMutationRoute(request, reply, 'rotateSecret'));
   app.post(`${dashboardCredentialBase}/:credentialId/revoke`, (request, reply) => credentialMutationRoute(request, reply, 'revoke'));
+
+  app.get('/dashboard/v1/contexts', async (request, reply) => {
+    const service = options.dashboardContextDiscovery?.list;
+    if (!service) return sendDashboardContextResult(reply, request.id, { kind: 'internal_error' });
+    const authorization = dashboardAuthorizationHeader(request.headers.authorization);
+    try {
+      const result = await service(authorization);
+      return sendDashboardContextResult(reply, request.id, result);
+    } catch {
+      return sendDashboardContextResult(reply, request.id, { kind: 'internal_error' });
+    }
+  });
 
   const dashboardTransactionBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/transactions';
 

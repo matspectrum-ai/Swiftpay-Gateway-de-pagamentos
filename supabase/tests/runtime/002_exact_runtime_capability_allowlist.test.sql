@@ -26,6 +26,7 @@ insert into a20_expected_runtime_capabilities (role_name, signature) values
   ('swiftpay_api', 'app.get_dashboard_transaction(uuid,uuid,text,uuid)'),
   ('swiftpay_api', 'app.get_dashboard_webhook_endpoint(uuid,uuid,text,uuid)'),
   ('swiftpay_api', 'app.list_dashboard_api_credentials(uuid,uuid,text)'),
+  ('swiftpay_api', 'app.list_dashboard_merchant_contexts(uuid)'),
   ('swiftpay_api', 'app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,uuid,integer)'),
   ('swiftpay_api', 'app.list_dashboard_webhook_endpoints(uuid,uuid,text)'),
   ('swiftpay_api', 'app.lookup_api_credential_for_token(text)'),
@@ -45,8 +46,8 @@ insert into a20_expected_runtime_capabilities (role_name, signature) values
 
 select is(
   (select count(*)::integer from a20_expected_runtime_capabilities where role_name = 'swiftpay_api'),
-  24,
-  'A20 manifest mirror contains exactly 24 API RPC signatures'
+  25,
+  'A20/A21 manifest mirror contains exactly 25 API RPC signatures'
 );
 
 select is(

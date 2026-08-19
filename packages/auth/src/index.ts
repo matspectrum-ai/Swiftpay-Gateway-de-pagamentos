@@ -568,4 +568,5 @@ export type {
   DashboardUserPrincipal,
 } from './dashboard.js';
 
+export * from './dashboard-context-discovery.js';
 export * from './a8.js';

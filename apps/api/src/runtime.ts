@@ -4,6 +4,7 @@ import {
   createAccessTokenSigningAuthority,
   createDashboardApiCredentialManagementService,
   createDashboardAuthorizationService,
+  createDashboardContextDiscoveryService,
   createPrivilegedDashboardSessionVerifier,
   createSupabaseDashboardSessionVerifier,
   createTokenExchangeHandler,
@@ -16,6 +17,7 @@ import {
   createApiAbuseRateLimitStore,
   createApiCredentialAuthStore,
   createDashboardApiCredentialStore,
+  createDashboardContextDiscoveryStore,
   createDashboardMerchantContextStore,
   createDashboardTransactionStore,
   createDashboardWebhookEndpointStore,
@@ -37,6 +39,7 @@ import {
 } from '../../../packages/webhooks/dist/index.js';
 import type {
   BearerAuthenticator,
+  DashboardContextDiscoveryHttpService,
   DashboardTransactionsHttpService,
   DashboardWebhookEndpointsHttpService,
   MerchantBalanceHttpService,
@@ -71,6 +74,7 @@ export interface ApiRuntimeServices {
   readonly dashboardAuthorization: DashboardAuthorizationService;
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly dashboardApiCredentials: DashboardApiCredentialManagementService;
+  readonly dashboardContextDiscovery: DashboardContextDiscoveryHttpService;
   readonly dashboardTransactions: DashboardTransactionsHttpService;
   readonly pixPayments: PixPaymentsHttpService;
   readonly merchantBalance: MerchantBalanceHttpService;
@@ -110,6 +114,10 @@ export function createApiRuntimeServices(
   const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({
     projectUrl: options.supabaseUrl,
     publishableKey: options.supabasePublishableKey,
+  });
+  const dashboardContextDiscovery = createDashboardContextDiscoveryService({
+    sessionVerifier: dashboardSessionVerifier,
+    store: createDashboardContextDiscoveryStore(pool),
   });
   const privilegedDashboardSessionVerifier = createPrivilegedDashboardSessionVerifier({
     projectUrl: options.supabaseUrl,
@@ -181,6 +189,9 @@ export function createApiRuntimeServices(
     }),
     ...(dashboardWebhookEndpoints === undefined ? {} : { dashboardWebhookEndpoints }),
     dashboardApiCredentials,
+    dashboardContextDiscovery: {
+      list: async (authorization) => ({ ...(await dashboardContextDiscovery.list(authorization)) }),
+    },
     dashboardTransactions,
     pixPayments: {
       create: (input) => pixService.create(input),
