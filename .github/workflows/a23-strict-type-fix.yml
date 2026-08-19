@@ -1,0 +1,57 @@
+name: A23 strict type fix
+
+on:
+  push:
+    branches: [agent/foundation-phase-0]
+    paths: [.github/workflows/a23-strict-type-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Apply exact strict typing fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          payments = Path('packages/payments/src/a23-checkout.ts')
+          text = payments.read_text()
+          text = text.replace('authorization?: string;', 'authorization?: string | undefined;')
+          text = text.replace('idempotencyKey?: string;', 'idempotencyKey?: string | undefined;')
+          text = text.replace('readonly randomBytes?: (size: number) => Buffer;', 'readonly randomBytes?: ((size: number) => Buffer) | undefined;')
+          anchor = """        if (prepared.kind === 'executing' || prepared.kind === 'execution_unknown') {
+          return { kind: 'ok', httpStatus: 202, payment: prepared.payment, replayed: true };
+        }
+
+        const claim = await options.pixStore.claimPixAttempt({"""
+          replacement = """        if (prepared.kind === 'executing' || prepared.kind === 'execution_unknown') {
+          return { kind: 'ok', httpStatus: 202, payment: prepared.payment, replayed: true };
+        }
+        if (prepared.kind !== 'prepared') return { kind: 'internal_error' };
+
+        const claim = await options.pixStore.claimPixAttempt({"""
+          if anchor not in text:
+              raise SystemExit('payments narrowing anchor not found')
+          text = text.replace(anchor, replacement, 1)
+          payments.write_text(text)
+
+          app = Path('apps/api/src/app.ts')
+          text = app.read_text()
+          text = text.replace('readonly authorization?: string;', 'readonly authorization?: string | undefined;')
+          text = text.replace('readonly idempotencyKey?: string;', 'readonly idempotencyKey?: string | undefined;')
+          app.write_text(text)
+          PY
+      - name: Commit strict type fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/payments/src/a23-checkout.ts apps/api/src/app.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(a23): satisfy strict checkout typing"
+          git push origin HEAD:agent/foundation-phase-0
