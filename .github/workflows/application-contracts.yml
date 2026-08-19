@@ -86,6 +86,10 @@ jobs:
         run: pnpm build
       - name: Run K7 real runtime database acceptance
         run: bash tests/application/003_runtime_database_integration.sh
+      - name: Run A14 ingress abuse real-database acceptance
+        run: bash tests/application/056_a14_ingress_abuse_runtime_acceptance.sh
+      - name: Run A18 abuse HMAC rotation real-database acceptance
+        run: bash tests/application/061_a18_abuse_subject_hmac_rotation_runtime_acceptance.sh
       - name: Run A1 real token authentication acceptance
         run: bash tests/application/011_a1_real_runtime_acceptance.sh
       - name: Run A2 real Pix runtime acceptance
@@ -102,7 +106,3 @@ jobs:
         run: bash tests/application/046_a8_api_credential_management_runtime_acceptance.sh
       - name: Run A9 merchant transaction operations real-database acceptance
         run: bash tests/application/049_a9_merchant_transaction_operations_runtime_acceptance.sh
-      - name: Run A14 ingress abuse real-database acceptance
-        run: bash tests/application/056_a14_ingress_abuse_runtime_acceptance.sh
-      - name: Run A18 abuse HMAC rotation real-database acceptance
-        run: bash tests/application/061_a18_abuse_subject_hmac_rotation_runtime_acceptance.sh
