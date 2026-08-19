@@ -1,0 +1,42 @@
+name: A21 runtime count sync
+
+on:
+  push:
+    branches: [agent/foundation-phase-0]
+    paths:
+      - ".github/workflows/a21-runtime-count-sync.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Synchronize A8/A9 exact API capability counts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          paths = [
+              Path('tests/application/046_a8_api_credential_management_runtime_acceptance.sh'),
+              Path('tests/application/049_a9_merchant_transaction_operations_runtime_acceptance.sh'),
+          ]
+          for path in paths:
+              text = path.read_text()
+              old = 'if v_api_execute_count <> 24 then' if '046_' in path.name else 'if v_api_execute <> 24 then'
+              new = old.replace('24', '25')
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one stale count in {path}, found {text.count(old)}')
+              path.write_text(text.replace(old, new))
+          PY
+      - name: Commit synchronized runtime acceptances
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/application/046_a8_api_credential_management_runtime_acceptance.sh tests/application/049_a9_merchant_transaction_operations_runtime_acceptance.sh
+          git commit -m "test(a21): sync A8 A9 runtime capability counts"
+          git push origin HEAD:agent/foundation-phase-0
