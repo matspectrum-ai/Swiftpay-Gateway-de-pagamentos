@@ -208,7 +208,7 @@ select ok(
 -- Exact API allowlist after A14: prior K4/A1/A2/A3/A7/A8/A9 capabilities plus one A14 abuse-quota RPC.
 select ok(
     coalesce((
-        select count(*) = 24
+        select count(*) = 25
            and bool_and(p.oid = any(array[
                to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')::oid,
                to_regprocedure('app.lookup_api_credential_for_token(text)')::oid,
@@ -227,6 +227,7 @@ select ok(
                to_regprocedure('app.enable_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
                to_regprocedure('app.rotate_dashboard_webhook_endpoint_secret(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
                to_regprocedure('app.list_dashboard_api_credentials(uuid,uuid,text)')::oid,
+               to_regprocedure('app.list_dashboard_merchant_contexts(uuid)')::oid,
                to_regprocedure('app.get_dashboard_api_credential(uuid,uuid,text,uuid)')::oid,
                to_regprocedure('app.create_dashboard_api_credential(uuid,uuid,text,text,text,jsonb)')::oid,
                to_regprocedure('app.rotate_dashboard_api_credential_secret(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
@@ -242,7 +243,7 @@ select ok(
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ), false),
-    'swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 A14 allowlist'
+    'swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 A14 A21 allowlist'
 );
 select ok(
     exists (

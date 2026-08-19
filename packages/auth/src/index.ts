@@ -568,5 +568,13 @@ export type {
   DashboardUserPrincipal,
 } from './dashboard.js';
 
-export * from './dashboard-context-discovery.js';
+export { createDashboardContextDiscoveryService } from './dashboard-context-discovery.js';
+export type {
+  DashboardContextDiscoveryItem,
+  DashboardContextDiscoveryResult,
+  DashboardContextDiscoveryService,
+  DashboardContextDiscoveryStorePort,
+  DashboardContextLifecycleStatus,
+  DashboardContextMembershipRole,
+} from './dashboard-context-discovery.js';
 export * from './a8.js';
