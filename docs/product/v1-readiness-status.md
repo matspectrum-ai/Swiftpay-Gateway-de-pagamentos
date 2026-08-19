@@ -9,18 +9,18 @@ Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A21 closure remains:
+Conservative risk/effort-weighted readiness after A22 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A21 do not justify a material increase to these risk-weighted estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation, legacy webhook-secret authority and framework-compatibility risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
+A10-A22 do not justify a material increase to these risk-weighted estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation, legacy webhook-secret authority and framework-compatibility risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A21 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero. A21 adds the first actual merchant web application while preserving browser authority through Supabase Auth and trusted SwiftPay APIs only.
+K1-K7 and A1-A22 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero. A21 adds the first actual merchant web application; A22 completes its first integration-settings vertical with API credential and webhook administration while preserving browser authority through Supabase Auth and trusted SwiftPay APIs only.
 
 The branch proves:
 
@@ -49,7 +49,26 @@ The branch proves:
 23. hosted abuse-subject HMAC rotation with one active key, one optional previous continuity key and atomic PostgreSQL alias reconciliation without quota reset;
 24. Fastify request-log compatibility through the stock `LogController`, with `FSTDEP023` removed while A12 remains the sole SwiftPay HTTP logging authority;
 25. exact versioned runtime capability attestation;
-26. merchant-facing React/Vite dashboard with Supabase Auth login/session UX, authorized merchant/environment discovery, transaction list/detail and explicit failure/empty states.
+26. merchant-facing React/Vite dashboard with Supabase Auth login/session UX, authorized merchant/environment discovery, transaction list/detail and explicit failure/empty states;
+27. merchant-facing API-credential and webhook settings with server-authoritative roles/AAL2, mutation idempotency and one-time ephemeral secret disclosure.
+
+## A22 checkpoint — merchant dashboard integration settings UI
+
+Evidence: `docs/evidence/application/2026-08-19-a22-merchant-dashboard-integration-settings-ui.md`.
+
+Accepted implementation head: `2647d4da55d9344a139cd9a0e18cd316f2d1f12f`.
+
+- RED workflow `32259787311`: **375/383 PASS**, exactly eight intended A22 absence failures.
+- GREEN Application workflow `32262432986`: **383/383 application contracts PASS**, typecheck/build GREEN.
+- Initial final-head runtime job reached the existing A8 synthetic concurrency transient (`concurrent_limit_created_7`) after K7/A14/A18/A1-A7 passed; no A22/backend/database code was changed in response.
+- Same-SHA unchanged runtime rerun job `96099664047`: K7/A14/A18/A1-A9 all GREEN, including `A8_ACCEPTANCE_OK`.
+- Database workflow `32262432998`: K5/K6 GREEN and **44 files / 1340 pgTAP assertions PASS**.
+- API-credential settings support list/create/rotate/revoke; webhook settings support list/create/disable/enable/disabled-URL update/rotate.
+- Plaintext API Secret Key and webhook Signing Secret remain one-time-only, ephemeral browser state and are never persisted by the dashboard.
+- A7/A8 server-side membership/AAL2 checks remain authoritative; browser role checks are presentation only.
+- A22 adds no migration, backend route, provider traffic or financial authority; hosted runtime capabilities remain exactly **25 API / 6 worker**.
+
+A22 materially closes the integration-settings product gap without changing the conservative risk-weighted readiness percentages because the major remaining risks are live PSP authority, checkout/conversion coverage and launch operations.
 
 ## A21 checkpoint — merchant dashboard web foundation
 
@@ -66,7 +85,7 @@ Accepted behavior/fix head before evidence documentation: `98b7b24073e8291a16984
 - Data API effective EXECUTE on the touched functions: 0; direct API/worker protected-relation DML: 0/0.
 - Hosted Security Advisor: 0 lints; Payments/ProviderAttempts: 0/0.
 - `apps/dashboard` now provides login/logout/session refresh, merchant/environment selection, transaction list/detail and explicit loading/empty/error/session-expired states.
-- API credential/webhook settings UI, KYC/payout/refund UX, hosted checkout/Payment Links and broader reporting remain future product slices.
+- KYC/payout/refund UX, hosted checkout/Payment Links and broader reporting remain future product slices; API credential/webhook settings are completed by A22.
 - A5/A10/A11 provider safety gates are unchanged; A21 causes no live retained-provider call or provider activation.
 
 A21 closes the previous “no visual dashboard application” gap for the first read-only merchant vertical slice without granting the browser direct database, provider or financial authority.

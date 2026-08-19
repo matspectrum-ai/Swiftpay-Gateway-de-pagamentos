@@ -125,7 +125,7 @@ Current evidence pack: `docs/evidence/providers/2026-08-18-provider-contract-evi
 - [ ] Live AkkadPag/AkadPay contract authority
 - [ ] Live FlevoPay contract authority
 
-## Dashboard authorization and operations — A6-A9 + A16 + A21
+## Dashboard authorization and operations — A6-A9 + A16 + A21-A22
 
 - [x] Supabase dashboard session verification
 - [x] Current-user online verification
@@ -153,6 +153,12 @@ Current evidence pack: `docs/evidence/providers/2026-08-18-provider-contract-evi
 - [x] Explicit loading/empty/error/session-expired states
 - [x] Browser uses Supabase Auth + SwiftPay API only; no direct private-schema/provider authority
 - [x] Hosted context-discovery RPC with API-only EXECUTE authority
+- [x] Dashboard API credential administration UI
+- [x] Dashboard webhook endpoint administration UI
+- [x] One-time API Secret Key / webhook Signing Secret reveal with no browser persistence
+- [x] Stable mutation idempotency key across session-refresh retry
+- [x] Role-aware settings presentation without replacing server-side authorization
+- [x] A8 server-side AAL2 step-up remains authoritative for credential mutations
 
 ## Provider activation authority — A10
 
@@ -308,8 +314,8 @@ Current hosted evidence:
 - [ ] Payout operations experience
 - [ ] Refund operations experience
 - [x] Dashboard login/session UX and Supabase Auth browser integration
-- [ ] Dashboard API credential administration UI
-- [ ] Dashboard webhook endpoint administration UI
+- [x] Dashboard API credential administration UI
+- [x] Dashboard webhook endpoint administration UI
 - [ ] Hosted Pix checkout
 - [ ] Payment Links
 - [ ] Broader reporting/analytics
