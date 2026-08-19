@@ -146,3 +146,5 @@ A5 remains fixture-only, A10 remains default-deny with zero retained-provider op
 ## Accepted result
 
 A22 is accepted as **DONE / GREEN / APPLICATION-ONLY**. The merchant dashboard now exposes functional API-credential and merchant-webhook administration over the existing trusted SwiftPay API boundary while preserving one-time-secret, idempotency, AAL2, role, database and provider safety contracts.
+
+This evidence is the canonical A22 acceptance record; product/readiness handoff documents must reference this file rather than reconstructing acceptance from chat context.
