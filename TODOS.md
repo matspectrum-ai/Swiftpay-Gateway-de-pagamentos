@@ -27,7 +27,7 @@ Living functional checklist: `docs/product/v1-functional-checklist.md`.
 - `main`: intentionally untouched
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A20: `DONE`
+- A1-A21: `DONE`
 - A5 remains `DONE / FIXTURE-ONLY` for live-provider authority.
 - A10 remains executable default-deny with zero retained-provider operations authorized by repository defaults.
 - A11 remains strict outbound HTTPS and intentionally unbound from retained A5 adapters.
@@ -40,7 +40,7 @@ Current engineering estimates:
 - production-capable Pix V1: **~60%**
 - weighted V1 engineering completion: **~75%**
 
-Important product-surface qualifier: these percentages are engineering/risk-weighted and are not a claim that the merchant-facing visual product is 75-97% complete. There is currently no web dashboard application in `apps/`; the implemented dashboard work is the trusted API/auth/database surface used by a future UI.
+Important product-surface qualifier: these percentages are engineering/risk-weighted and are not a claim that the merchant-facing visual product is 75-97% complete. A21 now provides the first real merchant web application in `apps/dashboard` with Supabase Auth login/session UX, merchant/environment context selection and transaction list/detail. API-credential settings, webhook settings, KYC/payout/refund, hosted checkout/Payment Links and broader reporting remain separate product slices.
 
 Current external critical blocker:
 
@@ -50,6 +50,24 @@ Current external critical blocker:
 Do not bridge A5 retained adapters to A11 and do not promote A10 provider authority until those evidence gates close.
 
 ## Latest accepted slices
+
+### A21 — merchant dashboard web foundation — `DONE / GREEN / HOSTED`
+
+- Problem Analysis: `docs/design/a21-merchant-dashboard-web-foundation-problem-analysis.md`
+- Spec: `docs/specs/merchant-dashboard-web-foundation-v0.yaml`
+- Contract: `docs/contracts/merchant-dashboard-web-foundation-v0.md`
+- Evidence: `docs/evidence/application/2026-08-19-a21-merchant-dashboard-web-foundation.md`
+- Accepted behavior/fix head before evidence documentation: `98b7b24073e8291a16984492236b4bf1339c0d6f`.
+- Application workflow `32257443845`: **372/372 PASS**, typecheck/build GREEN.
+- Real PostgreSQL runtime rerun job `96084137179`: K7/A14/A18/A1-A9 all GREEN.
+- Database workflow `32257443899`: **44 files / 1340 pgTAP assertions PASS**, K5/K6 GREEN.
+- Hosted migration: `20260819132759_dashboard_context_discovery`.
+- A18 concurrency repair hosted migration: `20260819132824_abuse_subject_hmac_rotation_canonical_insert_order`.
+- Hosted exact capability attestation: missing **0**, extra **0**, API **25**, worker **6**.
+- Hosted Data API EXECUTE on touched functions: **0**; direct API/worker protected-relation DML: **0 / 0**.
+- Hosted Security Advisor: **0 lints**; Payments/ProviderAttempts: **0 / 0**.
+- `apps/dashboard` now provides login/session refresh/logout, merchant/environment selection, transaction list/detail and explicit empty/error/session-expired states.
+- Browser authority remains Supabase Auth + SwiftPay API only; no direct database/provider/financial authority was introduced.
 
 ### A20 — runtime capability manifest & exact attestation — `DONE / GREEN / HOSTED-ATTESTED`
 
@@ -165,7 +183,7 @@ Remaining product execution:
 - K7 executable API/worker runtime bootstrap — `DONE`
 - A20 exact runtime capability manifest/attestation — `DONE / GREEN / HOSTED-ATTESTED`
 
-Runtime identities remain separate and capability-scoped. Current hosted capability set is exactly the versioned **24 API / 6 worker** `app` EXECUTE signatures, with zero public/Data API `app` authority and zero direct app-table privileges for trusted runtime roles.
+Runtime identities remain separate and capability-scoped. Current hosted capability set is exactly the versioned **25 API / 6 worker** `app` EXECUTE signatures, with zero public/Data API `app` authority and zero direct app-table privileges for trusted runtime roles. A21 adds only `app.list_dashboard_merchant_contexts(uuid)` to the API capability set.
 
 ---
 
@@ -250,16 +268,16 @@ Current state:
 - A8 API credential management API — `DONE / HOSTED`
 - A9 merchant transaction operations API — `DONE / HOSTED`
 - A16 dashboard transaction cursor HMAC rotation — `DONE / GREEN`
+- A21 merchant dashboard web foundation — `DONE / GREEN / HOSTED`
 
 Current visual-product reality:
 
-- there is **no merchant dashboard web application yet**; `apps/` currently contains only API and worker workloads;
-- the existing dashboard work is the server/API/security substrate for that future web application.
+- `apps/dashboard` is now a real merchant-facing React/Vite application;
+- Supabase Auth login/logout/session refresh, merchant/environment context selection and transaction list/detail are implemented;
+- browser authority remains confined to Supabase Auth and trusted SwiftPay API calls.
 
 Remaining product surfaces:
 
-- Merchant dashboard web app and login/session UX — `PENDING`
-- Dashboard transaction UI — `PENDING`
 - Dashboard API credential UI — `PENDING`
 - Dashboard webhook endpoint UI — `PENDING`
 - KYC/compliance operations UI — `PENDING`
@@ -367,7 +385,8 @@ Parallel merchant/admin path:
   -> A8 API credential management API                    DONE / HOSTED
   -> A9 merchant transaction operations API              DONE / HOSTED
   -> A16 dashboard cursor HMAC rotation                  DONE / GREEN
-  -> merchant dashboard web application                 PENDING
+  -> A21 merchant dashboard web foundation               DONE / GREEN / HOSTED
+  -> API credential + webhook settings UI                PENDING
   -> KYC/payout/refund/reporting UI                      PENDING
 
 Parallel production-hardening path:
@@ -388,12 +407,13 @@ Parallel production-hardening path:
 
 ## Immediate next action
 
-A20 is fully GREEN and hosted-attested. Provider activation remains externally blocked by current-contract and authenticated-sandbox evidence.
+A21 is fully GREEN and hosted. Provider activation remains externally blocked by current-contract and authenticated-sandbox evidence.
 
 1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
 2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
 3. if provider evidence closes, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
 4. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
-5. in parallel, prioritize the merchant-facing product gap: freeze the first dashboard web-application slice using the already-proven A6/A7/A8/A9 backend contracts, rather than continuing invisible hardening indefinitely;
-6. retain launch-hardening work only where bounded and evidence-driven: dependency/supply-chain review, rotation drills, measured performance/load, deployment/backup/rollback contracts and production WAF/network policy;
-7. do not call AkkadPag, AkadPay or FlevoPay monetarily until exact current-contract, sandbox and activation gates are closed.
+5. in parallel, take the next merchant-visible slice from the already-hosted A7/A8 backend: API credential and webhook settings UI, keeping browser authority read/write only through trusted dashboard APIs;
+6. after settings UX, prioritize hosted Pix checkout/Payment Links because they close a larger visible product/conversion gap than additional invisible hardening;
+7. retain launch-hardening work only where bounded and evidence-driven: dependency/supply-chain review, rotation drills, measured performance/load, deployment/backup/rollback contracts and production WAF/network policy;
+8. do not call AkkadPag, AkadPay or FlevoPay monetarily until exact current-contract, sandbox and activation gates are closed.

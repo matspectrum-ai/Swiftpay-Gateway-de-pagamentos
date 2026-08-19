@@ -125,7 +125,7 @@ Current evidence pack: `docs/evidence/providers/2026-08-18-provider-contract-evi
 - [ ] Live AkkadPag/AkadPay contract authority
 - [ ] Live FlevoPay contract authority
 
-## Dashboard authorization and operations — A6-A9 + A16
+## Dashboard authorization and operations — A6-A9 + A16 + A21
 
 - [x] Supabase dashboard session verification
 - [x] Current-user online verification
@@ -145,6 +145,14 @@ Current evidence pack: `docs/evidence/providers/2026-08-18-provider-contract-evi
 - [x] Explicit verify-only legacy `a9v0` compatibility
 - [x] Customer/private provider data excluded from merchant projection
 - [x] Dashboard transaction namespace remains read-only
+- [x] Merchant React/Vite web application foundation
+- [x] Supabase Auth login/logout/session refresh UX
+- [x] Trusted merchant-context discovery
+- [x] Merchant and Sandbox/Production context selector
+- [x] Transaction list and detail UI
+- [x] Explicit loading/empty/error/session-expired states
+- [x] Browser uses Supabase Auth + SwiftPay API only; no direct private-schema/provider authority
+- [x] Hosted context-discovery RPC with API-only EXECUTE authority
 
 ## Provider activation authority — A10
 
@@ -229,8 +237,9 @@ Current hosted evidence:
 - [x] Legacy A14 two-argument RPC compatibility through defaulted A18 third argument
 - [x] Reversed alias concurrency acceptance
 - [x] Mixed A14/A18 replica-call concurrency acceptance
+- [x] Canonical active/previous alias insert ordering prevents reversed-rotation deadlock before row locking
 - [x] Hosted A18 migration applied
-- [x] Hosted API/worker `app` EXECUTE counts remain exactly 24/6
+- [x] Hosted API/worker `app` EXECUTE counts are exactly 25/6 after the A21 read-only context-discovery addition
 - [x] Hosted Security Advisor remains 0 lints
 - [x] Hosted smoke rollback leaves no limiter/payment/provider-attempt fixture state
 
@@ -298,7 +307,9 @@ Current hosted evidence:
 - [ ] Merchant/admin KYC experience
 - [ ] Payout operations experience
 - [ ] Refund operations experience
-- [ ] Dashboard login/session UX and Supabase Auth product configuration
+- [x] Dashboard login/session UX and Supabase Auth browser integration
+- [ ] Dashboard API credential administration UI
+- [ ] Dashboard webhook endpoint administration UI
 - [ ] Hosted Pix checkout
 - [ ] Payment Links
 - [ ] Broader reporting/analytics
