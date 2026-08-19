@@ -26,7 +26,8 @@ export interface AbuseQuotaDecision {
 export interface AbuseQuotaStore {
   consume(input: {
     readonly policy: AbusePolicy;
-    readonly subjectHash: string;
+    readonly activeSubjectHash: string;
+    readonly previousSubjectHash?: string;
   }): Promise<AbuseQuotaDecision>;
 }
 
@@ -112,9 +113,19 @@ export function createApiAbuseControls(
   options: {
     readonly trustedProxyIps: readonly string[];
     readonly hmacKey: string;
+    readonly previousHmacKey?: string;
   },
 ): ApiAbuseControls {
   if (Buffer.byteLength(options.hmacKey, 'utf8') < 32) {
+    throw new Error('Invalid abuse-control configuration.');
+  }
+  if (
+    options.previousHmacKey !== undefined
+    && (
+      Buffer.byteLength(options.previousHmacKey, 'utf8') < 32
+      || options.previousHmacKey === options.hmacKey
+    )
+  ) {
     throw new Error('Invalid abuse-control configuration.');
   }
 
@@ -128,9 +139,22 @@ export function createApiAbuseControls(
   }
   if (trustedProxyIps.size > 16) throw new Error('Invalid abuse-control configuration.');
 
-  async function consume(policy: AbusePolicy, subjectHash: string): Promise<AdmissionResult> {
+  async function consume(
+    policy: AbusePolicy,
+    subjectClass: string,
+    canonicalSubject: string,
+  ): Promise<AdmissionResult> {
+    const activeSubjectHash = deriveSubjectHash(options.hmacKey, subjectClass, canonicalSubject);
+    const previousSubjectHash = options.previousHmacKey === undefined
+      ? undefined
+      : deriveSubjectHash(options.previousHmacKey, subjectClass, canonicalSubject);
+
     try {
-      const decision = await store.consume({ policy, subjectHash });
+      const decision = await store.consume({
+        policy,
+        activeSubjectHash,
+        ...(previousSubjectHash === undefined ? {} : { previousSubjectHash }),
+      });
       const limit = POLICY_LIMITS[policy];
       if (isValidAllowedDecision(decision, limit)) {
         return { kind: 'allowed', remaining: decision.remaining };
@@ -157,7 +181,7 @@ export function createApiAbuseControls(
       if (!NETWORK_POLICIES.has(input.policy)) return { kind: 'unavailable' };
       const clientIp = normalizeCanonicalIp(input.clientIp);
       if (clientIp === null) return { kind: 'unavailable' };
-      return consume(input.policy, deriveSubjectHash(options.hmacKey, 'network', clientIp));
+      return consume(input.policy, 'network', clientIp);
     },
 
     async admitMachine(input: {
@@ -169,10 +193,7 @@ export function createApiAbuseControls(
       if (!UUID_RE.test(input.merchantId)) return { kind: 'unavailable' };
       if (input.environment !== 'sandbox' && input.environment !== 'production') return { kind: 'unavailable' };
       const canonicalSubject = `${input.merchantId.toLowerCase()}\n${input.environment}`;
-      return consume(
-        input.policy,
-        deriveSubjectHash(options.hmacKey, 'machine_merchant_environment', canonicalSubject),
-      );
+      return consume(input.policy, 'machine_merchant_environment', canonicalSubject);
     },
   });
 }
