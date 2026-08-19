@@ -20,6 +20,28 @@ async function requireDbStoreFactory() {
   return db.createApiAbuseRateLimitStore;
 }
 
+function validConfigSource(overrides = {}) {
+  return {
+    SWIFTPAY_ENVIRONMENT: 'sandbox',
+    SWIFTPAY_API_DATABASE_URL: 'postgresql://api:test@127.0.0.1:5432/postgres',
+    SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID: 'machine-current',
+    SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS: JSON.stringify([
+      { id: 'machine-current', secret: 'a15-machine-signing-secret-0123456789abcdef0123456789' },
+    ]),
+    SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID: 'cursor-current',
+    SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS: JSON.stringify([
+      { id: 'cursor-current', secret: 'a16-cursor-signing-secret-0123456789abcdef0123456789' },
+    ]),
+    SWIFTPAY_DASHBOARD_CURSOR_LEGACY_V0_KEY: 'a16-legacy-v0-cursor-secret-0123456789abcdef012345',
+    SWIFTPAY_ABUSE_HMAC_KEY: ACTIVE_KEY,
+    SWIFTPAY_SUPABASE_URL: 'https://project-a18.supabase.co',
+    SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_a18_test_key',
+    SWIFTPAY_WEBHOOK_SECRET_WRAP_KEY_ID: 'webhook-wrap-a18-test',
+    SWIFTPAY_WEBHOOK_SECRET_WRAP_PUBLIC_KEY: 'AQID',
+    ...overrides,
+  };
+}
+
 function hash(key, subjectClass, canonicalSubject) {
   return createHmac('sha256', key)
     .update(`a14v0\n${subjectClass}\n${canonicalSubject}`, 'utf8')
@@ -35,6 +57,30 @@ test('A18 config exports exactly one optional previous abuse-HMAC authority', as
   const source = await readFile(new URL('../../packages/config/src/core.ts', import.meta.url), 'utf8');
   assert.match(source, /abuseHmacPreviousKey/);
   assert.doesNotMatch(source, /ABUSE_HMAC_KEYS|abuseHmacKeys|abuse.*keyring/i);
+});
+
+test('A18 config accepts zero-or-one previous key and rejects short or duplicate continuity authority', async () => {
+  const config = await import('../../packages/config/dist/index.js');
+
+  const activeOnly = config.loadApiConfig(validConfigSource());
+  assert.equal(activeOnly.abuseHmacKey, ACTIVE_KEY);
+  assert.equal('abuseHmacPreviousKey' in activeOnly, false);
+
+  const overlapping = config.loadApiConfig(validConfigSource({
+    SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY: PREVIOUS_KEY,
+  }));
+  assert.equal(overlapping.abuseHmacKey, ACTIVE_KEY);
+  assert.equal(overlapping.abuseHmacPreviousKey, PREVIOUS_KEY);
+
+  for (const previous of ['short', ACTIVE_KEY]) {
+    assert.throws(
+      () => config.loadApiConfig(validConfigSource({ SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY: previous })),
+      (error) => {
+        assert.doesNotMatch(String(error?.message), /a18-active-abuse-hmac-key|a18-previous-abuse-hmac-key/);
+        return true;
+      },
+    );
+  }
 });
 
 test('A18 dual-key admission derives active plus previous pseudonyms and performs one store consume', async () => {
