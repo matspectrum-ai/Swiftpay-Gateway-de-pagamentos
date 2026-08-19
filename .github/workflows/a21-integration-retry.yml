@@ -1,0 +1,57 @@
+name: A21 integration retry
+
+on:
+  push:
+    branches: [agent/foundation-phase-0]
+    paths:
+      - ".github/workflows/a21-integration-retry.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  integrate-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          test "$(pnpm --version)" = "11.17.0"
+      - name: Extract and apply frozen A21 patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/a21-integration-green.yml').read_text()
+          start_marker = "      - name: Apply frozen A21 integration\n        shell: python\n        run: |\n"
+          end_marker = "      - name: Install frozen dependencies\n"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          block = source[start:end]
+          lines = [line[10:] if line.startswith('          ') else line for line in block.splitlines()]
+          Path('/tmp/a21_patch.py').write_text('\n'.join(lines) + '\n')
+          PY
+          python /tmp/a21_patch.py
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck application workspace
+        run: pnpm typecheck
+      - name: Build application workspace
+        run: pnpm build
+      - name: Run application contracts
+        run: pnpm test
+      - name: Commit proven A21 integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/app.ts apps/api/src/runtime.ts apps/dashboard/src/styles.css packages/auth/src/index.ts tests/application/063_a20_runtime_capability_manifest_attestation.contract.test.mjs supabase/tests/runtime/002_exact_runtime_capability_allowlist.test.sql
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(a21): integrate dashboard context discovery runtime"
+          git push origin HEAD:agent/foundation-phase-0
