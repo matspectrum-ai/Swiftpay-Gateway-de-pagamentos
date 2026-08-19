@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 begin;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(21);
 
 select has_function(
   'app', 'consume_api_abuse_quota', array['text','text','text'],
@@ -216,11 +216,15 @@ select is(
 
 select throws_ok(
   $$select * from app.consume_api_abuse_quota('token_exchange_pre_auth', repeat('a', 64), repeat('a', 64))$$,
+  'P0001',
+  'duplicate abuse quota subjects',
   'A18 rejects duplicate active and previous subject hashes'
 );
 
 select throws_ok(
   $$select * from app.consume_api_abuse_quota('token_exchange_pre_auth', upper(repeat('a', 64)), null)$$,
+  'P0001',
+  'invalid abuse quota subject',
   'A18 rejects non-lowercase subject hashes'
 );
 
