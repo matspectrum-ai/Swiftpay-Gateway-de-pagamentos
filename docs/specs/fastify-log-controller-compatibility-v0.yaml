@@ -75,7 +75,7 @@ requirements:
   - id: A19-R3
     statement: A19 does not enable Fastify/Pino logging or introduce a second logger authority.
   - id: A19-R4
-    statement: Constructing and closing buildApp under deprecation-as-error semantics does not produce FSTDEP023.
+    statement: Constructing and closing buildApp in an isolated Node process emits no FSTDEP023 warning.
   - id: A19-R5
     statement: A12 request correlation and completion-log contracts remain byte/field compatible.
   - id: A19-R6
@@ -88,7 +88,7 @@ acceptanceCriteria:
   - Fastify receives logController backed by a stock LogController with disableRequestLogging true.
   - Source contains no top-level disableRequestLogging property in the Fastify options object.
   - Source contains no warning suppression for FSTDEP023 or Node deprecations.
-  - A child process using Node --throw-deprecation can construct and close buildApp successfully.
+  - An isolated child process can construct and close buildApp successfully and its stderr contains no FSTDEP023 or deprecated disableRequestLogging warning.
   - Existing A12 correlation and safe completion logging tests pass unchanged.
   - Existing A13 metrics tests pass unchanged.
   - Full application typecheck, build and contract suite are GREEN.
