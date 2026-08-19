@@ -9,18 +9,18 @@ Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A18 closure remains:
+Conservative risk/effort-weighted readiness after A19 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A18 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation and legacy webhook-secret authority risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
+A10-A19 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation, legacy webhook-secret authority and framework-compatibility risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A18 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero.
+K1-K7 and A1-A19 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero.
 
 The branch proves:
 
@@ -46,7 +46,27 @@ The branch proves:
 20. `kid`-aware machine access-token signing-key rotation;
 21. `kid`-aware dashboard cursor HMAC rotation;
 22. RSA-only persisted merchant webhook signing-secret authority with legacy AES decrypt/config/schema fallback retired;
-23. hosted abuse-subject HMAC rotation with one active key, one optional previous continuity key and atomic PostgreSQL alias reconciliation without quota reset.
+23. hosted abuse-subject HMAC rotation with one active key, one optional previous continuity key and atomic PostgreSQL alias reconciliation without quota reset;
+24. Fastify request-log compatibility through the stock `LogController`, with `FSTDEP023` removed while A12 remains the sole SwiftPay HTTP logging authority.
+
+## A19 checkpoint — Fastify LogController compatibility
+
+Evidence: `docs/evidence/application/2026-08-19-a19-fastify-log-controller-compatibility.md`.
+
+Accepted implementation head: `3882a691ced38e0403ec741d544c8f8b66c17f82`.
+
+- RED workflow `32216969526`: **356/358 PASS**, with exactly the two intended A19 failures: missing `LogController` migration and observable `FSTDEP023`.
+- Application workflow `32217137426`: **358/358 application contracts PASS**, including **5/5 A19**.
+- Typecheck and build: GREEN.
+- The implementation diff changes exactly one production file and only imports the stock Fastify `LogController` plus moves `disableRequestLogging: true` under `logController`.
+- Isolated `buildApp()` construction/close emits no `FSTDEP023`.
+- A12 request-ID ownership, route-template-only completion logging and exactly-one safe completion event remain GREEN.
+- A13 HTTP/readiness metrics remain GREEN.
+- Real-database runtime regression in workflow `32217137426`: K7/A14/A18/A1/A2/A3/A4/A6/A7/A8/A9 all GREEN.
+- Database workflow `32217137442`: K5/K6 GREEN and **43 files / 1326 pgTAP assertions PASS**.
+- No A19 database migration, hosted Supabase change, worker authority, provider traffic, A10 activation or financial state transition exists.
+
+A19 closes the tracked Fastify `FSTDEP023` compatibility debt without combining it with a framework-version upgrade. A future Fastify major upgrade remains an independently specified/tested dependency change.
 
 ## A18 hosted checkpoint — abuse-subject HMAC key rotation
 
@@ -145,7 +165,7 @@ Proven:
 
 Remaining: external metrics collection, dashboards, alerts/SLO policy and distributed tracing.
 
-Known compatibility debt remains: Fastify 5.11 emits `FSTDEP023` for top-level `disableRequestLogging`; migrate to `logController` before Fastify 6.
+The previous Fastify `FSTDEP023` compatibility debt in API construction is closed by A19.
 
 ## A10-A11 provider safety boundary
 
