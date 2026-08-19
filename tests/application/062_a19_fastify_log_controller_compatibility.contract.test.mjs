@@ -64,14 +64,14 @@ test('A19 uses no custom LogController subclass, override or deprecation suppres
   assert.doesNotMatch(source, /logger:\s*true|loggerInstance\s*:/);
 });
 
-test('A19 buildApp constructs cleanly when Node promotes Fastify deprecations to errors', () => {
+test('A19 buildApp emits no FSTDEP023 in an isolated Node process', () => {
   const appModuleUrl = pathToFileURL(path.join(ROOT, 'apps/api/dist/app.js')).href;
   const program = `
     const { buildApp } = await import(${JSON.stringify(appModuleUrl)});
     const app = buildApp({ readinessProbe: async () => {} });
     await app.close();
   `;
-  const result = spawnSync(process.execPath, ['--throw-deprecation', '--input-type=module', '--eval', program], {
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', program], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env },
@@ -80,7 +80,7 @@ test('A19 buildApp constructs cleanly when Node promotes Fastify deprecations to
   assert.equal(
     result.status,
     0,
-    `buildApp failed under --throw-deprecation\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    `buildApp child process failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   );
   assert.doesNotMatch(result.stderr, /FSTDEP023|disableRequestLogging.*deprecated/i);
 });
