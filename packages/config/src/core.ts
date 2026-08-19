@@ -19,6 +19,7 @@ export const API_METRICS_PORT_ENV = 'SWIFTPAY_API_METRICS_PORT';
 export const WORKER_METRICS_PORT_ENV = 'SWIFTPAY_WORKER_METRICS_PORT';
 export const TRUSTED_PROXY_IPS_ENV = 'SWIFTPAY_TRUSTED_PROXY_IPS';
 export const ABUSE_HMAC_KEY_ENV = 'SWIFTPAY_ABUSE_HMAC_KEY';
+export const ABUSE_HMAC_PREVIOUS_KEY_ENV = 'SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY';
 export const MIN_ABUSE_HMAC_KEY_BYTES = 32;
 
 export interface AccessTokenSigningKeyConfig {
@@ -39,6 +40,7 @@ export interface ApiConfig {
   readonly webhookSecretWrapPublicKey: string;
   readonly trustedProxyIps: readonly string[];
   readonly abuseHmacKey: string;
+  readonly abuseHmacPreviousKey?: string;
   readonly host: string;
   readonly port: number;
   readonly metricsPort?: number;
@@ -228,6 +230,17 @@ function abuseHmacKey(source: EnvironmentSource): string {
   return value;
 }
 
+function abuseHmacPreviousKey(source: EnvironmentSource, activeKey: string): string | undefined {
+  const value = source[ABUSE_HMAC_PREVIOUS_KEY_ENV];
+  if (value === undefined) return undefined;
+  if (Buffer.byteLength(value, 'utf8') < MIN_ABUSE_HMAC_KEY_BYTES || value === activeKey) {
+    throw new ConfigurationError(
+      `${ABUSE_HMAC_PREVIOUS_KEY_ENV} must contain at least ${MIN_ABUSE_HMAC_KEY_BYTES} UTF-8 bytes and differ from ${ABUSE_HMAC_KEY_ENV}`,
+    );
+  }
+  return value;
+}
+
 function supabaseUrl(source: EnvironmentSource): string {
   const value = required(source, SUPABASE_URL_ENV);
   try {
@@ -300,7 +313,7 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     throw new ConfigurationError(`${ACCESS_TOKEN_ACTIVE_KEY_ID_ENV} must identify exactly one configured access-token signing key`);
   }
   const legacyNoKidKey = accessTokenLegacyNoKidKey(source);
-  return {
+  const config: ApiConfig = {
     environment: environment(source),
     databaseUrl: postgresUrl(source, 'SWIFTPAY_API_DATABASE_URL'),
     accessTokenActiveKeyId: activeKeyId,
@@ -317,6 +330,10 @@ export function loadApiConfig(source: EnvironmentSource = process.env): ApiConfi
     port: port(source),
     ...(metricsPort === undefined ? {} : { metricsPort }),
   };
+  const previousAbuseHmacKey = abuseHmacPreviousKey(source, config.abuseHmacKey);
+  return previousAbuseHmacKey === undefined
+    ? config
+    : { ...config, abuseHmacPreviousKey: previousAbuseHmacKey };
 }
 
 export function loadWorkerConfig(source: EnvironmentSource = process.env): WorkerConfig {
