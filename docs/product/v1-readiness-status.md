@@ -1,6 +1,6 @@
 # SwiftPay V2 — V1 Readiness Status
 
-Date: 2026-08-18  
+Date: 2026-08-19  
 Branch: `agent/foundation-phase-0`  
 PR: #1 — draft  
 `main`: intentionally untouched
@@ -9,18 +9,18 @@ Canonical functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Executive checkpoint
 
-Conservative risk/effort-weighted readiness after A17 closure remains:
+Conservative risk/effort-weighted readiness after A18 closure remains:
 
 - core architecture/domain/database/platform foundation: **~99%**;
 - first end-to-end Pix sandbox MVP: **~97%**;
 - production-capable Pix V1: **~60%**;
 - weighted V1 engineering completion: **~75%**.
 
-A10-A17 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation and legacy webhook-secret authority risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
+A10-A18 deliberately do not increase these estimates. They materially reduce premature-provider-activation, outbound-network, unsafe-runtime-logging, observability-blindness, public-ingress abuse, key-rotation and legacy webhook-secret authority risk, but they do not prove a current retained-provider contract, perform authenticated provider sandbox traffic, close provider webhook/recovery/live monetary gates, or complete remaining operational/cutover work.
 
 ## Proven executable path
 
-K1-K7 and A1-A17 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero.
+K1-K7 and A1-A18 are DONE. A5 remains fixture-only for live-provider authority and A10 default retained-provider runtime authority remains zero.
 
 The branch proves:
 
@@ -45,7 +45,31 @@ The branch proves:
 19. hosted distributed ingress admission control with trusted-proxy authority and PostgreSQL quotas;
 20. `kid`-aware machine access-token signing-key rotation;
 21. `kid`-aware dashboard cursor HMAC rotation;
-22. RSA-only persisted merchant webhook signing-secret authority with legacy AES decrypt/config/schema fallback retired.
+22. RSA-only persisted merchant webhook signing-secret authority with legacy AES decrypt/config/schema fallback retired;
+23. hosted abuse-subject HMAC rotation with one active key, one optional previous continuity key and atomic PostgreSQL alias reconciliation without quota reset.
+
+## A18 hosted checkpoint — abuse-subject HMAC key rotation
+
+Evidence: `docs/evidence/application/2026-08-19-a18-abuse-subject-hmac-key-rotation.md`.
+
+Accepted implementation head: `15958e178f9496fc273d5576b38ad125134b59dc`.
+
+- Application workflow `32210344185`: **353/353 application contracts PASS**.
+- Real-database runtime acceptance in the same workflow: K7/A14/A18/A1/A2/A3/A4/A6/A7/A8/A9 all GREEN.
+- A18 concurrency acceptance proves reversed active/previous ordering and mixed A14 two-argument/A18 three-argument callers admit exactly 30 and deny exactly 1 at the A14 token pre-auth limit.
+- Database workflow `32210344189`: K5/K6 GREEN and **43 files / 1326 pgTAP assertions PASS**.
+- Hosted migration history: `20260819043811_abuse_subject_hmac_key_rotation`.
+- Hosted quota authority: exactly one `app.consume_api_abuse_quota(text,text,text)` routine with one trailing default; no residual two-argument overload.
+- The hosted routine remains `SECURITY DEFINER`, `VOLATILE`; `swiftpay_api` executes it, `swiftpay_worker` and `PUBLIC` do not.
+- Hosted API/worker app EXECUTE capability counts remain exactly **24 / 6**.
+- Hosted compatibility smoke proved the legacy two-argument call followed by a three-argument dual-alias call converged both aliases to the same window/count; the transaction was rolled back.
+- Hosted `app.api_abuse_windows` after smoke rollback: **0 rows**.
+- Hosted Security Advisor: **0 lints**.
+- Hosted Payment/ProviderAttempt counts after deploy: **0 / 0**.
+- Retained-provider calls caused by A18: **0**.
+- A10 activation promotions caused by A18: **0**.
+
+A18 does not change A14 limits, its 60-second fixed windows, trusted-proxy behavior, public `429`/fail-closed `503` behavior, worker authority or any financial/provider state. Rotation is bounded to one active and one optional previous HMAC key, and previous-key retirement is permitted only after all old-key-only replicas are drained plus at least one complete 60-second A14 window.
 
 ## A17 hosted checkpoint — legacy webhook AES secret retirement
 
