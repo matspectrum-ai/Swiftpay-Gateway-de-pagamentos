@@ -7,12 +7,14 @@ export type AbusePolicy =
   | 'machine_read'
   | 'machine_mutation'
   | 'dashboard_request_pre_auth'
+  | 'checkout_request_pre_auth'
   | 'readiness_probe';
 
 export type NetworkAbusePolicy =
   | 'token_exchange_pre_auth'
   | 'machine_request_pre_auth'
   | 'dashboard_request_pre_auth'
+  | 'checkout_request_pre_auth'
   | 'readiness_probe';
 
 export type MachineAbusePolicy = 'machine_read' | 'machine_mutation';
@@ -60,6 +62,7 @@ const POLICY_LIMITS: Readonly<Record<AbusePolicy, number>> = Object.freeze({
   machine_read: 6_000,
   machine_mutation: 3_000,
   dashboard_request_pre_auth: 300,
+  checkout_request_pre_auth: 120,
   readiness_probe: 120,
 });
 
@@ -67,6 +70,7 @@ const NETWORK_POLICIES = new Set<NetworkAbusePolicy>([
   'token_exchange_pre_auth',
   'machine_request_pre_auth',
   'dashboard_request_pre_auth',
+  'checkout_request_pre_auth',
   'readiness_probe',
 ]);
 const MACHINE_POLICIES = new Set<MachineAbusePolicy>(['machine_read', 'machine_mutation']);
