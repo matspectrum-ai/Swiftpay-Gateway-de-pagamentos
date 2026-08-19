@@ -71,7 +71,7 @@ Status: `200`
 
 Ordering is deterministic: case-insensitive merchant name, then merchant UUID.
 
-`lifecycleStatus` is one of `active | suspended | closed`. Suspended/closed merchants are not hidden by this read-only discovery surface.
+`lifecycleStatus` is one of `draft | active | suspended | closed`, exactly matching the canonical merchant constraint. No lifecycle state is hidden by this read-only discovery surface.
 
 `membershipRole` is one of `member | admin | owner` and is sourced through the canonical K3 role authority.
 
