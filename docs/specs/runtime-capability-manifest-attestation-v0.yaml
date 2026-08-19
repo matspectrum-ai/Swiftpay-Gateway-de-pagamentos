@@ -1,0 +1,155 @@
+schemaVersion: a20-runtime-capability-manifest-attestation-v0
+status: frozen_for_tdd
+phase: 7
+scope:
+  databaseRuntimeTopology: true
+  hostedSupabasePostflight: true
+  databaseChanges: false
+  providerChanges: false
+  financialChanges: false
+  publicRouteChanges: false
+
+feature: Exact runtime capability manifest and attestation
+
+objectives:
+  - Version the exact PostgreSQL RPC signatures executable by swiftpay_api and swiftpay_worker.
+  - Detect nominal privilege substitution even when aggregate EXECUTE counts stay unchanged.
+  - Preserve K4/K6 least-privilege topology and public/Data API isolation.
+  - Attest local migration replay and hosted canonical Supabase against the same capability contract.
+
+nonGoals:
+  - Granting or revoking PostgreSQL privileges.
+  - Adding a migration or RPC.
+  - Changing application runtime behavior.
+  - Provider activation, provider networking, or monetary behavior.
+  - Freezing PostgreSQL OIDs or information_schema specific_name identifiers.
+
+manifest:
+  path: ops/security/runtime-capabilities-v0.json
+  schemaVersion: swiftpay-runtime-capabilities-v0
+  canonicalSchema: app
+  ordering: lexical_ascending_signature
+  uniqueness: required
+  roles:
+    swiftpay_api:
+      expectedCount: 24
+      signatures:
+        - app.claim_api_pix_attempt(uuid,text,uuid,uuid)
+        - app.consume_api_abuse_quota(text,text,text)
+        - app.consume_api_token_issuance(uuid)
+        - app.create_dashboard_api_credential(uuid,uuid,text,text,text,jsonb)
+        - app.create_dashboard_webhook_endpoint(uuid,uuid,text,text,text,jsonb)
+        - app.disable_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)
+        - app.enable_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)
+        - app.get_api_balance(uuid,text)
+        - app.get_api_credential_auth_state(uuid)
+        - app.get_api_payment(uuid,text,uuid)
+        - app.get_dashboard_api_credential(uuid,uuid,text,uuid)
+        - app.get_dashboard_transaction(uuid,uuid,text,uuid)
+        - app.get_dashboard_webhook_endpoint(uuid,uuid,text,uuid)
+        - app.list_dashboard_api_credentials(uuid,uuid,text)
+        - app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,uuid,integer)
+        - app.list_dashboard_webhook_endpoints(uuid,uuid,text)
+        - app.lookup_api_credential_for_token(text)
+        - app.prepare_api_pix_payment(uuid,text,text,text,jsonb,jsonb,text)
+        - app.require_dashboard_merchant_context(uuid,uuid,text,text)
+        - app.resolve_api_pix_attempt(uuid,text,uuid,uuid,uuid,jsonb)
+        - app.revoke_dashboard_api_credential(uuid,uuid,text,uuid,text,text,jsonb)
+        - app.rotate_dashboard_api_credential_secret(uuid,uuid,text,uuid,text,text,jsonb)
+        - app.rotate_dashboard_webhook_endpoint_secret(uuid,uuid,text,uuid,text,text,jsonb)
+        - app.update_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)
+    swiftpay_worker:
+      expectedCount: 6
+      signatures:
+        - app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamp with time zone)
+        - app.claim_jobs(text,integer,integer)
+        - app.claim_merchant_webhook_deliveries(text,integer,integer)
+        - app.complete_job(uuid,uuid)
+        - app.reschedule_job(uuid,uuid,text,text,integer)
+        - app.resolve_merchant_webhook_delivery(uuid,uuid,uuid,text,integer,text,text,integer)
+
+structuralInvariants:
+  capabilityRoles:
+    - role: swiftpay_api
+      appSchemaUsage: true
+      appSchemaCreate: false
+      directAppRelationAclEntries: 0
+    - role: swiftpay_worker
+      appSchemaUsage: true
+      appSchemaCreate: false
+      directAppRelationAclEntries: 0
+  loginRoles:
+    swiftpay_api_runtime:
+      exactInheritedRoles: [swiftpay_api]
+      privilegedAttributes: forbidden
+    swiftpay_worker_runtime:
+      exactInheritedRoles: [swiftpay_worker]
+      privilegedAttributes: forbidden
+  publicDataApiRoles:
+    roles: [anon, authenticated, service_role]
+    appSchemaUsage: false
+    appSchemaCreate: false
+    appTablePrivileges: 0
+    appExecutePrivileges: 0
+  publicPseudoRole:
+    appExecutePrivileges: 0
+  allowedRoutines:
+    securityDefiner: required
+    explicitSearchPath: required
+    forbiddenSearchPathEntries: [public, pg_temp, $user]
+
+attestation:
+  local:
+    testPath: supabase/tests/runtime/002_exact_runtime_capability_allowlist.test.sql
+    runner: existing_database_contracts_runtime_topology_job
+    comparison: exact_sorted_signature_arrays
+  hosted:
+    project: swiftpay v2
+    projectId: vsidrgbbyzibqfjkuiqb
+    action: read_only_postflight
+    mutation: forbidden
+
+requirements:
+  - id: A20-R1
+    statement: A machine-readable repository manifest freezes the exact nominal API and worker RPC signature sets.
+  - id: A20-R2
+    statement: Runtime-topology CI compares actual EXECUTE signatures exactly, not only by count or selected probes.
+  - id: A20-R3
+    statement: PostgreSQL OIDs and information_schema specific_name values are not manifest authority.
+  - id: A20-R4
+    statement: A one-for-one unexpected RPC substitution fails attestation even when counts remain 24/6.
+  - id: A20-R5
+    statement: API and worker retain zero direct app relation/sequence ACL authority and cannot CREATE in app.
+  - id: A20-R6
+    statement: Runtime login roles inherit exactly their intended one capability role and no privileged role attributes.
+  - id: A20-R7
+    statement: Public/Data API roles retain no app table or executable RPC authority.
+  - id: A20-R8
+    statement: Every runtime-executable app routine remains SECURITY DEFINER with an explicit non-public search path.
+  - id: A20-R9
+    statement: A20 performs no DDL, privilege mutation, provider call or financial mutation.
+
+acceptanceCriteria:
+  - Manifest JSON exists, parses strictly, and contains exactly 24 sorted unique API signatures and 6 sorted unique worker signatures.
+  - Manifest signatures are schema-qualified and type-based.
+  - New pgTAP runtime test asserts exact equality between actual and expected sorted arrays for both roles.
+  - New pgTAP test proves no unexpected executable app routine is present for either role.
+  - Existing K6 runtime topology contract remains GREEN.
+  - Database workflow runtime-topology job runs the new test without a separate ad-hoc CI path.
+  - Hosted canonical project exactly matches both manifest sets after A20.
+  - Hosted Security Advisor remains 0 lints.
+  - No migration is created or applied for A20.
+
+edgeCases:
+  - expected RPC revoked while unrelated RPC granted, preserving count
+  - overloaded function with same name but different argument types
+  - migration replay changes function OID
+  - duplicate manifest entry
+  - unsorted manifest entry
+  - PUBLIC execute grant appears while role-specific sets remain correct
+  - unsafe search_path is introduced on an otherwise allowed routine
+  - runtime login role gains an extra inherited capability role
+
+implementationAuthorityAfterFreeze:
+  nextStep: contract_then_fail_first_tests
+  implementationBeforeRed: forbidden
