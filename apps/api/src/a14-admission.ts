@@ -25,12 +25,15 @@ function networkPolicy(request: FastifyRequest): NetworkAbusePolicy | null {
   if (key === 'POST /v1/auth/token') return 'token_exchange_pre_auth';
   if (MACHINE_ROUTES.has(key)) return 'machine_request_pre_auth';
   if (routeTemplate(request).startsWith('/dashboard/v1/')) return 'dashboard_request_pre_auth';
+  if (routeTemplate(request).startsWith('/checkout/v1/')) return 'checkout_request_pre_auth';
   if (key === 'GET /health/ready') return 'readiness_probe';
   return null;
 }
 
 function controlledCache(policy: NetworkAbusePolicy | MachineAbusePolicy): string {
-  return policy === 'token_exchange_pre_auth' || policy === 'readiness_probe'
+  return policy === 'token_exchange_pre_auth'
+    || policy === 'checkout_request_pre_auth'
+    || policy === 'readiness_probe'
     ? 'no-store'
     : 'private, no-store';
 }
