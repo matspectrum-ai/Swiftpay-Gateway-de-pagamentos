@@ -94,7 +94,7 @@ context_discovery:
         merchantId: uuid
         merchantName: non_empty_text
         lifecycleStatus:
-          enum: [active, suspended, closed]
+          enum: [draft, active, suspended, closed]
         membershipRole:
           enum: [member, admin, owner]
         environments:
@@ -134,7 +134,7 @@ context_discovery:
       - sandbox
       - production
     lifecycle_filtering: none
-    rationale: dashboard read access remains useful for suspended/closed merchants while lifecycle is surfaced explicitly
+    rationale: dashboard read access remains useful across canonical draft/active/suspended/closed merchant lifecycle while lifecycle is surfaced explicitly
 
 runtime_capability_manifest:
   prior_swiftpay_api_count: 24
