@@ -6,20 +6,20 @@ import {
 } from './app-base.js';
 
 export interface DashboardPaymentLinksHttpService {
-  list(input: { readonly authorization?: string; readonly merchantId: string; readonly environment: string }): Promise<Record<string, unknown>>;
+  list(input: { readonly authorization?: string | undefined; readonly merchantId: string; readonly environment: string }): Promise<Record<string, unknown>>;
   create(input: {
-    readonly authorization?: string;
+    readonly authorization?: string | undefined;
     readonly merchantId: string;
     readonly environment: string;
-    readonly idempotencyKey?: string;
+    readonly idempotencyKey?: string | undefined;
     readonly request: unknown;
   }): Promise<Record<string, unknown>>;
   disable(input: {
-    readonly authorization?: string;
+    readonly authorization?: string | undefined;
     readonly merchantId: string;
     readonly environment: string;
     readonly paymentLinkId: string;
-    readonly idempotencyKey?: string;
+    readonly idempotencyKey?: string | undefined;
     readonly request: unknown;
   }): Promise<Record<string, unknown>>;
 }
