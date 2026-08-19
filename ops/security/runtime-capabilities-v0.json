@@ -3,7 +3,7 @@
   "canonicalSchema": "app",
   "roles": {
     "swiftpay_api": {
-      "expectedCount": 24,
+      "expectedCount": 25,
       "signatures": [
         "app.claim_api_pix_attempt(uuid,text,uuid,uuid)",
         "app.consume_api_abuse_quota(text,text,text)",
@@ -19,6 +19,7 @@
         "app.get_dashboard_transaction(uuid,uuid,text,uuid)",
         "app.get_dashboard_webhook_endpoint(uuid,uuid,text,uuid)",
         "app.list_dashboard_api_credentials(uuid,uuid,text)",
+        "app.list_dashboard_merchant_contexts(uuid)",
         "app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,uuid,integer)",
         "app.list_dashboard_webhook_endpoints(uuid,uuid,text)",
         "app.lookup_api_credential_for_token(text)",
