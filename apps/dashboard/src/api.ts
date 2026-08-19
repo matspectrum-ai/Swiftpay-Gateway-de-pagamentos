@@ -1,5 +1,3 @@
-const API_BASE = '/api';
-
 export type DashboardEnvironment = 'sandbox' | 'production';
 export type MerchantLifecycleStatus = 'draft' | 'active' | 'suspended' | 'closed';
 export type MembershipRole = 'member' | 'admin' | 'owner';
@@ -55,7 +53,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function requestJson(accessToken: string, path: string): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(path, {
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
@@ -109,7 +107,7 @@ function transaction(value: unknown): TransactionListItem {
 }
 
 export async function listContexts(accessToken: string): Promise<readonly MerchantContext[]> {
-  const body = await requestJson(accessToken, '/dashboard/v1/contexts');
+  const body = await requestJson(accessToken, '/api/dashboard/v1/contexts');
   if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) {
     throw new DashboardApiError('error');
   }
@@ -126,7 +124,7 @@ export async function listTransactions(input: {
   if (input.cursor) query.set('cursor', input.cursor);
   const body = await requestJson(
     input.accessToken,
-    `/dashboard/v1/merchants/${encodeURIComponent(input.merchantId)}/environments/${input.environment}/transactions?${query.toString()}`,
+    `/api/dashboard/v1/merchants/${encodeURIComponent(input.merchantId)}/environments/${input.environment}/transactions?${query.toString()}`,
   );
   if (!isRecord(body) || !Array.isArray(body.items)
       || !(body.nextCursor === null || typeof body.nextCursor === 'string')) {
@@ -143,7 +141,7 @@ export async function getTransaction(input: {
 }): Promise<TransactionDetail> {
   const body = await requestJson(
     input.accessToken,
-    `/dashboard/v1/merchants/${encodeURIComponent(input.merchantId)}/environments/${input.environment}/transactions/${encodeURIComponent(input.transactionId)}`,
+    `/api/dashboard/v1/merchants/${encodeURIComponent(input.merchantId)}/environments/${input.environment}/transactions/${encodeURIComponent(input.transactionId)}`,
   );
   const base = transaction(body);
   if (!isRecord(body) || !('pix' in body)) throw new DashboardApiError('error');
