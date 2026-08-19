@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const [payments, db, apiModule] = await Promise.all([
+const [payments, db, apiModule, providers] = await Promise.all([
   import('../../packages/payments/dist/index.js'),
   import('../../packages/db/dist/index.js'),
   import('../../apps/api/dist/app.js'),
+  import('../../packages/providers/dist/index.js'),
 ]);
 
 async function text(path) {
@@ -158,16 +159,18 @@ test('A23 separate checkout SPA is anonymous same-origin API-only and visibly no
 });
 
 test('A23 preserves zero retained-provider authority and machine A2 source semantics', async () => {
-  const [manifest, a2Migration, registry, checkoutSpec] = await Promise.all([
+  const [manifest, a2Migration, checkoutSpec] = await Promise.all([
     json('ops/security/runtime-capabilities-v0.json'),
     text('supabase/migrations/20260815101609_pix_create_get_emulator_behavior.sql'),
-    text('ops/providers/activation-registry-v0.json'),
     text('docs/specs/hosted-pix-checkout-payment-links-v0.yaml'),
   ]);
   assert.match(a2Migration, /'api'/);
   assert.match(a2Migration, /prepare_api_pix_payment/);
   assert.match(checkoutSpec, /prepare_api_pix_payment_reuse: forbidden/);
   assert.equal(manifest.roles.swiftpay_worker.expectedCount, 6);
-  const parsedRegistry = JSON.parse(registry);
-  assert.deepEqual(parsedRegistry.grants ?? [], []);
+  assert.ok(Array.isArray(providers.DEFAULT_PROVIDER_ACTIVATION_REGISTRY.records));
+  const liveAuthority = providers.DEFAULT_PROVIDER_ACTIVATION_REGISTRY.records.filter(
+    (record) => record.state === 'sandbox_proven' || record.state === 'production_enabled',
+  );
+  assert.equal(liveAuthority.length, 0);
 });
