@@ -125,7 +125,7 @@ try {
   );
   assert.equal(
     adminScalar(`select count(*) from information_schema.routine_privileges where routine_schema='app' and grantee='swiftpay_api' and privilege_type='EXECUTE'`),
-    '24',
+    '25',
   );
   assert.equal(
     adminScalar(`select count(*) from information_schema.routine_privileges where routine_schema='app' and grantee='swiftpay_worker' and privilege_type='EXECUTE'`),
