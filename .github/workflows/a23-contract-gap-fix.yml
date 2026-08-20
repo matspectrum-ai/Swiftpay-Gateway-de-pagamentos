@@ -25,10 +25,11 @@ jobs:
           migration = Path('supabase/migrations/20260819163000_hosted_pix_checkout_payment_links.sql')
           text = migration.read_text()
 
-          old_extract = 'pg_catalog.extract(epoch from v_now)'
+          old_extract = "pg_catalog.extract(epoch from ((v_canonical_window_started_at + interval '60 seconds') - v_now))"
+          new_extract = "extract(epoch from ((v_canonical_window_started_at + interval '60 seconds') - v_now))"
           if text.count(old_extract) != 1:
               raise SystemExit(f'migration: expected exactly one qualified EXTRACT, found {text.count(old_extract)}')
-          text = text.replace(old_extract, 'extract(epoch from v_now)', 1)
+          text = text.replace(old_extract, new_extract, 1)
 
           index_block = """create index payment_links_merchant_created_idx
     on app.payment_links(merchant_id, environment, created_at desc, id desc);
@@ -56,6 +57,7 @@ revoke all on table app.payment_links
 """
           new_token = """function tokenFromPath(): string | null {
   const pathSegments = location.pathname.split('/').filter(Boolean);
+  if (pathSegments.length !== 2 || pathSegments[0] !== 'pay') return null;
   const publicToken = pathSegments.at(-1);
   return publicToken ? decodeURIComponent(publicToken) : null;
 }
