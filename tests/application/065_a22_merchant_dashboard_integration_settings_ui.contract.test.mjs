@@ -133,11 +133,11 @@ test('A22 webhook UI preserves payment.paid-only and disabled-before-URL-edit UX
   assert.doesNotMatch(app, /test webhook|redeliver|redelivery/i);
 });
 
-test('A22 introduces no database capability or migration and preserves 25/6 manifest', async () => {
+test('A22 introduces no database capability or migration; the later A23 manifest is 30/6', async () => {
   const manifest = await json('ops/security/runtime-capabilities-v0.json');
-  assert.equal(manifest.roles.swiftpay_api.expectedCount, 25);
+  assert.equal(manifest.roles.swiftpay_api.expectedCount, 30);
   assert.equal(manifest.roles.swiftpay_worker.expectedCount, 6);
-  assert.equal(manifest.roles.swiftpay_api.signatures.length, 25);
+  assert.equal(manifest.roles.swiftpay_api.signatures.length, 30);
   assert.equal(manifest.roles.swiftpay_worker.signatures.length, 6);
 
   const migrations = await readdir(new URL('../../supabase/migrations/', import.meta.url));
