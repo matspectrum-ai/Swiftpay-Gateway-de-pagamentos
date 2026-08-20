@@ -1,0 +1,117 @@
+exit_code=1
+test at tests/application/001_runtime_bootstrap.contract.test.mjs:79:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /\/health\/live/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/001_runtime_bootstrap.contract.test.mjs:82:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/004_api_credential_auth_bootstrap.contract.test.mjs:59:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /\/v1\/auth\/token/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/004_api_credential_auth_bootstrap.contract.test.mjs:61:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/004_api_credential_auth_bootstrap.contract.test.mjs:66:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /secretKey/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/004_api_credential_auth_bootstrap.contract.test.mjs:68:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/009_api_auth_runtime_wiring.contract.test.mjs:113:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createAccessTokenSigningAuthority/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/009_api_auth_runtime_wiring.contract.test.mjs:123:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:39:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createDashboardAuthorizationService/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:42:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:46:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /authenticateAccessToken/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:47:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:52:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /dashboardWebhookEndpoints/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:53:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:58:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /\/v1\/auth\/token/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs:59:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/045_a8_runtime_wiring.contract.test.mjs:11:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createPrivilegedDashboardSessionVerifier/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/045_a8_runtime_wiring.contract.test.mjs:13:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/045_a8_runtime_wiring.contract.test.mjs:28:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /dashboardApiCredentials/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/045_a8_runtime_wiring.contract.test.mjs:30:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/045_a8_runtime_wiring.contract.test.mjs:35:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /api-credentials/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/045_a8_runtime_wiring.contract.test.mjs:37:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/048_a9_runtime_wiring.contract.test.mjs:20:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createDashboardTransactionStore/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/048_a9_runtime_wiring.contract.test.mjs:21:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/048_a9_runtime_wiring.contract.test.mjs:29:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /activeKeyId:\s*options\.dashboardCursorActiveKeyId/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/048_a9_runtime_wiring.contract.test.mjs:30:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/048_a9_runtime_wiring.contract.test.mjs:40:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /dashboardTransactionBase/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/048_a9_runtime_wiring.contract.test.mjs:41:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/052_a12_structured_runtime_logging_correlation.contract.test.mjs:166:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /genReqId/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/052_a12_structured_runtime_logging_correlation.contract.test.mjs:169:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/054_a14_ingress_abuse_rate_limit_hardening.contract.test.mjs:237:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createApiAbuseControls/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/054_a14_ingress_abuse_rate_limit_hardening.contract.test.mjs:244:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/057_a15_machine_access_token_signing_key_rotation.contract.test.mjs:363:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createAccessTokenSigningAuthority/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/057_a15_machine_access_token_signing_key_rotation.contract.test.mjs:372:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/058_a16_dashboard_transaction_cursor_hmac_rotation.contract.test.mjs:306:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /dashboardCursorActiveKeyId/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/058_a16_dashboard_transaction_cursor_hmac_rotation.contract.test.mjs:312:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/058_a16_dashboard_transaction_cursor_hmac_rotation.contract.test.mjs:322:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /createApiAbuseControls/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/058_a16_dashboard_transaction_cursor_hmac_rotation.contract.test.mjs:329:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/062_a19_fastify_log_controller_compatibility.contract.test.mjs:36:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /import\s+Fastify,[\s\S]*\bLogController\b[\s\S]*from\s+['"]fastify['"]/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/062_a19_fastify_log_controller_compatibility.contract.test.mjs:39:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/064_a21_merchant_dashboard_web_foundation.contract.test.mjs:64:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /\/api\/dashboard\/v1\/contexts/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/064_a21_merchant_dashboard_web_foundation.contract.test.mjs:74:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/064_a21_merchant_dashboard_web_foundation.contract.test.mjs:142:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /dashboardContextDiscovery/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/064_a21_merchant_dashboard_web_foundation.contract.test.mjs:148:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/064_a21_merchant_dashboard_web_foundation.contract.test.mjs:203:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Entrar/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/064_a21_merchant_dashboard_web_foundation.contract.test.mjs:215:12)
+    code: 'ERR_ASSERTION',
+test at tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:37:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /export async function listApiCredentials\b/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:46:12)
+    code: 'ERR_ASSERTION',
+test at tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:56:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /export async function listWebhookEndpoints\b/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:67:12)
+    code: 'ERR_ASSERTION',
+test at tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:74:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /step_up/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:80:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:99:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /secretKey/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:104:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:114:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /canMutateApiCredentials/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:117:10)
+    code: 'ERR_ASSERTION',
+test at tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:125:1
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /payment\.paid/. Input:
+      at TestContext.<anonymous> (file:///home/runner/work/Swiftpay-Gateway-de-pagamentos/Swiftpay-Gateway-de-pagamentos/tests/application/065_a22_merchant_dashboard_integration_settings_ui.contract.test.mjs:128:10)
+    code: 'ERR_ASSERTION',
