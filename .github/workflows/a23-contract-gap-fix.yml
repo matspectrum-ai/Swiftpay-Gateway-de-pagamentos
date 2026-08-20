@@ -1,0 +1,75 @@
+name: A23 contract gap fix
+
+on:
+  push:
+    branches:
+      - agent/foundation-phase-0
+    paths:
+      - .github/workflows/a23-contract-gap-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Close exact A23 SQL and checkout contract gaps
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path('supabase/migrations/20260819163000_hosted_pix_checkout_payment_links.sql')
+          text = migration.read_text()
+
+          old_extract = 'pg_catalog.extract(epoch from v_now)'
+          if text.count(old_extract) != 1:
+              raise SystemExit(f'migration: expected exactly one qualified EXTRACT, found {text.count(old_extract)}')
+          text = text.replace(old_extract, 'extract(epoch from v_now)', 1)
+
+          index_block = """create index payment_links_merchant_created_idx
+    on app.payment_links(merchant_id, environment, created_at desc, id desc);
+
+revoke all on table app.payment_links
+"""
+          replacement = """create index payment_links_merchant_created_idx
+    on app.payment_links(merchant_id, environment, created_at desc, id desc);
+
+alter table app.payment_links enable row level security;
+
+revoke all on table app.payment_links
+"""
+          if text.count(index_block) != 1:
+              raise SystemExit(f'migration: expected exactly one payment_links index/revoke boundary, found {text.count(index_block)}')
+          text = text.replace(index_block, replacement, 1)
+          migration.write_text(text)
+
+          app = Path('apps/checkout/src/app.tsx')
+          source = app.read_text()
+          old_token = """function tokenFromPath(): string | null {
+  const match = /^\\/pay\\/([^/]+)$/.exec(location.pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+"""
+          new_token = """function tokenFromPath(): string | null {
+  const pathSegments = location.pathname.split('/').filter(Boolean);
+  const publicToken = pathSegments.at(-1);
+  return publicToken ? decodeURIComponent(publicToken) : null;
+}
+"""
+          if source.count(old_token) != 1:
+              raise SystemExit(f'checkout app: expected exactly one legacy token parser, found {source.count(old_token)}')
+          source = source.replace(old_token, new_token, 1)
+          app.write_text(source)
+          PY
+      - name: Commit exact fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/migrations/20260819163000_hosted_pix_checkout_payment_links.sql apps/checkout/src/app.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(a23): close checkout migration contract gaps"
+          git push origin HEAD:agent/foundation-phase-0
