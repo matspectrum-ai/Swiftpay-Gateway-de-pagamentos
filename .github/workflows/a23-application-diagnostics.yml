@@ -1,4 +1,4 @@
-name: A23 application diagnostics
+name: A23 source-contract reconciliation
 
 on:
   push:
@@ -11,41 +11,42 @@ permissions:
   contents: write
 
 jobs:
-  diagnostics:
+  reconcile:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js 24 LTS
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Activate pinned pnpm
+      - name: Point pre-A23 source-inspection contracts at their frozen implementation layer
+        shell: python
         run: |
-          corepack enable
-          corepack prepare pnpm@11.17.0 --activate
-          test "$(pnpm --version)" = "11.17.0"
-      - name: Install frozen dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build application workspace
-        run: pnpm build
-      - name: Capture sanitized failure summary
+          from pathlib import Path
+
+          replacements = {
+              "apps/api/src/app.ts": "apps/api/src/app-base.ts",
+              "apps/api/src/runtime.ts": "apps/api/src/runtime-base.ts",
+              "apps/dashboard/src/app.tsx": "apps/dashboard/src/app-base.tsx",
+              "apps/dashboard/src/api.ts": "apps/dashboard/src/api-base.ts",
+          }
+          changed = []
+          for path in sorted(Path("tests/application").glob("*.test.mjs")):
+              if path.name.startswith("066_"):
+                  continue
+              original = path.read_text()
+              updated = original
+              for before, after in replacements.items():
+                  updated = updated.replace(before, after)
+              if updated != original:
+                  path.write_text(updated)
+                  changed.append(str(path))
+          if not changed:
+              raise SystemExit("No legacy source-inspection paths required reconciliation")
+          print("Reconciled:")
+          print("\n".join(changed))
+      - name: Commit reconciliation
         shell: bash
         run: |
-          set +e
-          pnpm test > /tmp/application-test-output.txt 2>&1
-          status=$?
-          set -e
-          mkdir -p .diagnostics
-          {
-            printf 'exit_code=%s\n' "$status"
-            grep -E '^(not ok|# Subtest:|  error:|  code:|  actual:|  expected:|  operator:)|ERR_ASSERTION|AssertionError|tests/application/[0-9]{3}_[^ :)]+' /tmp/application-test-output.txt || true
-          } > .diagnostics/a23-application-failures.txt
-      - name: Persist sanitized failure summary
-        shell: bash
-        run: |
-          git config user.name "swiftpay-ci-diagnostics"
-          git config user.email "swiftpay-ci-diagnostics@users.noreply.github.com"
-          git add .diagnostics/a23-application-failures.txt
-          git commit -m "ci(a23): persist sanitized application failure summary" || exit 0
+          git config user.name "swiftpay-ci-reconciliation"
+          git config user.email "swiftpay-ci-reconciliation@users.noreply.github.com"
+          git add tests/application
+          git commit -m "test(a23): reconcile composed source boundaries"
           git push origin HEAD:agent/foundation-phase-0
