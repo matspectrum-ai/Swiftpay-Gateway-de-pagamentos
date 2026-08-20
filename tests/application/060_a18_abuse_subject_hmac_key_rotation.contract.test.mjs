@@ -205,7 +205,7 @@ test('A18 DB adapter rejects malformed or duplicate aliases before PostgreSQL', 
 test('A18 API runtime wires previous continuity authority while worker gains none', async () => {
   const [apiIndex, apiRuntime, workerIndex, configIndex] = await Promise.all([
     readFile(new URL('../../apps/api/src/index.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../apps/api/src/runtime-base.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../apps/worker/src/index.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
   ]);

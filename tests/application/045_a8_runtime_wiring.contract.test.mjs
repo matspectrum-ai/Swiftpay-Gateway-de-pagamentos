@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const [runtimeSource, indexSource, appSource] = await Promise.all([
-  readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../apps/api/src/runtime-base.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../apps/api/src/index.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../../apps/api/src/app.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../apps/api/src/app-base.ts', import.meta.url), 'utf8'),
 ]);
 
 test('A8 API runtime composes ordinary and privileged dashboard auth with the credential store', () => {

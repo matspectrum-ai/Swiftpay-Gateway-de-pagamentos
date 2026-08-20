@@ -5,8 +5,8 @@ import test from 'node:test';
 const [configCoreSource, configA16Source, runtimeSource, appSource, authSource, dbIndexSource, dbCoreSource] = await Promise.all([
   readFile(new URL('../../packages/config/src/core.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/config/src/a16-api-config.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../../apps/api/src/app.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../apps/api/src/runtime-base.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../apps/api/src/app-base.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/auth/src/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/db/src/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../packages/db/src/core.ts', import.meta.url), 'utf8'),

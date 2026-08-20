@@ -57,14 +57,14 @@ test('A1 runtime config names the signing authority without provider secrets', a
 });
 
 test('A1 API source declares the compatibility token route and auth dependency', async () => {
-  const source = await text('apps/api/src/app.ts');
+  const source = await text('apps/api/src/app-base.ts');
   assert.match(source, /\/v1\/auth\/token/);
   assert.match(source, /token/i);
   assert.match(source, /auth/i);
 });
 
 test('A1 API logging redacts camelCase plaintext credential secrets', async () => {
-  const source = await text('apps/api/src/app.ts');
+  const source = await text('apps/api/src/app-base.ts');
   assert.match(source, /secretKey/);
   assert.match(source, /authorization/i);
 });

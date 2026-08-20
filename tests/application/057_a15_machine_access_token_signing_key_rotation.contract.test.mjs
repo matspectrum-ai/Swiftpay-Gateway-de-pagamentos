@@ -363,7 +363,7 @@ test('A15 configuration and signing-authority failures never echo key material o
 test('A15 production API composition uses the keyring authority and contains no old single-key fallback', async () => {
   const [configSource, runtimeSource, bootstrapSource] = await Promise.all([
     readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../apps/api/src/runtime-base.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../apps/api/src/index.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(configSource, /SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID/);

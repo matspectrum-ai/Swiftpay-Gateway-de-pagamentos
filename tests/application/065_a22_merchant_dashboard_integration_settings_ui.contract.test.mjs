@@ -24,7 +24,7 @@ test('A22 frozen spec and contract preserve application-only A7/A8 composition',
 });
 
 test('A22 activates API Credentials and Webhooks navigation with stable browser routes', async () => {
-  const app = await text('apps/dashboard/src/app.tsx');
+  const app = await text('apps/dashboard/src/app-base.tsx');
 
   assert.match(app, /\/settings\/api-credentials/);
   assert.match(app, /\/settings\/webhooks/);
@@ -35,7 +35,7 @@ test('A22 activates API Credentials and Webhooks navigation with stable browser 
 });
 
 test('A22 browser API client exposes the exact A8 credential read and mutation surface', async () => {
-  const api = await text('apps/dashboard/src/api.ts');
+  const api = await text('apps/dashboard/src/api-base.ts');
 
   for (const exportName of [
     'listApiCredentials',
@@ -54,7 +54,7 @@ test('A22 browser API client exposes the exact A8 credential read and mutation s
 });
 
 test('A22 browser API client exposes the exact A7 webhook read and mutation surface', async () => {
-  const api = await text('apps/dashboard/src/api.ts');
+  const api = await text('apps/dashboard/src/api-base.ts');
 
   for (const exportName of [
     'listWebhookEndpoints',
@@ -72,7 +72,7 @@ test('A22 browser API client exposes the exact A7 webhook read and mutation surf
 });
 
 test('A22 mutations send JSON plus exact Idempotency-Key and expose sanitized step-up/conflict categories', async () => {
-  const api = await text('apps/dashboard/src/api.ts');
+  const api = await text('apps/dashboard/src/api-base.ts');
 
   assert.match(api, /['"]Idempotency-Key['"]/);
   assert.match(api, /['"]Content-Type['"]\s*:\s*['"]application\/json['"]/);
@@ -85,8 +85,8 @@ test('A22 mutations send JSON plus exact Idempotency-Key and expose sanitized st
 });
 
 test('A22 settings flow freezes one idempotency key per mutation across the existing one-session refresh retry', async () => {
-  const app = await text('apps/dashboard/src/app.tsx');
-  const api = await text('apps/dashboard/src/api.ts');
+  const app = await text('apps/dashboard/src/app-base.tsx');
+  const api = await text('apps/dashboard/src/api-base.ts');
   const source = `${app}\n${api}`;
 
   assert.match(source, /crypto\.randomUUID\s*\(/);
@@ -97,8 +97,8 @@ test('A22 settings flow freezes one idempotency key per mutation across the exis
 });
 
 test('A22 one-time credential and webhook secrets are explicit ephemeral reveal state only', async () => {
-  const app = await text('apps/dashboard/src/app.tsx');
-  const api = await text('apps/dashboard/src/api.ts');
+  const app = await text('apps/dashboard/src/app-base.tsx');
+  const api = await text('apps/dashboard/src/api-base.ts');
   const source = `${app}\n${api}`;
 
   assert.match(source, /secretKey/);
@@ -112,7 +112,7 @@ test('A22 one-time credential and webhook secrets are explicit ephemeral reveal 
 });
 
 test('A22 role-aware presentation names A8/A7 mutation boundaries without becoming authority', async () => {
-  const app = await text('apps/dashboard/src/app.tsx');
+  const app = await text('apps/dashboard/src/app-base.tsx');
 
   assert.match(app, /canMutateApiCredentials/);
   assert.match(app, /canMutateWebhooks/);
@@ -123,7 +123,7 @@ test('A22 role-aware presentation names A8/A7 mutation boundaries without becomi
 });
 
 test('A22 webhook UI preserves payment.paid-only and disabled-before-URL-edit UX', async () => {
-  const app = await text('apps/dashboard/src/app.tsx');
+  const app = await text('apps/dashboard/src/app-base.tsx');
 
   assert.match(app, /payment\.paid/);
   assert.match(app, /endpoint\.status\s*===\s*['"]disabled['"]/);
@@ -146,8 +146,8 @@ test('A22 introduces no database capability or migration; the later A23 manifest
 
 test('A22 browser still has no provider or financial mutation authority', async () => {
   const source = (await Promise.all([
-    text('apps/dashboard/src/app.tsx'),
-    text('apps/dashboard/src/api.ts'),
+    text('apps/dashboard/src/app-base.tsx'),
+    text('apps/dashboard/src/api-base.ts'),
     text('apps/dashboard/src/auth.ts'),
   ])).join('\n');
 

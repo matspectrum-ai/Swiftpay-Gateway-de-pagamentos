@@ -113,7 +113,7 @@ test('A1 API runtime composition drives the public token route through trusted D
 test('A1 production API bootstrap preserves token exchange inside the composed runtime services', async () => {
   const [bootstrapSource, runtimeSource] = await Promise.all([
     readFile('apps/api/src/index.ts', 'utf8'),
-    readFile('apps/api/src/runtime.ts', 'utf8'),
+    readFile('apps/api/src/runtime-base.ts', 'utf8'),
   ]);
   assert.match(bootstrapSource, /createApiRuntimeServices/);
   assert.match(bootstrapSource, /accessTokenActiveKeyId/);

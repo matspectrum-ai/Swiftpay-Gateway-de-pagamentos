@@ -22,9 +22,9 @@ const WEB_FILES = [
   'apps/dashboard/vite.config.ts',
   'apps/dashboard/tsconfig.json',
   'apps/dashboard/src/main.tsx',
-  'apps/dashboard/src/app.tsx',
+  'apps/dashboard/src/app-base.tsx',
   'apps/dashboard/src/auth.ts',
-  'apps/dashboard/src/api.ts',
+  'apps/dashboard/src/api-base.ts',
   'apps/dashboard/src/styles.css',
 ];
 
@@ -63,9 +63,9 @@ test('A21 real dashboard workspace exists with the frozen minimal files and depe
 
 test('A21 browser source is Auth/API-only and contains no trusted database or provider authority', async () => {
   const source = (await Promise.all([
-    text('apps/dashboard/src/app.tsx'),
+    text('apps/dashboard/src/app-base.tsx'),
     text('apps/dashboard/src/auth.ts'),
-    text('apps/dashboard/src/api.ts'),
+    text('apps/dashboard/src/api-base.ts'),
   ])).join('\n');
 
   assert.match(source, /VITE_SUPABASE_URL/);
@@ -140,8 +140,8 @@ test('A21 context discovery service derives database user authority only from ve
 });
 
 test('A21 dashboard API exposes context discovery and wires a dedicated service without machine-auth fallback', async () => {
-  const app = await text('apps/api/src/app.ts');
-  const runtime = await text('apps/api/src/runtime.ts');
+  const app = await text('apps/api/src/app-base.ts');
+  const runtime = await text('apps/api/src/runtime-base.ts');
   const authIndex = await text('packages/auth/src/index.ts');
   const dbIndex = await text('packages/db/src/index.ts');
 
@@ -201,7 +201,7 @@ test('A21 context capability remains present after the later A23 expansion to 30
 });
 
 test('A21 dashboard web shell freezes visible login, context, list, detail and failure states', async () => {
-  const app = await text('apps/dashboard/src/app.tsx');
+  const app = await text('apps/dashboard/src/app-base.tsx');
   for (const marker of [
     'Entrar',
     'Transações',
@@ -218,8 +218,8 @@ test('A21 dashboard web shell freezes visible login, context, list, detail and f
 
 test('A21 preserves no provider or financial browser mutation authority as later dashboard administration views are added', async () => {
   const source = (await Promise.all([
-    text('apps/dashboard/src/app.tsx'),
-    text('apps/dashboard/src/api.ts'),
+    text('apps/dashboard/src/app-base.tsx'),
+    text('apps/dashboard/src/api-base.ts'),
   ])).join('\n');
 
   assert.doesNotMatch(source, /\/v1\/(?:payments|pix|refunds|payouts|balance)(?:\b|\/)/i);

@@ -164,7 +164,7 @@ test('A12 API generates distinct UUIDv4 request IDs for distinct requests', asyn
 });
 
 test('A12 Fastify source disables caller request-id authority and automatic request logging', async () => {
-  const source = await readFile(path.join(ROOT, 'apps/api/src/app.ts'), 'utf8');
+  const source = await readFile(path.join(ROOT, 'apps/api/src/app-base.ts'), 'utf8');
   assert.doesNotMatch(source, /requestIdHeader:\s*['"]x-request-id['"]/);
   assert.match(source, /genReqId/);
   assert.match(source, /randomUUID/);

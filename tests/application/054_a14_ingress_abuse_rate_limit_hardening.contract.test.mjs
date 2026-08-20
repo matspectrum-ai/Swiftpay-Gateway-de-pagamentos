@@ -225,7 +225,7 @@ test('A14 admission unavailability fails closed as sanitized 503 without limiter
 test('A14 config freezes exact trusted proxies plus dedicated HMAC authority without generic trustProxy', async () => {
   const [configSource, appSource] = await Promise.all([
     readFile(path.join(ROOT, 'packages/config/src/core.ts'), 'utf8'),
-    readFile(path.join(ROOT, 'apps/api/src/app.ts'), 'utf8'),
+    readFile(path.join(ROOT, 'apps/api/src/app-base.ts'), 'utf8'),
   ]);
   assert.match(configSource, /SWIFTPAY_TRUSTED_PROXY_IPS/);
   assert.match(configSource, /SWIFTPAY_ABUSE_HMAC_KEY/);
@@ -237,7 +237,7 @@ test('A14 config freezes exact trusted proxies plus dedicated HMAC authority wit
 test('A14 production runtime wires trusted DB store and abuse controls while worker gets no abuse authority', async () => {
   const [apiIndex, apiRuntime, workerIndex, dbIndex] = await Promise.all([
     readFile(path.join(ROOT, 'apps/api/src/index.ts'), 'utf8'),
-    readFile(path.join(ROOT, 'apps/api/src/runtime.ts'), 'utf8'),
+    readFile(path.join(ROOT, 'apps/api/src/runtime-base.ts'), 'utf8'),
     readFile(path.join(ROOT, 'apps/worker/src/index.ts'), 'utf8'),
     readFile(path.join(ROOT, 'packages/db/src/index.ts'), 'utf8'),
   ]);

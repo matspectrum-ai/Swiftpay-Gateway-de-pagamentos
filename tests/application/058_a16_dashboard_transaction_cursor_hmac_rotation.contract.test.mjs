@@ -305,7 +305,7 @@ test('A16 preserves exact A9 merchant environment and normalized-filter cursor b
 
 test('A16 production wiring uses explicit cursor keyring authority and does not consume the retired single-key field', async () => {
   const [runtimeSource, indexSource, configSource] = await Promise.all([
-    readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../apps/api/src/runtime-base.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../apps/api/src/index.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
   ]);
@@ -322,7 +322,7 @@ test('A16 production wiring uses explicit cursor keyring authority and does not 
 test('A16 remains application-only and does not modify A14/A15/provider authority surfaces', async () => {
   const [configSource, runtimeSource] = await Promise.all([
     readFile(new URL('../../packages/config/src/index.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../../apps/api/src/runtime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../apps/api/src/runtime-base.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(configSource, /SWIFTPAY_ABUSE_HMAC_KEY/);
   assert.match(configSource, /SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS/);

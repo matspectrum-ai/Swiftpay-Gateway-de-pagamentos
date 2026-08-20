@@ -22,7 +22,7 @@ const requiredFiles = [
   'pnpm-workspace.yaml',
   'tsconfig.base.json',
   'apps/api/package.json',
-  'apps/api/src/app.ts',
+  'apps/api/src/app-base.ts',
   'apps/api/src/index.ts',
   'apps/worker/package.json',
   'apps/worker/src/index.ts',
@@ -60,7 +60,7 @@ test('workspace includes apps and packages only', async () => {
 
 test('bootstrap source names only workload-specific database URLs', async () => {
   const candidatePaths = [
-    'apps/api/src/app.ts',
+    'apps/api/src/app-base.ts',
     'apps/api/src/index.ts',
     'apps/worker/src/index.ts',
     'packages/config/src/index.ts',
@@ -77,8 +77,8 @@ test('bootstrap source names only workload-specific database URLs', async () => 
 });
 
 test('API source declares distinct liveness and readiness routes', async () => {
-  assert.equal(await exists('apps/api/src/app.ts'), true, 'API app source must exist');
-  const source = await text('apps/api/src/app.ts');
+  assert.equal(await exists('apps/api/src/app-base.ts'), true, 'API app source must exist');
+  const source = await text('apps/api/src/app-base.ts');
   assert.match(source, /\/health\/live/);
   assert.match(source, /\/health\/ready/);
   assert.match(source, /status:\s*['"]live['"]/);

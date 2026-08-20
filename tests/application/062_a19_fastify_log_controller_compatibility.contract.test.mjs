@@ -6,7 +6,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const APP_SOURCE = path.join(ROOT, 'apps/api/src/app.ts');
+const APP_SOURCE = path.join(ROOT, 'apps/api/src/app-base.ts');
 
 async function buildTokenApp(extra = {}) {
   const api = await import('../../apps/api/dist/app.js');
