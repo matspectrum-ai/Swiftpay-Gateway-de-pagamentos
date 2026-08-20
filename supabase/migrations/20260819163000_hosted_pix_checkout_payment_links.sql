@@ -33,6 +33,8 @@ create unique index payment_links_public_token_uq on app.payment_links(public_to
 create index payment_links_merchant_created_idx
     on app.payment_links(merchant_id, environment, created_at desc, id desc);
 
+alter table app.payment_links enable row level security;
+
 revoke all on table app.payment_links
     from public, anon, authenticated, service_role, swiftpay_api, swiftpay_worker;
 
@@ -837,7 +839,7 @@ begin
     v_allowed := false;
     v_remaining := 0;
     v_retry_after_seconds := pg_catalog.greatest(1, pg_catalog.least(60,
-      pg_catalog.ceil(pg_catalog.extract(epoch from ((v_canonical_window_started_at + interval '60 seconds') - v_now)))::integer));
+      pg_catalog.ceil(extract(epoch from ((v_canonical_window_started_at + interval '60 seconds') - v_now)))::integer));
   end if;
 
   update app.api_abuse_windows as abuse_window
