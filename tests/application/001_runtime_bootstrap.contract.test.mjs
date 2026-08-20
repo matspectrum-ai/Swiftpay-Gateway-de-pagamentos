@@ -16,6 +16,7 @@ async function text(path) {
   return readFile(path, 'utf8');
 }
 
+// A23 composes its routes over the frozen A1-A22 implementation layer in app-base.ts.
 const requiredFiles = [
   'package.json',
   'pnpm-lock.yaml',
