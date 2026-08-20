@@ -1,0 +1,48 @@
+name: A23 application diagnostics
+
+on:
+  push:
+    branches:
+      - agent/foundation-phase-0
+    paths:
+      - ".github/workflows/a23-application-diagnostics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          test "$(pnpm --version)" = "11.17.0"
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build application workspace
+        run: pnpm build
+      - name: Capture application contract output
+        shell: bash
+        run: |
+          set +e
+          pnpm test > application-test-output.txt 2>&1
+          status=$?
+          set -e
+          printf '%s\n' "$status" > application-test-exit-code.txt
+          cat application-test-output.txt
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: a23-application-diagnostics
+          path: |
+            application-test-output.txt
+            application-test-exit-code.txt
+          if-no-files-found: error
