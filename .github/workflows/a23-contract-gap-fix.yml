@@ -1,17 +1,20 @@
 name: A23 contract gap fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/foundation-phase-0
+      - main
     paths:
       - .github/workflows/a23-contract-gap-fix.yml
+      - supabase/migrations/20260819163000_hosted_pix_checkout_payment_links.sql
+      - apps/checkout/src/app.tsx
 
 permissions:
   contents: write
 
 jobs:
   fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/foundation-phase-0'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
