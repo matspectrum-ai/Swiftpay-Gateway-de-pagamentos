@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckoutApiError, createCheckoutPayment, getPaymentLink, type CheckoutPayment, type PublicPaymentLink } from './api.js';
 
 function tokenFromPath(): string | null {
-  const match = /^\/pay\/([^/]+)$/.exec(location.pathname);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
+  const pathSegments = location.pathname.split('/').filter(Boolean);
+  if (pathSegments.length !== 2 || pathSegments[0] !== 'pay') return null;
+  const publicToken = pathSegments.at(-1);
+  return publicToken ? decodeURIComponent(publicToken) : null;
 }
 
 function money(cents: number): string {
