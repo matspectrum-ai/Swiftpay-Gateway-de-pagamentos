@@ -205,10 +205,10 @@ select ok(
     'dashboard context helper is STABLE'
 );
 
--- Exact API allowlist after A14: prior K4/A1/A2/A3/A7/A8/A9 capabilities plus one A14 abuse-quota RPC.
+-- Exact API allowlist after A23: prior capabilities plus the five frozen payment-link RPCs.
 select ok(
     coalesce((
-        select count(*) = 25
+        select count(*) = 30
            and bool_and(p.oid = any(array[
                to_regprocedure('app.require_dashboard_merchant_context(uuid,uuid,text,text)')::oid,
                to_regprocedure('app.lookup_api_credential_for_token(text)')::oid,
@@ -234,7 +234,12 @@ select ok(
                to_regprocedure('app.revoke_dashboard_api_credential(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
                to_regprocedure('app.list_dashboard_transactions(uuid,uuid,text,text,text,timestamptz,timestamptz,timestamptz,uuid,integer)')::oid,
                to_regprocedure('app.get_dashboard_transaction(uuid,uuid,text,uuid)')::oid,
-               to_regprocedure('app.consume_api_abuse_quota(text,text)')::oid
+               to_regprocedure('app.consume_api_abuse_quota(text,text)')::oid,
+               to_regprocedure('app.list_dashboard_payment_links(uuid,uuid,text)')::oid,
+               to_regprocedure('app.create_dashboard_payment_link(uuid,uuid,text,text,text,jsonb)')::oid,
+               to_regprocedure('app.disable_dashboard_payment_link(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
+               to_regprocedure('app.get_public_payment_link(text)')::oid,
+               to_regprocedure('app.prepare_payment_link_pix_payment(text,text,text)')::oid
            ]::oid[]))
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
@@ -243,7 +248,7 @@ select ok(
           and acl.grantee = (select oid from pg_catalog.pg_roles where rolname = 'swiftpay_api')
           and acl.privilege_type = 'EXECUTE'
     ), false),
-    'swiftpay_api EXECUTE grants equal exact K4 A1 A2 A3-read A7 A8 A9 A14 A21 allowlist'
+    'swiftpay_api EXECUTE grants equal exact A23 thirty-routine allowlist'
 );
 select ok(
     exists (
