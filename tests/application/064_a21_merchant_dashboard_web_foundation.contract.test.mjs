@@ -191,12 +191,12 @@ test('A21 context discovery HTTP maps success and auth/service failures with no-
   }
 });
 
-test('A21 exact runtime capability manifest adds only list_dashboard_merchant_contexts to API', async () => {
+test('A21 context capability remains present after the later A23 expansion to 30/6', async () => {
   const manifest = await json('ops/security/runtime-capabilities-v0.json');
-  assert.equal(manifest.roles.swiftpay_api.expectedCount, 25);
+  assert.equal(manifest.roles.swiftpay_api.expectedCount, 30);
   assert.equal(manifest.roles.swiftpay_worker.expectedCount, 6);
   assert.ok(manifest.roles.swiftpay_api.signatures.includes('app.list_dashboard_merchant_contexts(uuid)'));
-  assert.equal(manifest.roles.swiftpay_api.signatures.length, 25);
+  assert.equal(manifest.roles.swiftpay_api.signatures.length, 30);
   assert.equal(manifest.roles.swiftpay_worker.signatures.length, 6);
 });
 
