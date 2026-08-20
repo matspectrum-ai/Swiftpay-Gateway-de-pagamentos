@@ -18,84 +18,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  a23-contract-gap-fix:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/foundation-phase-0'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/foundation-phase-0
-      - name: Repair exact A23 contract gaps if still present
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          changed = False
-          migration = Path('supabase/migrations/20260819163000_hosted_pix_checkout_payment_links.sql')
-          text = migration.read_text()
-          old_extract = "pg_catalog.extract(epoch from ((v_canonical_window_started_at + interval '60 seconds') - v_now))"
-          new_extract = "extract(epoch from ((v_canonical_window_started_at + interval '60 seconds') - v_now))"
-          if old_extract in text:
-              if text.count(old_extract) != 1:
-                  raise SystemExit('migration: qualified EXTRACT is not unique')
-              text = text.replace(old_extract, new_extract, 1)
-              changed = True
-
-          rls = 'alter table app.payment_links enable row level security;'
-          if rls not in text:
-              boundary = """create index payment_links_merchant_created_idx
-    on app.payment_links(merchant_id, environment, created_at desc, id desc);
-
-revoke all on table app.payment_links
-"""
-              replacement = """create index payment_links_merchant_created_idx
-    on app.payment_links(merchant_id, environment, created_at desc, id desc);
-
-alter table app.payment_links enable row level security;
-
-revoke all on table app.payment_links
-"""
-              if text.count(boundary) != 1:
-                  raise SystemExit('migration: payment_links index/revoke boundary is not unique')
-              text = text.replace(boundary, replacement, 1)
-              changed = True
-          migration.write_text(text)
-
-          app = Path('apps/checkout/src/app.tsx')
-          source = app.read_text()
-          if 'pathSegments.at(-1)' not in source:
-              old_token = """function tokenFromPath(): string | null {
-  const match = /^\\/pay\\/([^/]+)$/.exec(location.pathname);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-"""
-              new_token = """function tokenFromPath(): string | null {
-  const pathSegments = location.pathname.split('/').filter(Boolean);
-  if (pathSegments.length !== 2 || pathSegments[0] !== 'pay') return null;
-  const publicToken = pathSegments.at(-1);
-  return publicToken ? decodeURIComponent(publicToken) : null;
-}
-"""
-              if source.count(old_token) != 1:
-                  raise SystemExit('checkout app: legacy token parser is not unique')
-              source = source.replace(old_token, new_token, 1)
-              app.write_text(source)
-              changed = True
-
-          Path('.a23-contract-gap-changed').write_text('1' if changed else '0')
-          PY
-      - name: Commit repair when needed
-        run: |
-          if [ "$(cat .a23-contract-gap-changed)" != "1" ]; then exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add supabase/migrations/20260819163000_hosted_pix_checkout_payment_links.sql apps/checkout/src/app.tsx
-          git commit -m "fix(a23): close checkout migration contract gaps"
-          git push origin HEAD:agent/foundation-phase-0
-
   application-contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -170,9 +95,9 @@ revoke all on table app.payment_links
       - name: Run A2 real Pix runtime acceptance
         run: bash tests/application/017_a2_real_runtime_acceptance.sh
       - name: Run A3 real paid ledger balance acceptance
-        run: bash tests/application/021_a3_real_runtime_acceptance.sh
+        run: bash tests/application/021_a3_real_paid_ledger_balance_runtime_acceptance.sh
       - name: Run A4 real merchant webhook runtime acceptance
-        run: bash tests/application/027_a4_real_runtime_acceptance.sh
+        run: bash tests/application/027_a4_real_merchant_webhook_runtime_acceptance.sh
       - name: Run A6 dashboard authorization real-database acceptance
         run: bash tests/application/036_a6_dashboard_authorization_runtime_acceptance.sh
       - name: Run A7 webhook endpoint management real-database acceptance
