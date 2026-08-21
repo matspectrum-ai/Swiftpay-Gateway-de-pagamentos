@@ -1,6 +1,6 @@
 # SwiftPay V2 — Canonical Work Ledger
 
-Updated: 2026-08-19
+Updated: 2026-08-21
 
 This is the durable backlog and handoff ledger for the reconstruction. Repository artifacts are the source of truth. Detailed proof lives in specs, contracts, migrations, tests and `docs/evidence/**`; Git history preserves checkpoint chronology.
 
@@ -22,25 +22,32 @@ Living functional checklist: `docs/product/v1-functional-checklist.md`.
 
 ## Current checkpoint
 
-- Branch: `agent/foundation-phase-0`
-- Draft PR: #1 — `foundation: establish SwiftPay V2 reconstruction baseline`
-- `main`: intentionally untouched
+- Consolidation source: `agent/foundation-phase-0`
+- Canonical consolidation PR: #1 — `foundation: establish SwiftPay V2 reconstruction baseline`
+- Canonical source after this consolidation: `main`; historical `agent/foundation-phase-0-*` branches are checkpoint/superseded lineage and must not be merged independently unless a later audit proves unique missing work.
 - Canonical hosted Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A22: `DONE`
+- A1-A23: `DONE` for their frozen repository/CI scopes.
+- A23: `DONE / GREEN / SANDBOX-ONLY / HOSTED DEPLOY PENDING`.
 - A5 remains `DONE / FIXTURE-ONLY` for live-provider authority.
 - A10 remains executable default-deny with zero retained-provider operations authorized by repository defaults.
 - A11 remains strict outbound HTTPS and intentionally unbound from retained A5 adapters.
 - Current retained-provider contract/sandbox gate remains `EVIDENCE_REQUIRED` / externally blocked.
 
-Current engineering estimates:
+Current engineering estimates remain conservative and unchanged by A23 until hosted/launch risk is retired:
 
 - core architecture/domain/database/platform: **~99%**
 - first end-to-end Pix sandbox MVP: **~97%**
 - production-capable Pix V1: **~60%**
 - weighted V1 engineering completion: **~75%**
 
-Important product-surface qualifier: these percentages are engineering/risk-weighted and are not a claim that the merchant-facing visual product is 75-97% complete. A21 provides the merchant web application foundation and A22 now adds functional API-credential and webhook settings. KYC/payout/refund, hosted checkout/Payment Links and broader reporting remain separate product slices.
+Important product-surface qualifier: these percentages are engineering/risk-weighted and are not a claim that the merchant-facing visual product is 75-97% complete. A21 provides the merchant web application foundation, A22 adds functional API-credential and webhook settings, and A23 adds Sandbox-only hosted Pix checkout + Payment Links. KYC/payout/refund, broader reporting and production provider/cutover work remain separate slices.
+
+Current hosted/runtime split after A23 repository GREEN:
+
+- repository/CI exact capability contract: **30 API / 6 worker**;
+- canonical hosted Supabase remains pre-A23 at **25 API / 6 worker** until the two A23 migrations are deliberately deployed and re-attested;
+- A23 hosted migrations are checked in but not yet present in hosted migration history.
 
 Current external critical blocker:
 
@@ -50,6 +57,23 @@ Current external critical blocker:
 Do not bridge A5 retained adapters to A11 and do not promote A10 provider authority until those evidence gates close.
 
 ## Latest accepted slices
+
+### A23 — hosted Pix checkout + Payment Links — `DONE / GREEN / SANDBOX-ONLY / HOSTED DEPLOY PENDING`
+
+- Problem Analysis: `docs/design/a23-hosted-pix-checkout-payment-links-problem-analysis.md`
+- Spec: `docs/specs/hosted-pix-checkout-payment-links-v0.yaml`
+- Contract: `docs/contracts/hosted-pix-checkout-payment-links-v0.md`
+- Evidence: `docs/evidence/application/2026-08-21-a23-hosted-pix-checkout-payment-links.md`
+- Behavioral GREEN head before evidence/handoff documentation: `fd3ad0ed32b7eadd0f3f82178181864f02534680`.
+- Final Application workflow `32529455364`: typecheck/build GREEN, **393/393 application contracts PASS**, including **10/10 A23**, plus K7/A14/A18/A1-A9 real-PostgreSQL runtime acceptance GREEN.
+- Final Database workflow `32529455405`: **45 files / 1368 pgTAP assertions PASS**, including `045_hosted_pix_checkout_payment_links.test.sql`, with K5 deterministic fixtures and K6 runtime topology GREEN.
+- A23 introduces Sandbox-only fixed-amount Payment Links, opaque public tokens, anonymous same-origin checkout read/create routes, `source='payment_link'`, dashboard management, a separate anonymous checkout SPA and A14/A18 admission control reuse.
+- A2 machine creation remains `source='api'` and is not weakened; A23 uses the deterministic Sandbox emulator/attempt claim-resolve path without authorizing retained PSP traffic.
+- Production checkout/payment-link creation remains fail-closed; A10 default retained-provider authority remains zero.
+- Repository/CI exact runtime capability set is now **30 API / 6 worker**.
+- Checked-in migrations: `20260819163000_hosted_pix_checkout_payment_links.sql` and `20260820041000_a23_checkout_quota_special_forms_fix.sql`.
+- Hosted `swiftpay v2` has **not** applied those two migrations at this checkpoint and therefore remains at the pre-A23 **25 API / 6 worker** hosted baseline.
+- Final consolidation repaired only stale test/CI assumptions: canonical A3/A4 runtime script paths and A8/A9 pre-A23 capability-count assertions. No production contract was weakened.
 
 ### A22 — merchant dashboard integration settings UI — `DONE / GREEN / APPLICATION-ONLY`
 
@@ -65,7 +89,7 @@ Do not bridge A5 retained adapters to A11 and do not promote A10 provider author
 - API-credential settings now support list/create/rotate/revoke; webhook settings support list/create/disable/enable/disabled-URL edit/rotate.
 - A8 `secretKey` and A7 `signingSecret` remain one-time-only and ephemeral in browser component state; no browser secret persistence was introduced.
 - Browser role gating is presentation only; A7/A8 server-side role and AAL2 authority remains canonical.
-- A22 adds no migration, backend route, provider call, financial authority or runtime capability; hosted capability remains exactly **25 API / 6 worker**.
+- A22 adds no migration, backend route, provider call, financial authority or runtime capability; its accepted hosted capability checkpoint was exactly **25 API / 6 worker**.
 
 ### A21 — merchant dashboard web foundation — `DONE / GREEN / HOSTED`
 
@@ -82,7 +106,7 @@ Do not bridge A5 retained adapters to A11 and do not promote A10 provider author
 - Hosted exact capability attestation: missing **0**, extra **0**, API **25**, worker **6**.
 - Hosted Data API EXECUTE on touched functions: **0**; direct API/worker protected-relation DML: **0 / 0**.
 - Hosted Security Advisor: **0 lints**; Payments/ProviderAttempts: **0 / 0**.
-- `apps/dashboard` now provides login/session refresh/logout, merchant/environment selection, transaction list/detail and explicit empty/error/session-expired states.
+- `apps/dashboard` provides login/session refresh/logout, merchant/environment selection, transaction list/detail and explicit empty/error/session-expired states.
 - Browser authority remains Supabase Auth + SwiftPay API only; no direct database/provider/financial authority was introduced.
 
 ### A20 — runtime capability manifest & exact attestation — `DONE / GREEN / HOSTED-ATTESTED`
@@ -129,7 +153,7 @@ Do not bridge A5 retained adapters to A11 and do not promote A10 provider author
 - Database workflow `32210344189`: **43 files / 1326 pgTAP assertions PASS**, K5/K6 GREEN.
 - Hosted migration: `20260819043811_abuse_subject_hmac_key_rotation`.
 - Hosted quota RPC: exactly one `app.consume_api_abuse_quota(text,text,text)` with one trailing default for A14 two-argument compatibility.
-- Hosted API/worker `app` EXECUTE totals remain exactly **24 / 6**.
+- Hosted API/worker `app` EXECUTE totals remain exactly **24 / 6** at that accepted checkpoint.
 - Hosted Security Advisor: **0 lints**.
 - Hosted smoke was rolled back; `app.api_abuse_windows`, Payments and ProviderAttempts remained **0 / 0 / 0** after the check.
 - One active + at most one previous continuity key; no raw subject/key material reaches PostgreSQL.
@@ -199,7 +223,7 @@ Remaining product execution:
 - K7 executable API/worker runtime bootstrap — `DONE`
 - A20 exact runtime capability manifest/attestation — `DONE / GREEN / HOSTED-ATTESTED`
 
-Runtime identities remain separate and capability-scoped. Current hosted capability set is exactly the versioned **25 API / 6 worker** `app` EXECUTE signatures, with zero public/Data API `app` authority and zero direct app-table privileges for trusted runtime roles. A21 adds only `app.list_dashboard_merchant_contexts(uuid)` to the API capability set.
+Runtime identities remain separate and capability-scoped. The repository/CI post-A23 exact capability set is **30 API / 6 worker**. The canonical hosted project remains at the pre-A23 **25 API / 6 worker** checkpoint until A23 migrations are deployed. Public/Data API `app` authority and direct protected app-table privileges remain forbidden.
 
 ---
 
@@ -286,12 +310,14 @@ Current state:
 - A16 dashboard transaction cursor HMAC rotation — `DONE / GREEN`
 - A21 merchant dashboard web foundation — `DONE / GREEN / HOSTED`
 - A22 merchant dashboard integration settings UI — `DONE / GREEN / APPLICATION-ONLY`
+- A23 merchant Payment Links management surface — `DONE / GREEN / SANDBOX-ONLY / HOSTED DEPLOY PENDING`
 
 Current visual-product reality:
 
-- `apps/dashboard` is now a real merchant-facing React/Vite application;
+- `apps/dashboard` is a real merchant-facing React/Vite application;
 - Supabase Auth login/logout/session refresh, merchant/environment context selection and transaction list/detail are implemented;
-- API credential and webhook endpoint settings are now functional through the trusted A7/A8 APIs;
+- API credential and webhook endpoint settings are functional through the trusted A7/A8 APIs;
+- Payment Links management is implemented for the frozen Sandbox-only A23 boundary;
 - browser authority remains confined to Supabase Auth and trusted SwiftPay API calls, with integration secrets kept ephemeral.
 
 Remaining product surfaces:
@@ -303,9 +329,11 @@ Remaining product surfaces:
 
 # Phase 6 — Hosted checkout / links / conversion
 
-- Hosted Pix checkout — `PENDING`
-- Payment links — `PENDING`
+- A23 Hosted Pix checkout — `DONE / GREEN / SANDBOX-ONLY / HOSTED DEPLOY PENDING`
+- A23 Payment Links — `DONE / GREEN / SANDBOX-ONLY / HOSTED DEPLOY PENDING`
 - Conversion/analytics surfaces — `PENDING`
+
+A23 is repository/CI complete but is not yet a hosted feature. The canonical hosted Supabase project must receive the two A23 migrations and exact 30/6 post-deploy attestation before hosted availability can be claimed.
 
 ---
 
@@ -402,7 +430,9 @@ Parallel merchant/admin path:
   -> A16 dashboard cursor HMAC rotation                  DONE / GREEN
   -> A21 merchant dashboard web foundation               DONE / GREEN / HOSTED
   -> A22 API credential + webhook settings UI            DONE / GREEN
-  -> hosted Pix checkout + Payment Links                 PENDING
+  -> A23 hosted Pix checkout + Payment Links             DONE / GREEN / SANDBOX-ONLY
+       -> canonical hosted A23 migration deployment      PENDING
+       -> exact hosted 30/6 re-attestation               PENDING
   -> KYC/payout/refund/reporting UI                      PENDING
 
 Parallel production-hardening path:
@@ -423,13 +453,13 @@ Parallel production-hardening path:
 
 ## Immediate next action
 
-A22 is fully GREEN and application-only. Provider activation remains externally blocked by current-contract and authenticated-sandbox evidence.
+A23 is fully GREEN in repository/CI and deliberately Sandbox-only. The canonical hosted `swiftpay v2` project remains pre-A23 and retained-provider activation remains externally blocked by current-contract and authenticated-sandbox evidence.
 
-1. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because the transport primitive exists;
-2. continue exact provider-owned current technical evidence acquisition and require authenticated current sandbox proof before `sandbox_proven`;
-3. if provider evidence closes, freeze a dedicated A5→A11 bridge/activation Problem Analysis and continue strict TDD;
-4. preserve the checked-in A10 registry at zero outbound authority until an evidence-backed transition is deliberately reviewed;
-5. take the next merchant-visible/conversion slice as hosted Pix checkout + Payment Links, reusing the deterministic sandbox payment path first and keeping Production fail-closed without provider authority;
-6. treat the observed A8 synthetic concurrency runner/pool transient as a separate reliability concern; do not weaken the 10-active-credential invariant or silently change production pool timeouts;
-7. retain launch-hardening work only where bounded and evidence-driven: dependency/supply-chain review, rotation drills, measured performance/load, deployment/backup/rollback contracts and production WAF/network policy;
+1. consolidate the canonical `agent/foundation-phase-0` lineage into `main` through PR #1; do **not** merge historical `agent/foundation-phase-0-*` checkpoint branches individually;
+2. after source consolidation, deploy the two A23 migrations to canonical hosted `swiftpay v2` as a separate controlled operation;
+3. immediately after A23 hosted migration, attest exact **30 API / 6 worker** capabilities, zero direct protected-table runtime authority, Data API isolation, Security Advisor state and zero unintended financial rows;
+4. run a bounded Sandbox-only Payment Link/checkout smoke and preserve rollback/forward-fix evidence before claiming hosted availability;
+5. do not wire AkkadPag/AkadPay/FlevoPay adapters to A11 merely because transport exists; require exact provider-owned current technical evidence and authenticated current sandbox proof before `sandbox_proven`;
+6. preserve the checked-in A10 registry at zero outbound retained-provider authority until an evidence-backed transition is deliberately reviewed;
+7. treat remaining launch-hardening work only as bounded evidence-driven slices: dependency/supply-chain review, rotation drills, measured performance/load, deployment/backup/rollback contracts and production WAF/network policy;
 8. do not call AkkadPag, AkadPay or FlevoPay monetarily until exact current-contract, sandbox and activation gates are closed.
