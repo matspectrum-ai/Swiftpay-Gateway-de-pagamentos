@@ -2,7 +2,7 @@ name: Application contracts
 
 on:
   pull_request:
-    branches: [main]
+    branches: [agent/a12-ci-base]
     paths:
       - "apps/**"
       - "packages/**"
