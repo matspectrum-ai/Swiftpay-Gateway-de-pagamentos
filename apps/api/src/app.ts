@@ -1,9 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import type {
   DashboardApiCredentialManagementService,
   MachinePrincipal,
   TokenExchangeHandler,
   TokenExchangeRequest,
 } from '@swiftpay/auth';
+import {
+  createSafeRuntimeLogger,
+  type RuntimeHttpMethod,
+  type SafeRuntimeLogger,
+} from '@swiftpay/observability';
 import Fastify, {
   type FastifyInstance,
   type FastifyReply,
@@ -106,6 +112,8 @@ export interface BuildAppOptions {
   readonly dashboardWebhookEndpoints?: DashboardWebhookEndpointsHttpService;
   readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;
   readonly dashboardTransactions?: DashboardTransactionsHttpService;
+  readonly runtimeLogger?: SafeRuntimeLogger;
+  readonly monotonicNow?: () => number;
 }
 
 function tokenStatus(code: string): 400 | 401 | 403 | 429 | 500 {
@@ -375,7 +383,39 @@ async function sendDashboardTransactionResult(
   return reply.code(200).send(result.transaction);
 }
 
+function createProcessRuntimeLogger(): SafeRuntimeLogger {
+  return createSafeRuntimeLogger({
+    sink: {
+      stdout(line) {
+        process.stdout.write(line);
+      },
+      stderr(line) {
+        process.stderr.write(line);
+      },
+    },
+  });
+}
+
+function safeMonotonicNow(monotonicNow: () => number): number {
+  const value = monotonicNow();
+  return Number.isFinite(value) ? value : 0;
+}
+
+function boundedDurationMs(startedAt: number, finishedAt: number): number {
+  const raw = finishedAt - startedAt;
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(86_400_000, Math.max(0, Math.round(raw)));
+}
+
+function requestRouteTemplate(request: FastifyRequest): string {
+  const route = request.routeOptions.url;
+  return typeof route === 'string' && route.length > 0 ? route : '<unmatched>';
+}
+
 export function buildApp(options: BuildAppOptions): FastifyInstance {
+  const runtimeLogger = options.runtimeLogger ?? createProcessRuntimeLogger();
+  const monotonicNow = options.monotonicNow ?? (() => performance.now());
+  const requestStartedAt = new WeakMap<FastifyRequest, number>();
   const app = Fastify({
     logger: {
       redact: {
@@ -397,11 +437,33 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         censor: '[REDACTED]',
       },
     },
-    requestIdHeader: 'x-request-id',
+    disableRequestLogging: true,
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
   });
 
   app.addHook('onRequest', async (request, reply) => {
+    requestStartedAt.set(request, safeMonotonicNow(monotonicNow));
     reply.header('x-request-id', request.id);
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const finishedAt = safeMonotonicNow(monotonicNow);
+    const startedAt = requestStartedAt.get(request) ?? finishedAt;
+    try {
+      runtimeLogger.log({
+        level: 'info',
+        event: 'http_request_completed',
+        workload: 'api',
+        requestId: request.id,
+        method: request.method as RuntimeHttpMethod,
+        route: requestRouteTemplate(request),
+        statusCode: reply.statusCode,
+        durationMs: boundedDurationMs(startedAt, finishedAt),
+      });
+    } catch {
+      // Observability is non-authoritative and must never mutate the domain response.
+    }
   });
 
   app.get('/health/live', async () => ({ status: 'live' as const }));
