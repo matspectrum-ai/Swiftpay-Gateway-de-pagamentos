@@ -3,6 +3,7 @@ import test from 'node:test';
 
 const REQUEST_ID = 'req-a3-balance-http-001';
 const TOKEN = 'signed-a3-access-token';
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const sandboxPrincipal = {
   merchantId: 'b0000000-0000-0000-0000-000000000001',
@@ -63,12 +64,23 @@ async function balanceRequest(app, authorization = `Bearer ${TOKEN}`) {
   return app.inject({ method: 'GET', url: '/v1/balance', headers });
 }
 
-function invalidAccessTokenBody() {
+function assertServerRequestId(response, { expectErrorBody = false } = {}) {
+  const requestId = response.headers['x-request-id'];
+  assert.equal(typeof requestId, 'string');
+  assert.match(requestId, UUID_V4);
+  assert.notEqual(requestId, REQUEST_ID);
+  if (expectErrorBody) {
+    assert.equal(response.json().error?.requestId, requestId);
+  }
+  return requestId;
+}
+
+function invalidAccessTokenBody(requestId) {
   return {
     error: {
       code: 'invalid_access_token',
       message: 'Invalid access token.',
-      requestId: REQUEST_ID,
+      requestId,
     },
   };
 }
@@ -94,9 +106,10 @@ test('A3 balance rejects missing malformed and invalid Bearer credentials before
     ];
     for (const response of responses) {
       assert.equal(response.statusCode, 401);
-      assert.deepEqual(response.json(), invalidAccessTokenBody());
-      assert.equal(response.headers['x-request-id'], REQUEST_ID);
+      const requestId = assertServerRequestId(response, { expectErrorBody: true });
+      assert.deepEqual(response.json(), invalidAccessTokenBody(requestId));
     }
+    assert.equal(new Set(responses.map((response) => response.headers['x-request-id'])).size, responses.length);
     assert.equal(authCalls, 1);
     assert.equal(balanceCalls, 0);
   } finally {
@@ -123,7 +136,7 @@ test('A3 balance derives Sandbox merchant scope only from authenticated principa
     assert.deepEqual(response.json(), sandboxBalance);
     assert.equal(receivedToken, TOKEN);
     assert.deepEqual(receivedInput, { principal: sandboxPrincipal });
-    assert.equal(response.headers['x-request-id'], REQUEST_ID);
+    assertServerRequestId(response);
   } finally {
     await app.close();
   }
@@ -143,6 +156,7 @@ test('A3 balance permits Production principal for read while preserving Producti
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.json(), productionBalance);
     assert.deepEqual(receivedInput, { principal: productionPrincipal });
+    assertServerRequestId(response);
   } finally {
     await app.close();
   }
@@ -159,7 +173,7 @@ test('A3 balance sanitizes authentication and database-service failures as inter
       assert.equal(response.statusCode, 500);
       const body = response.json();
       assert.equal(body?.error?.code, 'internal_error');
-      assert.equal(body?.error?.requestId, REQUEST_ID);
+      assertServerRequestId(response, { expectErrorBody: true });
       assert.doesNotMatch(JSON.stringify(body), /secret|postgresql|password|app\.accounts/i);
     } finally {
       await app.close();
@@ -174,7 +188,7 @@ test('A3 balance fails closed when the balance service is not wired', async () =
     assert.equal(response.statusCode, 500);
     const body = response.json();
     assert.equal(body?.error?.code, 'internal_error');
-    assert.equal(body?.error?.requestId, REQUEST_ID);
+    assertServerRequestId(response, { expectErrorBody: true });
   } finally {
     await app.close();
   }
