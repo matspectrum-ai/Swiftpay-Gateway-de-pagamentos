@@ -109,6 +109,48 @@ NODE
   [[ "${retry_after}" =~ ^[1-9][0-9]*$ ]]
 }
 
+assert_error_correlation() {
+  local body_file="$1"
+  local headers_file="$2"
+  local caller_request_id="$3"
+  node --input-type=module - "${body_file}" "${headers_file}" "${caller_request_id}" <<'NODE'
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const [bodyText, headersText] = await Promise.all([
+  readFile(process.argv[2], 'utf8'),
+  readFile(process.argv[3], 'utf8'),
+]);
+const callerRequestId = process.argv[4];
+const body = JSON.parse(bodyText);
+const match = /^x-request-id:\s*([^\r\n]+)$/im.exec(headersText);
+assert.ok(match, 'response must include x-request-id');
+const requestId = match[1].trim();
+const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+assert.match(requestId, uuidV4);
+assert.notEqual(requestId, callerRequestId);
+assert.equal(body.error?.requestId, requestId);
+NODE
+}
+
+assert_same_error_semantics() {
+  local first_body_file="$1"
+  local second_body_file="$2"
+  node --input-type=module - "${first_body_file}" "${second_body_file}" <<'NODE'
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const [firstText, secondText] = await Promise.all([
+  readFile(process.argv[2], 'utf8'),
+  readFile(process.argv[3], 'utf8'),
+]);
+const first = JSON.parse(firstText);
+const second = JSON.parse(secondText);
+assert.deepEqual(
+  { code: first.error?.code, message: first.error?.message },
+  { code: second.error?.code, message: second.error?.message },
+);
+NODE
+}
+
 stage='fixture-generation'
 A1_SECRET="$(node --input-type=module -e "import { randomBytes } from 'node:crypto'; process.stdout.write(randomBytes(32).toString('base64url')); ")"
 A1_VERIFIER="$(A1_SECRET="${A1_SECRET}" node --input-type=module <<'NODE'
@@ -142,7 +184,9 @@ unknown_status="$(token_request "${API_ONE}" 'pk_a1_runtime_missing' "${A1_SECRE
 echo "A1 invalid credential statuses: ${wrong_status}/${unknown_status}"
 [[ "${wrong_status}" == '401' ]]
 [[ "${unknown_status}" == '401' ]]
-cmp --silent /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-unknown.json
+assert_error_correlation /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-wrong.headers 'req-a1-invalid-same'
+assert_error_correlation /tmp/swiftpay-a1-unknown.json /tmp/swiftpay-a1-unknown.headers 'req-a1-invalid-same'
+assert_same_error_semantics /tmp/swiftpay-a1-wrong.json /tmp/swiftpay-a1-unknown.json
 grep -q '"code":"invalid_credentials"' /tmp/swiftpay-a1-wrong.json
 grep -q '"message":"Invalid credentials\."' /tmp/swiftpay-a1-wrong.json
 
