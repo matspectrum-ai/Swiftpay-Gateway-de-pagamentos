@@ -212,8 +212,8 @@ begin
   from information_schema.routine_privileges
   where routine_schema = 'app' and grantee = 'swiftpay_worker' and privilege_type = 'EXECUTE';
 
-  if v_api_execute <> 25 then
-    raise exception 'A9 post-A14 API capability count drift: %', v_api_execute;
+  if v_api_execute <> 30 then
+    raise exception 'A9 post-A23 API capability count drift: %', v_api_execute;
   end if;
   if v_worker_execute <> 6 then
     raise exception 'A9 worker capability count drift: %', v_worker_execute;
