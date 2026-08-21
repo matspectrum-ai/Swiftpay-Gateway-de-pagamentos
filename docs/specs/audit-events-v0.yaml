@@ -1,0 +1,176 @@
+feature: append-only-audit-events-v0
+status: frozen_for_tdd
+phase: 2
+slice: K2
+
+problem:
+  statement: >-
+    SwiftPay already requires durable audit evidence for KYC decisions/evidence
+    access and sensitive API-credential management, but there is no canonical
+    generic audit-event resource. Without one, later modules would either invent
+    incompatible audit tables or rely on mutable application logs.
+  current_state:
+    - app schema is server-owned and inaccessible to browser/Data API roles.
+    - KYC contract requires append-audited evidence/decision changes and privileged access.
+    - API credential contract requires append-audited create/rotate/revoke without secret leakage.
+    - reconciliation observations/events already prove the repository pattern for immutable history.
+  risk: >-
+    An audit trail that can be updated/deleted, duplicated on retry, or populated
+    with plaintext secrets/PII is not trustworthy enough for financial/compliance
+    operations.
+
+objectives:
+  - establish one generic append-only operational audit-event resource
+  - make event recording idempotent for exact trusted retries and conflicting for changed replay
+  - preserve actor/resource/action/reason/request correlation without foreign-key dependence on mutable/deletable identities
+  - keep browser/Data API roles unable to read or write audit history
+  - provide a foundation for later KYC, credential, admin and sensitive financial operations
+
+non_goals:
+  - automatically audit every row mutation in PostgreSQL
+  - implement admin step-up authorization
+  - implement KYC review workflow
+  - implement credential create/rotate/revoke endpoints
+  - ship an external SIEM/log drain
+  - store request/response bodies, provider payloads, document bytes or secret material
+  - define retention/deletion policy before compliance approval
+
+resource:
+  table: app.audit_events
+  columns:
+    id: uuid primary key
+    source_kind: text not null
+    source_reference: text not null
+    request_fingerprint: text not null
+    event_version: integer not null default 1
+    actor_kind: text not null
+    actor_subject: text not null
+    merchant_id: uuid nullable references app.merchants
+    environment: text nullable
+    action: text not null
+    resource_type: text not null
+    resource_id: text not null
+    reason_code: text nullable
+    reason_note: text nullable
+    request_id: text nullable
+    trace_id: text nullable
+    metadata: jsonb not null default '{}'
+    occurred_at: timestamptz not null
+    created_at: timestamptz not null default now()
+
+vocabulary:
+  actor_kind:
+    - user
+    - api_credential
+    - system
+  environment:
+    - sandbox
+    - production
+  source_kind:
+    - application_command
+    - worker_command
+    - operator_command
+    - security_event
+
+requirements:
+  identity:
+    - logical source identity MUST be unique on `(source_kind, source_reference)`
+    - exact replay with the same complete immutable event MUST return the original audit-event id
+    - same logical source identity with changed fingerprint or changed immutable fields MUST fail closed with uniqueness/conflict semantics
+    - audit event id is generated server-side
+  actor:
+    - actor_kind MUST be one of the frozen V0 values
+    - actor_subject MUST be nonblank and MUST be a stable opaque subject/reference, not a display name
+    - actor identity MUST NOT use a foreign key whose later deletion could erase/block audit history
+    - `system` actor_subject identifies the trusted workload/component that caused the action
+  merchant_scope:
+    - merchant_id is nullable for platform-wide security/operational events
+    - when present it references the canonical merchant
+    - environment is nullable for non-environmental actions such as KYC or dashboard security events
+    - when present environment is exactly sandbox or production
+  event:
+    - action, resource_type, resource_id, source_kind, source_reference and request_fingerprint MUST be nonblank
+    - event_version MUST be >= 1
+    - occurred_at is the authoritative action occurrence time supplied by the trusted recorder
+    - created_at records durable ingestion time
+  metadata:
+    - metadata MUST be a JSON object
+    - metadata MUST contain only purpose-specific non-secret audit context
+    - plaintext secrets, secret verifiers, Authorization headers, access/refresh tokens, KYC document bytes, signed URLs and raw provider payloads are forbidden
+    - generic infrastructure MUST NOT attempt unreliable regex-based secret detection; callers and module-specific tests own payload allowlisting
+  reason:
+    - reason_code and reason_note are optional at infrastructure level
+    - later sensitive-operation contracts MAY require them for particular actions
+    - blank strings are rejected when optional text fields are supplied
+  append_only:
+    - UPDATE and DELETE of app.audit_events MUST be rejected by database trigger
+    - audit correction is a new event referencing prior context, never mutation of history
+    - TRUNCATE is not granted to browser/service roles; operational retention is outside V0
+  recording_boundary:
+    function: app.record_audit_event
+    behavior:
+      - trusted function validates all inputs before insertion
+      - exact replay returns the existing id without creating a duplicate
+      - changed replay fails closed
+      - function performs no domain mutation, ledger posting, job enqueue or merchant webhook emission
+      - function is not executable by PUBLIC, anon, authenticated or service_role
+  access_control:
+    - existing J1 app-schema denial remains authoritative
+    - PUBLIC, anon, authenticated and service_role MUST have no direct table privileges on audit_events
+    - PUBLIC, anon, authenticated and service_role MUST not execute record_audit_event
+  transactionality:
+    - later domain commands SHOULD record their audit event in the same database transaction as the sensitive state transition where causal audit is required
+    - K2 itself does not modify existing domain functions to emit audit events
+
+acceptance_criteria:
+  - pgTAP proves table shape, constraints and logical-source uniqueness
+  - pgTAP proves record_audit_event exists with the frozen signature and is inaccessible to browser/service roles
+  - pgTAP records a valid user-scoped event and receives its durable id
+  - pgTAP records a valid platform-wide system event with merchant/environment null
+  - exact replay returns the same id and row count remains one
+  - changed fingerprint for the same source identity conflicts
+  - changed immutable event data for the same source identity conflicts even if fingerprint is reused
+  - invalid actor/source/environment/event_version/blank required fields/blank optional text/non-object metadata fail closed
+  - UPDATE and DELETE are rejected and the row remains unchanged
+  - recording does not mutate merchants, payments, payouts, refunds, ledger, jobs or merchant-webhook persistence
+  - all previous 001-023 suites remain green
+  - canonical managed Supabase Security Advisor remains clean after deployment
+
+edge_cases:
+  - a user account may later be removed from auth; historical actor_subject remains readable as an opaque subject
+  - merchant may be closed; audit history remains intact
+  - same request may be retried after a network timeout; exact replay returns the existing event id
+  - two concurrent inserts with the same logical identity converge on one row or conflict deterministically without duplicate history
+  - metadata `{}` is valid; arrays/scalars/null are invalid
+  - occurred_at may precede created_at when recording a recovered event; future timestamps are not rejected at generic infrastructure level
+  - reason_note is audit context, not a place for secrets or raw documents
+
+frozen_function_signature:
+  sql: >-
+    app.record_audit_event(
+      text source_kind,
+      text source_reference,
+      text request_fingerprint,
+      integer event_version,
+      text actor_kind,
+      text actor_subject,
+      uuid merchant_id,
+      text environment,
+      text action,
+      text resource_type,
+      text resource_id,
+      text reason_code,
+      text reason_note,
+      text request_id,
+      text trace_id,
+      jsonb metadata,
+      timestamptz occurred_at
+    ) returns uuid
+
+implementation_constraints:
+  - server-owned app schema only
+  - no SECURITY DEFINER unless a later trusted-role contract proves it necessary
+  - reuse an append-only rejection trigger pattern; do not create mutable audit administration helpers
+  - no secret/PII payload copies
+  - no automatic database-wide mutation triggers
+  - no domain side effects

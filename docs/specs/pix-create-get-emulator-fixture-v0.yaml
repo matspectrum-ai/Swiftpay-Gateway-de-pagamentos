@@ -1,0 +1,49 @@
+feature: pix-create-get-emulator-fixture-v0
+status: frozen_for_tdd
+parent_spec: docs/specs/pix-create-get-emulator-v0.yaml
+scope: a2_test_and_runtime_fixture_only
+
+purpose: >-
+  Freeze the physical provider/provider-account fixture representation needed by
+  pix-create-get-emulator-v0 without redefining the generic provider-account
+  capability model or modifying the canonical K5 sandbox seed.
+
+provider:
+  code: swiftpay_emulator
+  name: SwiftPay Pix Emulator
+  status: active
+  live_psp_identity: false
+
+provider_account:
+  merchant_id: null
+  merchant_scope: platform_account_only
+  environment: sandbox
+  status: active
+  credentials_ciphertext: {}
+  capabilities:
+    create_pix_charge: true
+  configuration:
+    emulator: true
+
+eligibility:
+  provider_code_must_equal: swiftpay_emulator
+  provider_status_must_equal: active
+  account_environment_must_equal: sandbox
+  account_status_must_equal: active
+  account_merchant_id_must_be_null: true
+  capability_check:
+    json_path: create_pix_charge
+    required_value: true
+  eligible_account_count: exactly_one
+  zero_or_multiple_accounts: fail_closed
+
+safety:
+  persist_in_k5_seed: false
+  provider_secrets: forbidden
+  network_access: forbidden
+  use_akkadpag_identity: forbidden
+  use_flevopay_identity: forbidden
+
+next_step:
+  test: supabase/tests/database/033_pix_create_get_emulator_behavior.test.sql
+  rule: behavior test must be RED against the structural stub routines before behavior implementation

@@ -1,0 +1,346 @@
+feature: dashboard-session-authentication-v0
+status: frozen_for_tdd
+phase: 5
+
+problem:
+  statement: >-
+    K3/K4 already provide canonical database authorization for Supabase Auth users,
+    merchant membership, environment and role hierarchy, but the executable
+    Fastify runtime has no server-side Supabase user-session verification boundary.
+    Sensitive dashboard operations therefore cannot safely use the existing K4
+    capability without either trusting client identity claims or overloading the
+    unscoped SwiftPay machine Bearer credential with administrative authority.
+  primary_risk: >-
+    Treating a browser-decoded JWT, user metadata, or a SwiftPay machine token as
+    dashboard authority could grant cross-merchant administration or turn a
+    payment integration key into an administrative supercredential.
+
+source_of_truth:
+  problem_analysis:
+    - docs/design/a6-dashboard-session-authentication-problem-analysis.md
+  database_authorization:
+    - docs/specs/dashboard-merchant-membership-authorization-v0.yaml
+    - docs/specs/trusted-runtime-database-boundary-v0.yaml
+    - supabase/migrations/20260815024519_dashboard_membership_authorization_behavior.sql
+    - supabase/migrations/20260815032700_trusted_runtime_database_boundary_behavior.sql
+  authentication_predecessor:
+    - docs/specs/api-credential-token-exchange-v0.yaml
+  official_supabase_behavior:
+    - auth.getUser(jwt) performs an Auth-server request and returns an authentic current user record
+    - getSession embedded user data is not a server authorization source
+    - publishable API keys are low privilege and may be used by authenticated clients
+  canonical_project_observation_2026_08_16:
+    project_id: vsidrgbbyzibqfjkuiqb
+    auth_users_rows: 0
+    auth_sessions_rows: 0
+    modern_publishable_key_enabled: true
+    legacy_anon_key_also_enabled: true
+    user_session_signing_algorithm_assumed: false
+
+objectives:
+  - Add a reusable server-side dashboard user-session verification boundary.
+  - Keep dashboard and machine authentication as separate route realms.
+  - Verify dashboard identity online against the project's Supabase Auth service.
+  - Use only the modern publishable API key to reach Auth; never service_role/secret/JWT secret.
+  - Return a minimal DashboardUserPrincipal containing only verified userId authority.
+  - Compose verified userId with the existing K4 require_dashboard_merchant_context routine.
+  - Preserve current merchant membership/role as database truth on every authorization check.
+  - Distinguish invalid session from Auth/network/database infrastructure failure.
+  - Keep tests deterministic and independent of hosted users/sessions.
+  - Add no database migration and no direct table privileges.
+  - Add no business/admin HTTP route in this slice.
+
+non_objectives:
+  - Signup, login, password, OTP, magic-link, OAuth or MFA enrollment endpoints.
+  - Browser session storage or refresh-token handling.
+  - Cookie-based authorization or CSRF design.
+  - Merchant/member invitation or administration APIs.
+  - Webhook endpoint CRUD or signing-secret rotation.
+  - API credential management.
+  - KYC/compliance management.
+  - Local JWKS verification or JWT signing-key migration.
+  - Supabase service_role, secret key or legacy JWT-secret usage.
+  - Merchant lifecycle/KYC financial capability authorization.
+  - Any provider or monetary operation.
+
+authentication_realms:
+  machine:
+    route_prefix: /v1
+    verifier: SwiftPay_A1_machine_bearer
+    fallback_to_dashboard_verifier: forbidden
+  dashboard:
+    route_prefix: /dashboard/v1
+    verifier: Supabase_dashboard_session
+    fallback_to_machine_verifier: forbidden
+  rule: >-
+    Route ownership selects the verifier. The runtime never attempts one verifier
+    and then falls back to the other based on token contents or verification failure.
+
+bearer_header:
+  header: Authorization
+  format: Bearer <access-token>
+  parser:
+    case_insensitive_scheme: true
+    exactly_one_non_whitespace_token: true
+    leading_or_trailing_extra_credentials: forbidden
+    empty_token: invalid_session
+    missing_header: invalid_session
+  logging:
+    token: forbidden
+    raw_authorization_header: forbidden
+
+principal:
+  type: DashboardUserPrincipal
+  fields:
+    userId:
+      type: uuid
+      source: authenticated Supabase user response id
+  forbidden_authority_fields:
+    - merchantId_from_jwt
+    - merchantRole_from_jwt
+    - environment_from_jwt
+    - kyc_from_jwt
+    - merchantLifecycle_from_jwt
+    - provider_or_financial_capability_from_jwt
+    - raw_user_meta_data_authority
+    - raw_app_meta_data_authority
+
+supabase_auth_configuration:
+  project_url:
+    environment_name: SWIFTPAY_SUPABASE_URL
+    required_when_dashboard_runtime_enabled: true
+    scheme: https
+    form: origin_only
+    credentials: forbidden
+    query: forbidden
+    fragment: forbidden
+  publishable_key:
+    environment_name: SWIFTPAY_SUPABASE_PUBLISHABLE_KEY
+    required_when_dashboard_runtime_enabled: true
+    accepted_family: sb_publishable_
+    empty: forbidden
+  forbidden_configuration:
+    - SUPABASE_SERVICE_ROLE_KEY
+    - sb_secret_key_for_dashboard_verification
+    - legacy_service_role_key_for_dashboard_verification
+    - project_JWT_secret
+    - local_HS256_dashboard_verification_secret
+
+supabase_user_verification:
+  semantics: online_getUser_equivalent
+  request:
+    method: GET
+    path: /auth/v1/user
+    headers:
+      apikey: configured_publishable_key
+      Authorization: Bearer <supplied-user-access-token>
+      Accept: application/json
+    body: none
+  destination:
+    caller_controlled_url: false
+    fixed_to_configured_project_origin: true
+  attempts_per_authentication: 1
+  transparent_retry: forbidden
+  redirect:
+    follow: false
+    classification: authentication_unavailable
+  timeout_ms: 5000
+  response:
+    success_http_status: 200
+    required_user_field:
+      id: uuid
+    metadata_used_for_merchant_authorization: false
+  invalid_session_statuses:
+    - 401
+    - 403
+  unavailable_statuses:
+    - 429
+    - 500-599
+    - redirect_300-399
+    - unexpected_400-499_other_than_401_403
+  transport_failures:
+    - timeout
+    - dns
+    - tls
+    - connection_reset
+    - network_error
+  transport_failure_classification: authentication_unavailable
+  malformed_200_classification: authentication_unavailable
+  logging:
+    response_body: forbidden
+    access_token: forbidden
+    publishable_key: forbidden
+
+session_verification_result:
+  success:
+    kind: authenticated
+    principal: DashboardUserPrincipal
+  invalid:
+    kind: invalid_session
+  unavailable:
+    kind: authentication_unavailable
+  error_payloads_must_not_include:
+    - token
+    - authorization_header
+    - publishable_key
+    - supabase_response_body
+
+merchant_context_store:
+  function: app.require_dashboard_merchant_context(uuid, uuid, text, text)
+  runtime_role: swiftpay_api
+  direct_auth_users_query: forbidden
+  direct_merchant_members_query: forbidden
+  direct_app_table_dml: forbidden
+  input:
+    userId: DashboardUserPrincipal.userId
+    merchantId: requested_uuid
+    environment: sandbox | production
+    requiredRole: member | admin | owner
+  output:
+    merchantId: uuid
+    environment: sandbox | production
+    membershipRole: member | admin | owner
+  database_error_mapping:
+    sqlstate_42501:
+      kind: forbidden
+      disclose_membership_existence: false
+    sqlstate_23514:
+      kind: validation_error
+    other:
+      kind: internal_error
+  current_state_rule: >-
+    The K4 routine re-evaluates auth.users and app.merchant_members on every call;
+    JWT/user metadata never substitutes for this lookup.
+
+dashboard_authorization_service:
+  input:
+    authorization: unknown
+    merchantId: unknown
+    environment: unknown
+    requiredRole: unknown
+  sequence:
+    - parse strict Bearer header
+    - if invalid return invalid_session without Auth request or database call
+    - verify access token once with Supabase Auth
+    - if invalid return invalid_session without database call
+    - if Auth unavailable return authentication_unavailable without database call
+    - call K4 context store once using only verified principal.userId and caller route inputs
+    - return current context or mapped store error
+  output_kinds:
+    - authorized
+    - invalid_session
+    - authentication_unavailable
+    - forbidden
+    - validation_error
+    - internal_error
+  no_side_effects:
+    - no audit append solely for auth check
+    - no Payment mutation
+    - no ledger mutation
+    - no Job mutation
+    - no webhook mutation
+    - no provider mutation
+
+future_http_mapping:
+  note: no dashboard business route is added by A6
+  invalid_session:
+    status: 401
+    code: invalid_dashboard_session
+  authentication_unavailable:
+    status: 503
+    code: dashboard_authentication_unavailable
+  forbidden:
+    status: 403
+    code: operation_forbidden
+  validation_error:
+    status: 400
+    code: validation_error
+  internal_error:
+    status: 500
+    code: internal_error
+
+mfa_aal:
+  generic_valid_session_required: true
+  aal_as_membership_authority: forbidden
+  step_up_required_in_a6: false
+  future_sensitive_actions_may_require_separate_step_up_contract: true
+
+runtime_wiring:
+  package_auth_exports:
+    - DashboardUserPrincipal
+    - DashboardSessionVerifier
+    - createSupabaseDashboardSessionVerifier
+    - createDashboardAuthorizationService
+  package_db_exports:
+    - createDashboardMerchantContextStore
+  apps_api_runtime:
+    composes_verifier_and_k4_store: true
+    exposes_reusable_dashboard_authorization_service: true
+    adds_business_route: false
+  api_config:
+    extends_with:
+      - SWIFTPAY_SUPABASE_URL
+      - SWIFTPAY_SUPABASE_PUBLISHABLE_KEY
+    secret_or_service_role_key: forbidden
+
+red_tests:
+  application:
+    - file: tests/application/032_a6_dashboard_session_verifier.contract.test.mjs
+      assertions:
+        - strict Bearer parsing success/failure
+        - exact Supabase Auth request method/path/headers
+        - valid UUID user response -> authenticated
+        - 401/403 -> invalid_session
+        - 429/5xx/network/timeout/redirect -> authentication_unavailable
+        - malformed 200 -> authentication_unavailable
+        - exactly one transport attempt
+        - errors/results contain no credential material
+    - file: tests/application/033_a6_dashboard_context_store.contract.test.mjs
+      assertions:
+        - uses only require_dashboard_merchant_context
+        - exact arguments/order
+        - maps 42501 to forbidden
+        - maps 23514 to validation_error
+        - other database error -> internal_error
+        - no direct auth.users/merchant_members/table DML
+    - file: tests/application/034_a6_dashboard_authorization_service.contract.test.mjs
+      assertions:
+        - invalid header short-circuits Auth and DB
+        - invalid session short-circuits DB
+        - Auth unavailable short-circuits DB
+        - verified user id is the only identity passed to K4
+        - current context success returned
+        - no machine-auth fallback
+    - file: tests/application/035_a6_dashboard_runtime_wiring.contract.test.mjs
+      assertions:
+        - config exposes only project URL + publishable key for Supabase Auth
+        - service_role/secret/JWT-secret dashboard configuration absent
+        - API runtime composes dashboard verifier + K4 store
+        - machine A1 authenticator remains unchanged/separate
+        - no dashboard business route added yet
+  real_database_acceptance:
+    - file: tests/application/036_a6_dashboard_authorization_runtime_acceptance.sh
+      assertions:
+        - isolated auth.users + merchant_members fixtures
+        - member/admin/owner hierarchy through swiftpay_api K4 call
+        - disabled membership denied on next call
+        - role downgrade visible on next call
+        - anonymous/deleted/missing identity denied
+        - spoofed Auth metadata cannot grant merchant role
+        - no financial/job/webhook side effects
+        - verifier is injected/deterministic; hosted Auth network is not called in CI
+
+green_gate:
+  - all pre-A6 application tests remain green
+  - all A6 application contracts green
+  - K7/A1/A2/A3/A4 runtime acceptance remains green
+  - A6 isolated real-database acceptance green
+  - all existing database pgTAP/K5/K6 lanes remain green
+  - no database migration added
+  - no service-role/secret/JWT-secret configuration added
+  - no hosted Supabase mutation required
+
+production_handoff_gate:
+  - A6 proves the server dashboard principal + K4 composition boundary
+  - actual dashboard business routes still require their own authorization role contracts
+  - signing-secret/key-management design remains required before webhook endpoint rotation implementation

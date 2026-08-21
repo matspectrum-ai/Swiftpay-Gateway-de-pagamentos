@@ -1,0 +1,142 @@
+schemaVersion: a16-dashboard-transaction-cursor-hmac-rotation-v0
+status: frozen
+scope:
+  package: packages/payments
+  runtime: apps/api
+  databaseChanges: false
+  providerChanges: false
+  publicRouteChanges: false
+
+configuration:
+  activeKeyIdEnv: SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID
+  keyringEnv: SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS
+  legacyV0KeyEnv: SWIFTPAY_DASHBOARD_CURSOR_LEGACY_V0_KEY
+  retiredSingleKeyEnv: SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEY
+  keyIdPattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+  minSecretUtf8Bytes: 32
+  minKeyringEntries: 1
+  maxKeyringEntries: 4
+  keyringEntryFields:
+    - id
+    - secret
+  requirements:
+    - activeKeyId identifies exactly one configured key
+    - key ids are unique
+    - key secrets are unique within the v1 keyring
+    - legacyV0Key is optional and verify-only
+    - retiredSingleKeyEnv provides no fallback authority
+
+exports:
+  payments:
+    - createDashboardTransactionCursorCodec
+  config:
+    - DASHBOARD_CURSOR_ACTIVE_KEY_ID_ENV
+    - DASHBOARD_CURSOR_HMAC_KEYS_ENV
+    - DASHBOARD_CURSOR_LEGACY_V0_KEY_ENV
+    - MIN_DASHBOARD_CURSOR_HMAC_KEY_BYTES
+    - MAX_DASHBOARD_CURSOR_HMAC_KEYS
+
+types:
+  DashboardTransactionCursorHmacKey:
+    fields:
+      id: string
+      secret: string
+
+codec:
+  constructorInput:
+    activeKeyId: string
+    keys: readonly DashboardTransactionCursorHmacKey[]
+    legacyV0Key: optional string
+  constructorBehavior:
+    - validates all keyring constraints at runtime
+    - snapshots configuration so later caller mutation cannot change authority
+    - throws generic configuration error for malformed authority
+
+issuance:
+  version: a9v1
+  tokenSegments: 4
+  format: 'a9v1.<kid>.<payload>.<signature>'
+  activeKeyOnly: true
+  hmacAlgorithm: sha256
+  hmacInput: 'a9v1.<kid>.<payload>'
+  payloadEncoding: canonical base64url without padding
+  signatureEncoding: canonical base64url without padding
+  payloadJsonArray:
+    - merchantId
+    - environment
+    - filterDigest
+    - createdAt
+    - paymentId
+  kid:
+    secret: false
+    authenticated: true
+
+verification:
+  v1:
+    version: a9v1
+    exactSegments: 4
+    keySelection: exact kid lookup
+    trialAllKeys: forbidden
+    unknownKid: invalid_cursor
+    malformedKid: invalid_cursor
+    removedKid: invalid_cursor
+    signatureComparison: timingSafeEqual
+  legacyV0:
+    version: a9v0
+    exactSegments: 3
+    acceptedOnlyWhenLegacyV0KeyConfigured: true
+    keySelection: legacyV0Key only
+    issuance: forbidden
+    removalEffect: all remaining a9v0 tokens become invalid_cursor
+  unknownVersion: invalid_cursor
+
+scopeBinding:
+  preservedExactly:
+    - merchantId
+    - environment
+    - SHA256 digest of normalized A9 filters
+    - createdAt
+    - paymentId
+  mismatchResult: invalid_cursor
+
+failureContract:
+  publicViolation:
+    field: cursor
+    code: invalid_cursor
+    message: Invalid transaction cursor.
+  indistinguishableCases:
+    - malformed token
+    - malformed base64url
+    - unknown version
+    - malformed kid
+    - unknown kid
+    - removed kid
+    - missing legacy slot
+    - invalid signature
+    - merchant mismatch
+    - environment mismatch
+    - filter mismatch
+    - invalid payload schema
+  secretEcho: forbidden
+
+nonGoals:
+  - cursor TTL or issued-at introduction
+  - database schema changes
+  - pagination ordering changes
+  - dashboard auth changes
+  - transaction projection changes
+  - A14 abuse-HMAC rotation
+  - A15 access-token signing changes
+  - webhook key rotation
+  - provider credential or activation changes
+
+acceptance:
+  - new cursors use a9v1 and active kid
+  - old non-active v1 keys verify while retained in keyring
+  - removing old v1 key invalidates only tokens carrying that kid
+  - legacy a9v0 tokens verify only through explicit legacy slot
+  - removing legacy slot invalidates legacy tokens
+  - unknown kid never triggers trial-all verification
+  - old single-key environment variable has no fallback authority
+  - A9 tenant/filter binding remains unchanged
+  - no DB/provider/network authority is introduced

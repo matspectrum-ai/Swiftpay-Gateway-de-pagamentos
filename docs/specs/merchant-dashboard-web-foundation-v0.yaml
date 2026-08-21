@@ -1,0 +1,268 @@
+version: 0
+slice: A21
+name: merchant-dashboard-web-foundation
+status: frozen
+problem_analysis: docs/design/a21-merchant-dashboard-web-foundation-problem-analysis.md
+
+objective:
+  - deliver the first real merchant-facing SwiftPay web application
+  - preserve all accepted trusted API/database/payment authority boundaries
+  - let an authenticated merchant discover authorized contexts and view transaction list/detail
+
+stack:
+  web_app:
+    path: apps/dashboard
+    rendering: browser_spa
+    ui: react
+    build: vite
+    language: typescript
+  package_policy:
+    react: 19.2.8
+    react_dom: 19.2.8
+    supabase_js: 2.112.1
+    vite: 8.2.1
+  routing:
+    dependency: none
+    strategy: browser_history
+  styling:
+    strategy: application_owned_css
+    third_party_component_library: false
+
+browser_authority:
+  allowed:
+    - Supabase Auth through project URL plus publishable key
+    - SwiftPay dashboard HTTP API using the current Supabase access token as Authorization Bearer
+  forbidden:
+    - PostgreSQL connection strings
+    - swiftpay_api role credentials
+    - swiftpay_worker role credentials
+    - Supabase secret/service_role keys
+    - direct protected table access
+    - direct app schema RPC invocation
+    - provider credentials
+    - PSP traffic
+  supabase_client:
+    purpose: auth_only
+    config:
+      autoRefreshToken: true
+      persistSession: true
+      detectSessionInUrl: true
+    forbidden_client_methods_for_swiftpay_state:
+      - from
+      - rpc
+
+browser_configuration:
+  required:
+    - VITE_SUPABASE_URL
+    - VITE_SUPABASE_PUBLISHABLE_KEY
+  api_base:
+    value: /api
+    semantics: same_origin_reverse_proxy_path
+    environment_override: false
+  rationale:
+    - prevent arbitrary runtime API-origin injection
+    - avoid broad CORS authority in A21
+    - keep browser financial requests same-origin at the dashboard deployment boundary
+
+session_transport:
+  browser_to_swiftpay_api:
+    scheme: Authorization Bearer
+    token_source: current Supabase Auth session access_token
+    cookies_for_swiftpay_api: false
+    csrf_token: not_applicable_to_bearer_only_api
+  on_401:
+    action:
+      - clear local selected context
+      - request Supabase session refresh once through Auth SDK
+      - if no valid session remains, render signed_out state
+    api_retry: at_most_once_after_successful_session_refresh
+  on_403:
+    action: render_forbidden_without_resource_detail_leakage
+  on_503_or_network_failure:
+    action: render_service_unavailable_without_internal_detail
+
+context_discovery:
+  http:
+    method: GET
+    path: /dashboard/v1/contexts
+    authentication: A6_verified_dashboard_session
+    cache_control: no-store
+    success_status: 200
+    response:
+      object: list
+      data_item:
+        merchantId: uuid
+        merchantName: non_empty_text
+        lifecycleStatus:
+          enum: [draft, active, suspended, closed]
+        membershipRole:
+          enum: [member, admin, owner]
+        environments:
+          exact: [sandbox, production]
+    failures:
+      invalid_session: 401
+      authentication_unavailable: 503
+      internal_error: 500
+  service:
+    user_identity_source: A6_verified_user_id_only
+    no_caller_supplied_user_id: true
+  database:
+    routine: app.list_dashboard_merchant_contexts(uuid)
+    volatility: STABLE
+    security: SECURITY_DEFINER
+    explicit_search_path: pg_catalog,app,auth
+    executable_by:
+      - swiftpay_api
+    executable_not_by:
+      - swiftpay_worker
+      - PUBLIC
+      - anon
+      - authenticated
+      - service_role
+    relation_acl_change: none
+    candidate_source:
+      - active app.merchant_members rows for p_user_id
+      - app.merchants display metadata
+    authorization_rule:
+      - caller user must exist in auth.users
+      - caller must not be anonymous or deleted
+      - each returned merchant role must be confirmed through app.require_merchant_membership(p_user_id, merchant_id, member)
+    ordering:
+      - merchant_name_case_insensitive_ascending
+      - merchant_id_ascending
+    environments:
+      - sandbox
+      - production
+    lifecycle_filtering: none
+    rationale: dashboard read access remains useful across canonical draft/active/suspended/closed merchant lifecycle while lifecycle is surfaced explicitly
+
+runtime_capability_manifest:
+  prior_swiftpay_api_count: 24
+  expected_swiftpay_api_count: 25
+  added_signature: app.list_dashboard_merchant_contexts(uuid)
+  swiftpay_worker_count: 6
+  all_other_signatures_unchanged: true
+
+web_product:
+  signed_out:
+    route: /login
+    fields:
+      - email
+      - password
+    action: Supabase auth.signInWithPassword
+    sign_up: out_of_scope
+    password_reset: out_of_scope
+  authenticated_shell:
+    required_regions:
+      - brand_header
+      - context_switcher
+      - primary_navigation
+      - account_sign_out
+      - content_region
+    navigation:
+      enabled:
+        - transactions
+      disabled_placeholders:
+        - api_credentials
+        - webhooks
+  context_selection:
+    source: context_discovery_http_only
+    persistence: localStorage_non_secret_selection_only
+    key: swiftpay.dashboard.context.v1
+    validation: selected merchantId must still exist in latest discovery response
+    default:
+      merchant: first_ordered_context
+      environment: sandbox
+  transactions:
+    list:
+      source: A9_GET_dashboard_transactions
+      route_shape: /dashboard/v1/merchants/:merchantId/environments/:environment/transactions
+      default_limit: 25
+      pagination: A9_cursor_only
+      states:
+        - loading
+        - ready
+        - empty
+        - invalid_session
+        - forbidden
+        - unavailable
+        - error
+    detail:
+      source: A9_GET_dashboard_transaction
+      route_shape: /dashboard/v1/merchants/:merchantId/environments/:environment/transactions/:transactionId
+      states:
+        - loading
+        - ready
+        - not_found
+        - invalid_session
+        - forbidden
+        - unavailable
+        - error
+    browser_mutation: false
+
+privacy_and_cache:
+  authenticated_http_cache: no-store
+  secrets_rendered: false
+  provider_payloads_rendered: false
+  internal_sql_errors_rendered: false
+  raw_auth_token_rendered_or_logged: false
+
+web_security:
+  third_party_scripts: false
+  dangerouslySetInnerHTML: forbidden
+  target_blank_without_noopener: forbidden
+  csp_baseline:
+    default-src: self
+    script-src: self
+    style-src: self
+    img-src: self,data
+    connect-src:
+      - self
+      - configured_supabase_project_origin
+    object-src: none
+    base-uri: self
+    frame-ancestors: none
+  referrer_policy: no-referrer
+  x_content_type_options: nosniff
+  permissions_policy: camera=(),microphone=(),geolocation=(),payment=()
+
+implementation_boundaries:
+  database_migration_required: true
+  provider_change: false
+  payment_state_change: false
+  ledger_change: false
+  worker_change: false
+  A5_to_A11_bridge: false
+  A10_provider_promotions: 0
+
+verification:
+  application:
+    - workspace includes apps/dashboard
+    - dashboard package builds production assets
+    - browser source contains no trusted database or provider authority
+    - auth client is used for auth only
+    - context bootstrap uses /dashboard/v1/contexts
+    - transaction list/detail use A9 HTTP routes only
+    - signed_out forbidden unavailable and not_found states are deterministic
+    - all authenticated API fetches request no-store
+  database:
+    - list_dashboard_merchant_contexts returns only active memberships for the supplied verified user
+    - inactive membership is omitted
+    - unrelated merchant is omitted
+    - anonymous/deleted/unknown user fails closed
+    - API execute allowlist becomes exactly 25 with only the new routine added
+    - worker remains exactly 6
+    - no public/Data API execution authority appears
+    - no direct relation privileges appear
+  hosted:
+    - canonical Supabase migration applied only after local RED/GREEN
+    - exact runtime capability attestation matches manifest
+    - security advisor remains clean
+    - Payments count unchanged by attestation
+    - ProviderAttempts count unchanged by attestation
+
+success_criterion:
+  - merchant can sign in to the real web app
+  - merchant can discover/select only authorized contexts
+  - merchant can browse A9 transaction list and detail
+  - browser owns no database/provider/financial authority

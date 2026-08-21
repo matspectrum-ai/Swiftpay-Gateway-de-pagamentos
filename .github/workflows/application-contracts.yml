@@ -1,0 +1,108 @@
+name: Application contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "tests/application/**"
+      - "scripts/provision-local-runtime-identities"
+      - "scripts/provision-local-webhook-wrap-keys.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig*.json"
+      - "supabase/**"
+      - ".github/workflows/application-contracts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  application-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          test "$(pnpm --version)" = "11.17.0"
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck application workspace
+        run: pnpm typecheck
+      - name: Build application workspace
+        run: pnpm build
+      - name: Run application contracts
+        run: pnpm test
+
+  runtime-database-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+      SWIFTPAY_API_DATABASE_URL: postgresql://swiftpay_api_runtime:local_api_runtime_only@127.0.0.1:54322/postgres
+      SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
+      SWIFTPAY_ACCESS_TOKEN_ACTIVE_KEY_ID: a15-ci-active
+      SWIFTPAY_ACCESS_TOKEN_SIGNING_KEYS: '[{"id":"a15-ci-active","secret":"0123456789abcdef0123456789abcdef"}]'
+      SWIFTPAY_ACCESS_TOKEN_LEGACY_NO_KID_KEY: 0123456789abcdef0123456789abcdef
+      SWIFTPAY_DASHBOARD_CURSOR_ACTIVE_KEY_ID: a16-ci-active
+      SWIFTPAY_DASHBOARD_CURSOR_HMAC_KEYS: '[{"id":"a16-ci-active","secret":"a9-dashboard-cursor-ci-key-0123456789abcdef"}]'
+      SWIFTPAY_ABUSE_HMAC_KEY: a14-abuse-ci-key-0123456789abcdef0123456789abcdef
+      SWIFTPAY_SUPABASE_URL: https://project-a6.supabase.co
+      SWIFTPAY_SUPABASE_PUBLISHABLE_KEY: sb_publishable_a6_ci_key
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Provision A7 ephemeral webhook wrapping keys
+        run: node scripts/provision-local-webhook-wrap-keys.mjs
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Start isolated Postgres
+        run: supabase db start
+      - name: Provision K6 local runtime identities
+        run: bash scripts/provision-local-runtime-identities
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          test "$(pnpm --version)" = "11.17.0"
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build runtime
+        run: pnpm build
+      - name: Run K7 real runtime database acceptance
+        run: bash tests/application/003_runtime_database_integration.sh
+      - name: Run A14 ingress abuse real-database acceptance
+        run: bash tests/application/056_a14_ingress_abuse_runtime_acceptance.sh
+      - name: Run A18 abuse HMAC rotation real-database acceptance
+        run: bash tests/application/061_a18_abuse_subject_hmac_rotation_runtime_acceptance.sh
+      - name: Run A1 real token authentication acceptance
+        run: bash tests/application/011_a1_real_runtime_acceptance.sh
+      - name: Run A2 real Pix runtime acceptance
+        run: bash tests/application/017_a2_real_runtime_acceptance.sh
+      - name: Run A3 real paid ledger balance acceptance
+        run: bash tests/application/021_a3_real_runtime_acceptance.sh
+      - name: Run A4 real merchant webhook runtime acceptance
+        run: bash tests/application/027_a4_real_runtime_acceptance.sh
+      - name: Run A6 dashboard authorization real-database acceptance
+        run: bash tests/application/036_a6_dashboard_authorization_runtime_acceptance.sh
+      - name: Run A7 webhook endpoint management real-database acceptance
+        run: bash tests/application/042_a7_webhook_endpoint_management_runtime_acceptance.sh
+      - name: Run A8 API credential management real-database acceptance
+        run: bash tests/application/046_a8_api_credential_management_runtime_acceptance.sh
+      - name: Run A9 merchant transaction operations real-database acceptance
+        run: bash tests/application/049_a9_merchant_transaction_operations_runtime_acceptance.sh

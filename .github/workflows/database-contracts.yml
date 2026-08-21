@@ -1,0 +1,73 @@
+name: Database contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "ops/postgres/**"
+      - "scripts/seed-local-sandbox"
+      - "scripts/provision-local-runtime-identities"
+      - "scripts/verify-runtime-database-boundary"
+      - ".github/workflows/database-contracts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pgtap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Start isolated Postgres
+        run: supabase db start
+      - name: Run pgTAP database contracts
+        run: supabase test db supabase/tests/database
+
+  sandbox-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Start isolated Postgres
+        run: supabase db start
+      - name: Load deterministic local sandbox fixture
+        run: bash scripts/seed-local-sandbox
+      - name: Reload fixture to prove idempotency
+        run: bash scripts/seed-local-sandbox
+      - name: Run K5 fixture contracts
+        run: supabase test db supabase/tests/fixtures
+
+  runtime-topology:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.0
+        with:
+          version: 2.114.0
+      - name: Start isolated Postgres
+        run: supabase db start
+      - name: Provision production-like local runtime identities
+        run: bash scripts/provision-local-runtime-identities
+      - name: Run K6 structural runtime contracts
+        run: supabase test db supabase/tests/runtime
+      - name: Verify API runtime identity through its own connection
+        env:
+          SWIFTPAY_API_DATABASE_URL: postgresql://swiftpay_api_runtime:local_api_runtime_only@127.0.0.1:54322/postgres
+        run: bash scripts/verify-runtime-database-boundary api
+      - name: Verify worker runtime identity through its own connection
+        env:
+          SWIFTPAY_WORKER_DATABASE_URL: postgresql://swiftpay_worker_runtime:local_worker_runtime_only@127.0.0.1:54322/postgres
+        run: bash scripts/verify-runtime-database-boundary worker

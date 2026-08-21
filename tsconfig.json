@@ -1,0 +1,16 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/abuse" },
+    { "path": "./packages/auth" },
+    { "path": "./packages/config" },
+    { "path": "./packages/db" },
+    { "path": "./packages/observability" },
+    { "path": "./packages/metrics" },
+    { "path": "./packages/payments" },
+    { "path": "./packages/providers" },
+    { "path": "./packages/webhooks" },
+    { "path": "./apps/api" },
+    { "path": "./apps/worker" }
+  ]
+}

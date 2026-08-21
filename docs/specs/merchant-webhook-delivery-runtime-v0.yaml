@@ -1,0 +1,703 @@
+feature: merchant-webhook-delivery-runtime-v0
+status: frozen_for_tdd
+phase: 3
+
+date: 2026-08-15
+
+problem:
+  statement: >-
+    A3 transactionally creates a durable canonical payment.paid merchant webhook
+    event, endpoint delivery rows and merchant_webhook_delivery jobs, but no
+    trusted runtime performs signed HTTP delivery. A4 must execute those durable
+    deliveries at least once with one synchronized lease/retry authority, stable
+    delivery identity, explicit signing and SSRF policy, bounded retry/terminal
+    behavior, and no financial authority.
+  observed_gaps:
+    - The worker process has no job loop or webhook HTTP transport.
+    - jobs and webhook_deliveries each have lease/retry fields but no composed ownership boundary.
+    - No delivery signing-secret version is snapshotted on webhook_deliveries.
+    - secret_ciphertext has no frozen authenticated-encryption representation or worker decryption-key contract.
+    - No exact request body/signature serialization exists.
+    - No explicit runtime SSRF/DNS-rebinding policy exists.
+    - No exact HTTP outcome classification/backoff policy exists.
+    - Existing generic claim_jobs can claim unrelated job kinds and must not be the A4 runtime scheduler.
+
+source_of_truth:
+  problem_analysis:
+    - docs/design/a4-merchant-webhook-delivery-problem-analysis.md
+  contracts:
+    - docs/contracts/merchant-webhooks.md
+    - docs/contracts/outbox-and-jobs.md
+    - docs/contracts/public-api.md
+    - docs/contracts/financial-invariants.md
+  predecessor:
+    - docs/specs/paid-transition-ledger-balance-v0.yaml
+  existing_schema:
+    - supabase/migrations/20260814020500_jobs_foundation.sql
+    - supabase/migrations/20260814022000_merchant_webhook_persistence.sql
+    - supabase/migrations/20260815031330_trusted_runtime_database_boundary_foundation.sql
+    - supabase/migrations/20260815032700_trusted_runtime_database_boundary_behavior.sql
+    - supabase/migrations/20260816004515_paid_transition_ledger_balance_foundation.sql
+    - supabase/migrations/20260816004620_paid_transition_ledger_balance_behavior.sql
+  existing_tests:
+    - supabase/tests/database/004_jobs.test.sql
+    - supabase/tests/database/005_merchant_webhooks.test.sql
+    - supabase/tests/database/035_paid_transition_ledger_balance_behavior.test.sql
+
+precedence_rule:
+  - >-
+    This A4 specification narrows the older foundational webhook/jobs contracts
+    where they intentionally left exact signing, retry and runtime behavior open.
+    Existing durable event/source identity and financial invariants remain
+    authoritative and may not be weakened.
+
+objectives:
+  - Execute only durable merchant_webhook_delivery work from PostgreSQL.
+  - Keep Job and WebhookDelivery ownership synchronized under one fencing token.
+  - Preserve one WebhookEvent and one WebhookDelivery identity across retries.
+  - Deliver merchant webhooks with explicit HMAC-SHA256 signing over exact transmitted bytes.
+  - Snapshot the signing-secret version at delivery fanout time.
+  - Decrypt endpoint signing secrets only in trusted worker memory.
+  - Enforce a production SSRF/DNS-rebinding-safe destination policy.
+  - Perform exactly one transport invocation per durable A4 dispatch claim and never use hidden HTTP retries.
+  - Persist success/retry/terminal/disabled outcomes through a fenced database routine.
+  - Use a bounded deterministic jittered retry policy with a maximum of 8 durable dispatch attempts.
+  - Prove two workers cannot concurrently own one valid delivery lease.
+  - Prove stale workers cannot resolve a newer lease.
+  - Prove webhook delivery cannot mutate Payment, ProviderEvent, Ledger, balance, payout or refund state.
+  - Accept a deterministic local merchant endpoint only through injected test-only policy/transport dependencies.
+
+non_objectives:
+  - Merchant webhook endpoint create/update/delete HTTP API or UI.
+  - Merchant signing-secret generation/rotation API or one-time secret disclosure UI.
+  - Manual redelivery API/UI.
+  - Provider webhook ingress or provider signature verification.
+  - Live AkkadPag/FlevoPay calls.
+  - Settlement release from pending to available.
+  - Dedicated message broker or external scheduler.
+  - Strict global webhook ordering.
+  - Persisting merchant response bodies.
+  - Exactly-once remote HTTP delivery.
+
+semantics:
+  remote_delivery: at_least_once
+  logical_event_identity: exactly_once_by_database_source_unique_key
+  event_endpoint_delivery_identity: exactly_once_by_database_unique_key
+  local_claim_resolution: fenced
+  merchant_receiver_dedupe_key:
+    primary: X-SwiftPay-Delivery
+    stable_across_retries: true
+  financial_effect_from_delivery_runtime: forbidden
+  explanation: >-
+    A successful remote request followed by a worker crash before local success
+    persistence may be retried. A4 explicitly does not claim exactly-once network
+    delivery. Stable event/delivery IDs let receivers deduplicate safely.
+
+attempt_semantics:
+  webhook_delivery_attempt_count_means: durable_dispatch_claims_handed_to_transport_path
+  increment_point: composed_database_claim_before_network
+  packet_or_remote_receipt_count: not_promised
+  nested_transport_retries: forbidden
+  job_attempt_count_and_delivery_attempt_count:
+    increment_together: true
+    expected_equal_for_A4_owned_work: true
+
+schema_changes:
+  webhook_deliveries:
+    add_columns:
+      signing_secret_version:
+        type: integer
+        nullable: false_after_backfill
+        check: greater_than_zero
+        purpose: immutable endpoint signing-secret version selected when fanout creates delivery
+      last_error_code:
+        type: text
+        nullable: true
+        purpose: bounded structured transport/configuration failure code
+    backfill:
+      signing_secret_version: >-
+        For every existing delivery with no snapshot, copy the referenced endpoint
+        current secret_version. No secret plaintext is materialized.
+    fanout_change:
+      record_webhook_event_must_set_signing_secret_version_from_endpoint: true
+
+trusted_database_boundary:
+  direct_table_dml_for_swiftpay_worker: forbidden
+  direct_table_dml_for_swiftpay_api: forbidden
+  raw_secret_plaintext_from_database: forbidden
+
+  claim_routine:
+    name: app.claim_merchant_webhook_deliveries
+    signature:
+      - text
+      - integer
+      - integer
+    returns: setof_jsonb
+    executor: swiftpay_worker
+    swiftpay_api_execute: forbidden
+    anon_execute: forbidden
+    authenticated_execute: forbidden
+    service_role_execute: forbidden
+    inputs:
+      workerId:
+        type: text
+        normalized: trim
+        min_length: 1
+        max_length: 160
+      limit:
+        type: integer
+        minimum: 1
+        maximum: 50
+      leaseSeconds:
+        type: integer
+        minimum: 5
+        maximum: 300
+    eligibility:
+      job_kind: merchant_webhook_delivery
+      job_resource_type: webhook_delivery
+      job_payload_version: 1
+      job_state:
+        - pending_due
+        - leased_expired
+      job_attempt_count_lt_max_attempts: true
+      delivery_state:
+        - pending_due
+        - leased_expired
+      resource_id_must_equal_delivery_id: true
+      job_payload_webhook_delivery_id_must_equal_delivery_id: true
+      event_endpoint_join_must_be_exact: true
+    disabled_endpoint_handling:
+      when_endpoint_disabled_before_claim: mark_delivery_disabled_and_job_completed_without_incrementing_attempts
+      return_to_transport: false
+    active_claim:
+      locking: FOR_UPDATE_SKIP_LOCKED
+      one_generated_lease_token_shared_by_job_and_delivery: true
+      same_lease_expiry_shared_by_job_and_delivery: true
+      job_lease_owner_set_to_worker_id: true
+      job_attempt_count_increment: 1
+      delivery_attempt_count_increment: 1
+      delivery_first_attempt_at_set_on_first_claim: true
+      delivery_last_attempt_at_set_on_each_claim: true
+      next_attempt_at_not_advanced_until_resolution: true
+    output_shape:
+      jobId: uuid_string
+      deliveryId: uuid_string
+      leaseToken: uuid_string
+      attemptNumber: positive_integer
+      maxAttempts: positive_integer
+      leaseExpiresAt: iso8601_utc
+      endpoint:
+        id: uuid_string
+        url: string
+        environment: sandbox_or_production
+        signingSecretVersion: positive_integer
+        signingSecretCiphertext: string_or_null
+      event:
+        id: uuid_string
+        type: nonempty_string
+        occurredAt: iso8601_utc
+        payloadVersion: nonempty_string
+        payload: json_object
+    secret_selection:
+      current: >-
+        If delivery.signing_secret_version equals endpoint.secret_version, return
+        endpoint.secret_ciphertext.
+      previous: >-
+        Else, if delivery.signing_secret_version equals previous_secret_version
+        and previous_secret_expires_at is strictly in the future, return
+        previous_secret_ciphertext.
+      unavailable: return_null_ciphertext_and_let_worker_resolve_terminal_without_http
+
+  resolve_routine:
+    name: app.resolve_merchant_webhook_delivery
+    signature:
+      - uuid
+      - uuid
+      - uuid
+      - text
+      - integer
+      - text
+      - text
+      - integer
+    returns: boolean
+    executor: swiftpay_worker
+    swiftpay_api_execute: forbidden
+    anon_execute: forbidden
+    authenticated_execute: forbidden
+    service_role_execute: forbidden
+    arguments:
+      jobId: uuid
+      deliveryId: uuid
+      leaseToken: uuid
+      outcome:
+        enum:
+          - success
+          - retry
+          - terminal
+      httpStatus:
+        type: integer_or_null
+        range_if_present: 100..599
+      errorClass:
+        type: text_or_null
+        allowed_nonnull:
+          - transient
+          - rate_limited
+          - configuration
+          - validation
+          - permanent
+          - internal
+      errorCode:
+        type: text_or_null
+        max_length: 80
+      retryAfterSeconds:
+        type: integer_or_null
+        minimum_if_present: 1
+        maximum_if_present: 7200
+    fencing:
+      require_job_state_leased: true
+      require_delivery_state_leased: true
+      require_same_matching_lease_token_on_both: true
+      stale_or_foreign_token_returns_false_with_no_state_change: true
+    transitions:
+      success:
+        required_http_status: 200..299
+        delivery_state: succeeded
+        job_state: completed
+        delivery_succeeded_at: now
+        delivery_last_http_status: provided_status
+        clear_leases: true
+      retry:
+        allowed_only_if_attempt_count_lt_max_attempts: true
+        requires_retry_after_seconds: true
+        delivery_state: pending
+        job_state: pending
+        delivery_next_attempt_at_and_job_available_at_same_due_time: true
+        clear_leases: true
+      retry_at_attempt_ceiling:
+        delivery_state: exhausted
+        job_state: dead
+        clear_leases: true
+      terminal:
+        delivery_state: exhausted
+        job_state: dead
+        retry_after_seconds_must_be_null: true
+        clear_leases: true
+    evidence:
+      persist_last_http_status: true
+      persist_last_error_class: true
+      persist_last_error_code: true
+      job_error_fields_mirror_class_and_code_on_failure: true
+      last_finished_at_updated: true
+
+  generic_job_routines:
+    remain_available_to_capability_role_for_existing_platform_contract: true
+    A4_runtime_must_use_generic_claim_jobs_for_webhook_work: false
+    A4_runtime_must_use_composed_claim_and_resolve_only: true
+
+signing_secret_crypto:
+  ciphertext_format:
+    version: aes-256-gcm-v1
+    representation: aes-256-gcm-v1$<nonce-base64url>$<ciphertext-base64url>$<tag-base64url>
+    nonce_bytes: 12
+    tag_bytes: 16
+    base64url_padding: forbidden
+    authenticated_encryption: AES-256-GCM
+    aad_utf8: |-
+      swiftpay-webhook-secret-v1
+      <endpoint-id>
+      <secret-version>
+  worker_key:
+    environment_variable: SWIFTPAY_WEBHOOK_SECRET_ENCRYPTION_KEY
+    encoding: base64url_no_padding
+    decoded_bytes: 32
+    required_for_delivery_runtime: true
+    may_appear_in_logs_or_errors: false
+  plaintext_secret:
+    encoding: utf8
+    minimum_bytes: 32
+    maximum_bytes: 128
+    database_persistence: forbidden
+    job_payload_persistence: forbidden
+    logging: forbidden
+  invalid_ciphertext_or_authentication_tag:
+    classification: configuration
+    code: signing_secret_invalid
+    network_call: forbidden
+    resolution: terminal
+  unavailable_snapshotted_secret_version:
+    classification: configuration
+    code: signing_secret_unavailable
+    network_call: forbidden
+    resolution: terminal
+
+public_webhook_body:
+  content_type: application/json; charset=utf-8
+  envelope:
+    id: webhook_event_id
+    object: event
+    type: webhook_event_type
+    createdAt: webhook_event_occurred_at_iso8601_utc
+    data: durable_event_payload_snapshot
+  payload_version_support:
+    payment-v1: supported
+    unsupported: terminal_validation_without_http
+  serialization:
+    algorithm: canonical-json-v0
+    object_keys: recursively_lexicographic_ascending_unicode_codepoint_order
+    arrays: preserve_order
+    whitespace: none
+    strings_numbers_booleans_null: JSON_stringify_semantics_after_validation
+    non_finite_numbers: forbidden
+    exact_same_bytes_for_same_durable_event: true
+
+http_request:
+  method: POST
+  redirects: never_follow
+  total_timeout_ms: 5000
+  automatic_retry_count: 0
+  response_body_persistence: false
+  headers:
+    Content-Type: application/json; charset=utf-8
+    User-Agent: SwiftPay-Webhooks/1
+    X-SwiftPay-Event: event_uuid
+    X-SwiftPay-Delivery: delivery_uuid
+    X-SwiftPay-Timestamp: unix_epoch_seconds_decimal
+    X-SwiftPay-Signature: v1=<lowercase_hex_hmac_sha256>
+  forbidden_headers_in_logs:
+    - X-SwiftPay-Signature
+    - Authorization
+    - Cookie
+    - Set-Cookie
+
+signature:
+  algorithm: HMAC-SHA256
+  output_encoding: lowercase_hex
+  header_prefix: v1=
+  input_utf8_prefix_lines:
+    - v1
+    - timestamp_decimal
+    - event_uuid
+    - delivery_uuid
+  exact_input: |-
+    v1
+    <timestamp>
+    <event-id>
+    <delivery-id>
+    <exact-body-bytes>
+  body_part_is_raw_transmitted_bytes: true
+  secret: decrypted_endpoint_signing_secret
+  timestamp:
+    generated_per_dispatch_attempt: true
+    precision: whole_unix_seconds
+  retries:
+    event_id_stable: true
+    delivery_id_stable: true
+    body_bytes_stable: true
+    timestamp_and_signature_refresh_each_attempt: true
+  verification_helper_for_contract_tests:
+    constant_time_digest_compare: true
+    replay_window_seconds: 300
+
+endpoint_policy:
+  production_default:
+    scheme: https_only
+    url_must_be_absolute: true
+    username_password: forbidden
+    fragment: forbidden
+    hostname_required: true
+    dns_resolution_at_each_attempt: true
+    automatic_redirect: forbidden
+    prohibited_destination_classes:
+      - loopback
+      - private_rfc1918
+      - ipv6_unique_local
+      - link_local
+      - carrier_grade_nat
+      - multicast
+      - unspecified
+      - documentation_or_benchmark_special_use
+      - metadata_service_ranges
+    any_prohibited_resolved_address_rejects_hostname: true
+    destination_ip_must_be_pinned_after_validation: true
+    preserve_original_host_header_and_tls_sni: true
+  ports:
+    https_allowed:
+      - 443
+    production_other_ports: forbidden
+  sandbox_production_runtime:
+    same_ssrf_policy_as_production: true
+    http_scheme: forbidden
+  deterministic_ci:
+    loopback_or_http_allowed_only_via_injected_test_policy_or_transport: true
+    weakening_environment_variable: forbidden
+
+http_outcome_policy:
+  success:
+    status_range: 200..299
+    outcome: success
+  retryable:
+    network_error:
+      class: transient
+      code: network_error
+    timeout:
+      class: transient
+      code: timeout
+    http_408:
+      class: transient
+      code: http_408
+    http_425:
+      class: transient
+      code: http_425
+    http_429:
+      class: rate_limited
+      code: http_429
+    http_5xx:
+      class: transient
+      code_format: http_<status>
+  terminal:
+    http_3xx:
+      class: permanent
+      code: redirect_disallowed
+    other_http_4xx:
+      class: permanent
+      code_format: http_<status>
+    endpoint_policy_failure:
+      class: configuration
+      code: endpoint_policy
+    secret_failure:
+      class: configuration
+    unsupported_payload_version:
+      class: validation
+      code: unsupported_payload_version
+    invalid_claim_projection:
+      class: internal
+      code: invalid_delivery_projection
+  merchant_response_body:
+    ignored_for_state_decision: true
+    never_used_as_command_or_financial_input: true
+
+retry_policy:
+  version: merchant-webhook-retry-v0
+  maximum_dispatch_attempts: 8
+  base_delay_seconds_after_failed_attempt:
+    1: 5
+    2: 30
+    3: 120
+    4: 600
+    5: 1800
+    6: 3600
+    7: 7200
+  attempt_8_failure: terminal_exhausted
+  deterministic_jitter:
+    enabled: true
+    input_utf8: |-
+      merchant-webhook-retry-v0
+      <delivery-id>
+      <attempt-number>
+    digest: SHA256
+    integer_source: first_two_digest_bytes_unsigned_big_endian
+    max_jitter_seconds: min(30, floor(base_delay_seconds * 0.20))
+    jitter_seconds: integer_source modulo (max_jitter_seconds + 1)
+    final_delay_seconds: min(7200, base_delay_seconds + jitter_seconds)
+  retry_after:
+    honored_statuses:
+      - 429
+    accepted_format: integer_delta_seconds_only
+    accepted_minimum: 1
+    accepted_maximum: 7200
+    invalid_or_date_format: ignore
+    final_delay: min(7200, max(policy_delay, retry_after_seconds))
+
+worker_runtime:
+  database_role: swiftpay_worker
+  claim_batch_size_default: 10
+  claim_batch_size_max: 50
+  lease_seconds_default: 30
+  polling_interval_ms_default: 500
+  job_kinds_executed_by_A4_loop:
+    - merchant_webhook_delivery
+  generic_or_unknown_job_kind_execution: forbidden
+  parallelism_v0:
+    max_in_flight_per_process: 10
+  dependencies:
+    database_store: required
+    secret_decryptor: required
+    endpoint_policy: required
+    http_transport: required
+    clock: injectable_for_tests
+  production_dependencies:
+    endpoint_policy: strict_production_policy
+    http_transport: single_attempt_pinned_destination_transport
+  startup:
+    readiness_checks_database_role: true
+    validates_webhook_encryption_key: true
+  logs:
+    structured: true
+    allowed_identifiers:
+      - jobId
+      - deliveryId
+      - eventId
+      - attemptNumber
+      - outcomeClass
+      - httpStatus
+      - errorCode
+    secret_plaintext: forbidden
+    secret_ciphertext: forbidden
+    signature_header: forbidden
+    full_database_url: forbidden
+    full_endpoint_url: forbidden
+    endpoint_log_form: origin_host_only_or_hash
+
+concurrency_and_recovery:
+  two_workers_same_due_delivery:
+    simultaneous_valid_lease_owners: exactly_one
+    network_invocations_before_lease_expiry: at_most_one_from_current_valid_claim
+  expired_lease:
+    may_be_reclaimed: true
+    same_delivery_id: true
+    new_lease_token: true
+    old_worker_resolution: rejected_false
+    remote_duplicate_after_crash: possible_and_accepted_at_least_once
+  completed_delivery:
+    automatically_claimable_again: false
+  exhausted_delivery:
+    automatically_claimable_again: false
+  disabled_delivery:
+    automatically_claimable_again: false
+
+security_and_authority:
+  API_may_claim_or_resolve_webhook_delivery: false
+  browser_roles_may_claim_or_resolve_webhook_delivery: false
+  service_role_may_claim_or_resolve_webhook_delivery: false
+  worker_may_directly_select_webhook_secret_table: false
+  worker_receives_only_composed_internal_projection: true
+  webhook_response_may_change_payment_status: false
+  webhook_response_may_post_ledger: false
+  webhook_response_may_change_balance: false
+  delivery_runtime_may_execute_provider_payment_calls: false
+
+application_components_to_add:
+  database_adapter:
+    package: packages/db
+    responsibilities:
+      - claim composed merchant webhook deliveries through the trusted routine only
+      - resolve through the trusted routine only
+      - strictly validate returned internal JSON projection
+      - sanitize database errors
+  webhook_domain_package:
+    preferred_package: packages/webhooks
+    responsibilities:
+      - ciphertext parsing/decryption
+      - canonical event envelope serialization
+      - signature generation/verification helper
+      - endpoint URL/IP policy
+      - HTTP outcome classification
+      - deterministic retry delay
+      - single-attempt transport
+      - delivery handler orchestration
+  worker:
+    responsibilities:
+      - poll composed webhook claims
+      - invoke handler exactly once per claim
+      - resolve outcome with fencing token
+      - never call generic claim_jobs for A4 work
+
+required_red_database_tests:
+  schema_file: supabase/tests/database/036_merchant_webhook_delivery_runtime_schema.test.sql
+  behavior_file: supabase/tests/database/037_merchant_webhook_delivery_runtime_behavior.test.sql
+  assertions:
+    - signing_secret_version and last_error_code columns exist with frozen constraints
+    - existing delivery rows backfill secret version deterministically
+    - record_webhook_event snapshots current endpoint secret version on new delivery
+    - composed claim/resolve routines exist and are worker-only
+    - API/anon/authenticated/service_role cannot execute composed routines
+    - two workers cannot claim one delivery simultaneously
+    - Job and Delivery receive identical lease token/expiry and attempts increment together
+    - disabled endpoint is finalized without an HTTP dispatch claim
+    - stale lease token cannot resolve newer work
+    - success completes Job and succeeds Delivery
+    - retry reschedules Job and Delivery to identical due time
+    - attempt-8 failure exhausts Delivery and kills Job
+    - terminal failure exhausts Delivery and kills Job immediately
+    - current/previous secret ciphertext selection obeys frozen version/overlap policy
+    - missing historical signing secret returns no usable ciphertext and can be terminally resolved
+    - non-webhook jobs are never claimed by composed A4 routine
+    - no financial table changes are performed by claim/resolve
+
+required_red_application_tests:
+  files:
+    - tests/application/022_a4_webhook_crypto_signing.contract.test.mjs
+    - tests/application/023_a4_webhook_policy_retry.contract.test.mjs
+    - tests/application/024_a4_webhook_database_store.contract.test.mjs
+    - tests/application/025_a4_webhook_delivery_service.contract.test.mjs
+    - tests/application/026_a4_worker_runtime_wiring.contract.test.mjs
+  assertions:
+    - AES-GCM valid vector decrypts and any nonce/tag/ciphertext/AAD mutation fails closed
+    - undersized/malformed worker encryption key fails without leaking value
+    - canonical body bytes are deterministic
+    - exact HMAC vector matches frozen signature input
+    - signature verification uses constant-time comparison and replay window
+    - retries keep event/delivery/body identity but refresh timestamp/signature
+    - strict URL policy rejects private/loopback/link-local/CGNAT/IPv6-ULA and credentials/fragments
+    - redirects are never followed
+    - transport invokes one network attempt only
+    - status/network classification matches exact table
+    - retry delay/jitter vector is deterministic and bounded
+    - 429 Retry-After handling is bounded
+    - DB adapter invokes only composed claim/resolve routines
+    - malformed DB projection is sanitized/fail-closed
+    - secret plaintext/ciphertext/signature never appears in thrown errors/log payloads
+    - worker runtime composes webhook service but does not weaken A3 paid evidence
+
+real_runtime_acceptance:
+  file: tests/application/027_a4_real_runtime_acceptance.sh
+  database: isolated_local_postgresql
+  identities:
+    worker: swiftpay_worker_runtime
+    api: swiftpay_api_runtime_where_observation_needed
+  merchant_endpoint:
+    deterministic_local_http_server: true
+    reached_only_through_injected_test_endpoint_policy: true
+  scenario:
+    - create one durable payment.paid event/delivery/job with TEST-ONLY endpoint and encrypted secret
+    - start two independent webhook worker claimers against one database
+    - prove exactly one owns the first valid lease and one HTTP request is observed for that claim
+    - verify exact event/delivery/timestamp/signature headers and body at receiver
+    - return retryable failure on first observed request
+    - prove Job and Delivery reschedule together with deterministic due policy
+    - retry and return 204
+    - prove Delivery succeeded and Job completed
+    - prove stable event/delivery/body identity across attempts
+    - prove a stale first lease cannot overwrite final success
+    - prove no Payment/Ledger/balance/provider state changed because of delivery execution
+    - prove no secret/plaintext/signature appears in worker logs
+  no_live_psp: true
+
+acceptance_gate:
+  before_green:
+    - problem analysis committed
+    - this YAML spec committed and frozen
+    - database RED contracts fail only for missing A4 behavior
+    - application/runtime RED contracts fail only for missing A4 behavior
+  before_done:
+    - clean database migration chain GREEN
+    - all pgTAP contracts GREEN
+    - K5 and K6 remain GREEN
+    - all application contracts GREEN
+    - K7/A1/A2/A3 real acceptance remains GREEN
+    - A4 deterministic two-worker retry/success acceptance GREEN
+    - hosted Supabase DDL synchronized if A4 requires migration
+    - hosted ACL/advisor verification GREEN
+    - evidence report committed
+    - TODOS/readiness/PR updated
+
+forbidden_shortcuts:
+  - no direct webhook table DML from worker application code
+  - no generic claim_jobs scheduling in A4 runtime
+  - no plaintext signing secrets in database/job payload/logs
+  - no environment switch that disables production SSRF policy
+  - no automatic redirect following
+  - no hidden fetch/HTTP retries
+  - no exactly-once network-delivery claim
+  - no financial/domain mutation based on merchant HTTP response
+  - no live provider integration in A4

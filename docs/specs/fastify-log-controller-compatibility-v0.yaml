@@ -1,0 +1,107 @@
+schemaVersion: a19-fastify-log-controller-compatibility-v0
+status: frozen_for_tdd
+phase: 7
+scope:
+  runtime: apps/api
+  framework: fastify@5.11.0
+  databaseChanges: false
+  providerChanges: false
+  financialChanges: false
+  publicRouteChanges: false
+
+feature: Fastify LogController compatibility
+
+objectives:
+  - Remove the FSTDEP023 deprecated top-level request-logging option from API construction.
+  - Preserve A12 as the sole SwiftPay safe structured HTTP logging authority.
+  - Preserve A13 metrics, request correlation and every existing public API behavior.
+  - Keep the change compatible with the Fastify 6 removal path without upgrading Fastify in this slice.
+
+nonGoals:
+  - Upgrading Fastify or any dependency.
+  - Enabling Fastify or Pino logging.
+  - Replacing @swiftpay/observability.
+  - Changing log event schemas, levels, sinks or redaction.
+  - Changing metrics, routes, authentication, admission, provider or monetary behavior.
+  - Suppressing Node or Fastify warnings.
+
+currentContract:
+  fastifyVersion: 5.11.0
+  logger: false
+  requestIdHeader: false
+  requestIdGenerator: server_owned_uuid_v4
+  deprecatedOption:
+    name: disableRequestLogging
+    value: true
+    location: top_level_fastify_options
+    warning: FSTDEP023
+
+requiredContract:
+  import:
+    symbol: LogController
+    package: fastify
+  fastifyOptions:
+    logger: false
+    requestIdHeader: false
+    genReqId: preserved
+    logController:
+      instanceOf: LogController
+      constructorOptions:
+        disableRequestLogging: true
+  forbidden:
+    - top_level_disableRequestLogging
+    - logger_true_or_logger_instance
+    - LogController_subclass
+    - LogController_method_override
+    - NODE_NO_WARNINGS
+    - no_deprecation_flag
+    - throw_warning_filter_or_FSTDEP023_filter
+
+behavioralInvariants:
+  - A12 emits exactly one SwiftPay http_request_completed event per completed request.
+  - A12 logs matched route templates only and uses <unmatched> for unknown routes.
+  - Caller x-request-id never becomes request authority.
+  - Response x-request-id remains the server-owned UUIDv4 request id.
+  - A13 HTTP metrics remain unchanged.
+  - Fastify/Pino logging remains disabled.
+  - Observability failure remains non-authoritative for HTTP/domain behavior.
+  - No provider or financial side effect is introduced.
+
+requirements:
+  - id: A19-R1
+    statement: API construction contains no top-level disableRequestLogging option.
+  - id: A19-R2
+    statement: API construction passes a stock Fastify LogController configured with disableRequestLogging true through logController.
+  - id: A19-R3
+    statement: A19 does not enable Fastify/Pino logging or introduce a second logger authority.
+  - id: A19-R4
+    statement: Constructing and closing buildApp in an isolated Node process emits no FSTDEP023 warning.
+  - id: A19-R5
+    statement: A12 request correlation and completion-log contracts remain byte/field compatible.
+  - id: A19-R6
+    statement: A13 metrics and all existing application contracts remain GREEN.
+  - id: A19-R7
+    statement: A19 changes no database, provider, worker or financial authority.
+
+acceptanceCriteria:
+  - Source imports LogController from fastify.
+  - Fastify receives logController backed by a stock LogController with disableRequestLogging true.
+  - Source contains no top-level disableRequestLogging property in the Fastify options object.
+  - Source contains no warning suppression for FSTDEP023 or Node deprecations.
+  - An isolated child process can construct and close buildApp successfully and its stderr contains no FSTDEP023 or deprecated disableRequestLogging warning.
+  - Existing A12 correlation and safe completion logging tests pass unchanged.
+  - Existing A13 metrics tests pass unchanged.
+  - Full application typecheck, build and contract suite are GREEN.
+  - Database workflow remains unchanged and GREEN.
+  - Hosted Supabase receives no A19 migration.
+
+edgeCases:
+  - unmatched 404 route
+  - caller supplies x-request-id
+  - runtimeLogger throws
+  - logger remains disabled
+  - Fastify emits an unrelated future warning
+
+implementationAuthorityAfterFreeze:
+  nextStep: contract_then_fail_first_tests
+  implementationBeforeRed: forbidden

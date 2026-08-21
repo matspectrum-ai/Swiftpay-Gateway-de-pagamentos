@@ -1,0 +1,164 @@
+feature: dashboard_merchant_membership_authorization_v0
+status: frozen_for_tdd
+phase: 2
+slice: K3
+
+problem:
+  statement: >-
+    Supabase Auth establishes dashboard-user identity, but SwiftPay still needs one
+    canonical, immediately revocable merchant-membership authorization boundary.
+    Authorization must not trust user-editable metadata, stale membership claims,
+    client-supplied merchant context, or merchant lifecycle/KYC state as substitutes
+    for membership.
+  risks:
+    - cross-merchant access from a client-supplied merchant_id
+    - disabled membership remaining effective through stale JWT claims
+    - anonymous Auth users being treated as dashboard identities because they use the authenticated Postgres role
+    - user-editable raw_user_meta_data being interpreted as a role or merchant grant
+    - duplicating membership truth into JWT/app metadata
+    - conflating dashboard membership with merchant financial capability
+
+objectives:
+  - use auth.users.id as the canonical dashboard identity anchor
+  - use app.merchant_members as the sole merchant-membership and merchant-role source of truth
+  - make membership disablement effective on the next authorization check without waiting for JWT refresh
+  - define one deterministic role hierarchy for trusted-server authorization
+  - keep K3 private and callable only by a future explicitly granted trusted backend role
+  - preserve merchant lifecycle/KYC/financial capability as separate authorization gates
+
+non_goals:
+  - browser or Data API access to app.merchant_members
+  - merchant invitation/member-management workflows
+  - Supabase Auth sign-up/login UI or provider configuration
+  - MFA/step-up policy for sensitive operations
+  - merchant lifecycle or KYC capability checks
+  - trusted API/worker database role creation or session tenant context; that is K4
+  - exposed merchant read/write models or RLS policies
+  - embedding merchant membership arrays or roles into JWT claims
+
+sources_of_truth:
+  identity: auth.users.id
+  membership: app.merchant_members
+  merchant_financial_capability: separate merchant_lifecycle_and_kyc_contract
+
+requirements:
+  - id: K3-R1
+    statement: >-
+      app.merchant_members.user_id must remain foreign-key-bound to auth.users.id.
+  - id: K3-R2
+    statement: >-
+      A dashboard identity is eligible for merchant authorization only when the
+      referenced auth.users row exists, is not anonymous, and is not soft-deleted.
+  - id: K3-R3
+    statement: >-
+      Authorization requires an app.merchant_members row for the exact
+      (merchant_id, user_id) pair with status = active.
+  - id: K3-R4
+    statement: >-
+      Membership role hierarchy is owner > admin > member. Requiring member accepts
+      member/admin/owner; requiring admin accepts admin/owner; requiring owner accepts owner only.
+  - id: K3-R5
+    statement: >-
+      app.require_merchant_membership(user_id, merchant_id, required_role) returns
+      the caller's actual active membership role when authorized.
+  - id: K3-R6
+    statement: >-
+      Missing identity, anonymous identity, soft-deleted identity, missing membership,
+      disabled membership, foreign-merchant membership, or insufficient role fails
+      closed with SQLSTATE 42501 and does not reveal which prerequisite failed.
+  - id: K3-R7
+    statement: >-
+      Null user/merchant arguments or a required_role outside member/admin/owner are
+      invalid requests and fail with SQLSTATE 23514.
+  - id: K3-R8
+    statement: >-
+      Authorization reads membership state at execution time. It must not read
+      raw_user_meta_data or raw_app_meta_data for merchant/role authorization and
+      must not depend on JWT-contained membership claims.
+  - id: K3-R9
+    statement: >-
+      Merchant lifecycle status and KYC status do not affect K3 membership authorization.
+      A suspended/draft merchant can still have authorized dashboard members; separate
+      financial capability gates decide money-moving permissions.
+  - id: K3-R10
+    statement: >-
+      The authorization helper is SECURITY DEFINER only to read private membership/Auth
+      state without granting callers table access. It must live in non-exposed app,
+      use a fixed search_path, and be explicitly revoked from PUBLIC, anon,
+      authenticated, and service_role.
+  - id: K3-R11
+    statement: >-
+      K3 grants no direct app schema/table access and no positive function EXECUTE to
+      browser/Data API/service roles. K4 will define the trusted backend role and
+      positive execution grants.
+  - id: K3-R12
+    statement: >-
+      Authorization checks are read-only: no audit row, domain mutation, financial
+      posting, job, webhook, or Auth mutation occurs merely because access was checked.
+
+contracts:
+  function:
+    name: app.require_merchant_membership
+    arguments:
+      - p_user_id: uuid
+      - p_merchant_id: uuid
+      - p_required_role: text
+    returns: text
+    return_value: actual_active_membership_role
+    security: SECURITY DEFINER
+    search_path: pg_catalog, app, auth
+    positive_grants: deferred_to_K4
+  role_hierarchy:
+    owner: 3
+    admin: 2
+    member: 1
+  authorization_failure_sqlstate: '42501'
+  invalid_request_sqlstate: '23514'
+
+acceptance_criteria:
+  - active member satisfies required member and returns member
+  - active admin satisfies required member/admin and returns admin
+  - active owner satisfies required member/admin/owner and returns owner
+  - active member cannot satisfy admin or owner
+  - active admin cannot satisfy owner
+  - disabled membership is denied immediately on the next check
+  - membership in merchant A cannot authorize merchant B
+  - fake merchant/role values in raw_user_meta_data cannot authorize access
+  - fake merchant/role values in raw_app_meta_data cannot authorize access without canonical membership
+  - anonymous Auth user with a membership row is denied
+  - soft-deleted Auth user with a membership row is denied
+  - suspended or draft merchant membership can still authorize dashboard membership
+  - invalid required role fails with 23514
+  - null user or merchant fails with 23514
+  - helper remains inaccessible to PUBLIC/anon/authenticated/service_role
+  - direct app ACL hardening from J1 remains unchanged
+  - authorization check has zero audit/domain/ledger/job/webhook side effects
+
+edge_cases:
+  - user has active memberships in multiple merchants; authorization remains exact-merchant scoped
+  - membership changes role between checks; next check uses current database role
+  - membership status changes active to disabled between checks; next check denies
+  - auth user exists but has no membership; denial is indistinguishable from other authorization failures
+  - merchant is suspended or draft; dashboard membership still resolves, while financial gates remain separate
+
+security_notes:
+  - raw_user_meta_data is user-editable and never an authorization source
+  - raw_app_meta_data is not used as membership truth because JWT copies can be stale until refresh
+  - anonymous Supabase Auth users use the authenticated Postgres role; K3 explicitly rejects them as dashboard identities
+  - no client-supplied merchant_id is trusted by itself; a verified user identity must pass this exact membership check
+  - K4 must bind trusted backend execution to the authenticated subject before granting positive function access
+
+test_strategy:
+  structural_red:
+    - frozen helper signature absent before K3 migration
+    - helper must be SECURITY DEFINER with fixed search_path
+    - helper EXECUTE absent for PUBLIC/anon/authenticated/service_role
+  behavioral_red_green:
+    - role hierarchy matrix
+    - disabled and cross-merchant denial
+    - anonymous and soft-deleted identity denial
+    - metadata spoof resistance
+    - lifecycle/KYC separation
+    - invalid input SQLSTATEs
+    - immediate role/status change effect
+    - zero side effects

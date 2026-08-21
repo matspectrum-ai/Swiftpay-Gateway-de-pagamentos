@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly LOCAL_DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+
+if ! command -v psql >/dev/null 2>&1; then
+  echo 'psql is required to provision local SwiftPay runtime identities.' >&2
+  exit 127
+fi
+
+# Deliberately fixed to the loopback Supabase database. Production credentials
+# and managed URLs are never accepted by this K6 test helper.
+psql "${LOCAL_DB_URL}" --set=ON_ERROR_STOP=1 <<'SQL'
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'swiftpay_api_runtime') then
+    create role swiftpay_api_runtime
+      login inherit
+      nosuperuser nocreatedb nocreaterole noreplication nobypassrls
+      password 'local_api_runtime_only';
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'swiftpay_api_runtime'
+      and (not rolcanlogin or not rolinherit or rolsuper or rolcreatedb or rolcreaterole or rolreplication or rolbypassrls)
+  ) then
+    raise exception 'existing swiftpay_api_runtime has unsafe role attributes';
+  end if;
+
+  if not exists (select 1 from pg_roles where rolname = 'swiftpay_worker_runtime') then
+    create role swiftpay_worker_runtime
+      login inherit
+      nosuperuser nocreatedb nocreaterole noreplication nobypassrls
+      password 'local_worker_runtime_only';
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'swiftpay_worker_runtime'
+      and (not rolcanlogin or not rolinherit or rolsuper or rolcreatedb or rolcreaterole or rolreplication or rolbypassrls)
+  ) then
+    raise exception 'existing swiftpay_worker_runtime has unsafe role attributes';
+  end if;
+end
+$$;
+
+revoke swiftpay_worker from swiftpay_api_runtime;
+revoke swiftpay_api from swiftpay_worker_runtime;
+grant swiftpay_api to swiftpay_api_runtime;
+grant swiftpay_worker to swiftpay_worker_runtime;
+
+-- Runtime LOGIN roles never receive direct app-object privileges. Their entire
+-- usable capability surface comes through the K4 NOLOGIN group roles.
+revoke all on schema app from swiftpay_api_runtime, swiftpay_worker_runtime;
+revoke all on all tables in schema app from swiftpay_api_runtime, swiftpay_worker_runtime;
+revoke all on all sequences in schema app from swiftpay_api_runtime, swiftpay_worker_runtime;
+revoke all on all routines in schema app from swiftpay_api_runtime, swiftpay_worker_runtime;
+SQL

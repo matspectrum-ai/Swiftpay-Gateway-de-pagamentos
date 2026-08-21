@@ -1,0 +1,114 @@
+feature: payout_execution_claim_v0
+status: specified_before_tests
+objective:
+  - Preserve one stable provider execution identity before any monetary Pix-out POST.
+  - Make authorization to execute explicit and non-reclaimable after possible transmission.
+  - Capture the immutable routing and provider economics data required for later payout resolution.
+  - Prevent worker concurrency or lease expiry from creating a blind second monetary POST.
+
+scope:
+  included:
+    - payout routing-policy snapshot
+    - payout-attempt execution metadata
+    - prepare payout provider attempt
+    - one-time execution claim with fencing token
+    - requested_to_processing transition on execution claim
+  excluded:
+    - provider HTTP execution
+    - payout completed/failed/execution_unknown resolution
+    - AkkadPag-specific request/response mapping
+    - production capability authorization
+    - retry policy after definitive provider non-execution proof
+
+requirements:
+  - id: PAYOUT-EXEC-001
+    statement: Every Payout must persist a non-empty routing_policy_version snapshot at reservation time.
+  - id: PAYOUT-EXEC-002
+    statement: A payout provider attempt must persist request_fingerprint, provider_status_raw, provider_cost_cents, execution_token, lease_expires_at, started_at, finished_at, last_error_class and last_error_code.
+  - id: PAYOUT-EXEC-003
+    statement: provider_cost_cents is nullable until authoritative cost is known and, when present, must be non-negative integer cents.
+  - id: PAYOUT-EXEC-004
+    statement: Preparing an attempt must lock the Payout and must not perform or imply external execution.
+  - id: PAYOUT-EXEC-005
+    statement: One unresolved payout attempt per Payout remains database-enforced.
+  - id: PAYOUT-EXEC-006
+    statement: Replaying prepare with the same provider account, client reference and request fingerprint returns the same attempt identity.
+  - id: PAYOUT-EXEC-007
+    statement: Reusing the same client reference with a different request fingerprint is a deterministic conflict.
+  - id: PAYOUT-EXEC-008
+    statement: Claiming a prepared attempt generates a fresh execution_token, sets a finite lease_expires_at, marks the attempt executing and moves Payout requested to processing in one transaction.
+  - id: PAYOUT-EXEC-009
+    statement: An attempt that is already executing, processing, execution_unknown, succeeded or definitively_failed cannot receive a second execute authorization.
+  - id: PAYOUT-EXEC-010
+    statement: Lease expiry alone never changes an executing attempt back to prepared and never authorizes another provider POST.
+  - id: PAYOUT-EXEC-011
+    statement: Provider and provider-account environment/scope must match the Payout execution environment.
+  - id: PAYOUT-EXEC-012
+    statement: Browser, anon, authenticated and service_role roles cannot invoke the execution-claim database functions directly.
+
+contracts:
+  reserve_payout:
+    arguments:
+      - { name: merchant_id, type: uuid, nullable: false }
+      - { name: environment, type: "sandbox|production", nullable: false }
+      - { name: currency, type: "BRL", nullable: false }
+      - { name: amount_cents, type: bigint_positive, nullable: false }
+      - { name: merchant_fee_cents, type: bigint_non_negative, nullable: false }
+      - { name: destination_snapshot, type: json_object, nullable: false }
+      - { name: routing_policy_version, type: non_empty_text, nullable: false }
+      - { name: idempotency_key, type: non_empty_text, nullable: false }
+      - { name: request_fingerprint, type: non_empty_text, nullable: false }
+      - { name: requested_at, type: timestamptz, nullable: false }
+    returns: payout_id_uuid
+  prepare_payout_attempt:
+    arguments:
+      - { name: payout_id, type: uuid, nullable: false }
+      - { name: provider_id, type: uuid, nullable: false }
+      - { name: provider_account_id, type: uuid, nullable: false }
+      - { name: client_reference, type: non_empty_text, nullable: false }
+      - { name: request_fingerprint, type: non_empty_text, nullable: false }
+      - { name: prepared_at, type: timestamptz, nullable: false }
+    returns: payout_attempt_id_uuid
+  claim_payout_attempt:
+    arguments:
+      - { name: payout_attempt_id, type: uuid, nullable: false }
+      - { name: lease_expires_at, type: timestamptz_future, nullable: false }
+      - { name: claimed_at, type: timestamptz, nullable: false }
+    returns: execution_token_uuid
+
+acceptance_criteria:
+  - A reserved payout contains a routing_policy_version snapshot.
+  - Preparing the same logical attempt twice yields one row and one identity.
+  - A conflicting provider request fingerprint is rejected.
+  - Two workers cannot both receive execute authorization for one payout attempt.
+  - First claim atomically produces attempt.executing and payout.processing.
+  - A second claim is rejected even if the first lease is expired.
+  - No claim function invokes HTTP or creates a new provider attempt after possible transmission.
+
+edge_cases:
+  - same_idempotency_key_different_routing_policy: conflict_via_request_fingerprint
+  - provider_account_wrong_environment: reject_before_claim
+  - provider_account_wrong_provider: reject_before_claim
+  - zero_or_negative_provider_cost: zero_allowed_negative_rejected
+  - claim_with_non_future_lease: reject
+  - claim_after_execution_unknown: reject_execute_authorization
+  - claim_after_terminal_attempt: reject_execute_authorization
+  - second_unresolved_attempt: unique_constraint_rejects
+
+observability:
+  durable_fields:
+    - payout_id
+    - payout_attempt_id
+    - provider_id
+    - provider_account_id
+    - client_reference
+    - request_fingerprint
+    - attempt_number
+    - state
+    - execution_token
+    - lease_expires_at
+    - started_at
+    - finished_at
+    - last_error_class
+    - last_error_code
+  note: HTTP/provider latency and transport metrics belong to the trusted worker, not the database claim function.

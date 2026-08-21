@@ -1,0 +1,214 @@
+schemaVersion: a18-abuse-subject-hmac-key-rotation-v0
+status: frozen_for_tdd
+phase: 7
+scope:
+  package: packages/abuse
+  dbPackage: packages/db
+  runtime: apps/api
+  databaseChanges: true
+  providerChanges: false
+  financialChanges: false
+  publicRouteChanges: false
+
+objectives:
+  - Rotate the A14 abuse-subject HMAC authority without resetting effective quota state.
+  - Preserve A14 privacy by keeping only opaque HMAC-SHA256 pseudonyms in PostgreSQL.
+  - Preserve quota correctness under concurrent requests and mixed A14/A18 API replicas.
+  - Use one atomic PostgreSQL quota decision for the active pseudonym and optional previous pseudonym.
+  - Keep A14 policy names, limits, 60-second windows, HTTP behavior and fail-closed semantics unchanged.
+
+nonGoals:
+  - Changing A14 limits or trusted-proxy behavior.
+  - Persisting raw IP, merchant, environment or other re-hashable subject material.
+  - General secret management or unbounded keyrings.
+  - A15 access-token, A16 cursor or A17 webhook-key changes.
+  - Provider, payment, ledger, payout, refund or reconciliation authority.
+
+configuration:
+  activeKeyEnv: SWIFTPAY_ABUSE_HMAC_KEY
+  previousKeyEnv: SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY
+  minSecretUtf8Bytes: 32
+  previousKeyRequired: false
+  constraints:
+    - active key remains required for API runtime
+    - previous key when present contains at least 32 UTF-8 bytes
+    - previous key must not equal active key
+    - worker receives neither new authority nor new configuration
+    - malformed authority fails startup without secret echo
+  keyIds: not_required_v0
+  rationale: subject hashes are server-internal pseudonyms and carry no serialized kid
+
+subjectDerivation:
+  primitive: HMAC-SHA256
+  encoding: lowercase_hex_64
+  namespace: a14v0
+  active: derived with SWIFTPAY_ABUSE_HMAC_KEY
+  previous: derived with SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY only when configured
+  canonicalInputs: unchanged_from_A14
+  callerKeySelection: forbidden
+  rawSubjectToDatabase: forbidden
+
+applicationContract:
+  AbuseQuotaStoreConsumeInput:
+    fields:
+      policy: AbusePolicy
+      activeSubjectHash: lowercase_hex_64
+      previousSubjectHash: optional_lowercase_hex_64
+  createApiAbuseControlsOptions:
+    fields:
+      trustedProxyIps: readonly_string_array
+      hmacKey: string
+      previousHmacKey: optional_string
+  behavior:
+    - derive active hash for every controlled admission
+    - derive exactly one previous hash only when previousHmacKey is configured
+    - reject duplicate active/previous key authority at construction
+    - invoke the quota store exactly once per admission
+    - never expose either hash in logs, metrics, HTTP or persisted business state
+    - preserve all A14 route ordering and public failures
+
+postgresContract:
+  table: app.api_abuse_windows
+  schemaChange: none
+  primaryKey: [policy, subject_hash]
+  rawIdentityColumns: forbidden
+  trustedApiFunction:
+    name: app.consume_api_abuse_quota
+    newSignature:
+      - p_policy text
+      - p_active_subject_hash text
+      - p_previous_subject_hash text default null
+    backwardCompatibility:
+      oldTwoArgumentInvocation: required
+      reason: A14 replicas must continue to execute during rolling deployment
+    security:
+      language: plpgsql
+      volatility: volatile
+      securityDefiner: true
+      fixedSearchPath: true
+      executeAllowlist: [swiftpay_api]
+      executeDenied: [PUBLIC, anon, authenticated, service_role, swiftpay_worker]
+    validation:
+      activeHash: exact_lowercase_64_hex
+      previousHash: null_or_exact_lowercase_64_hex
+      duplicateHashes: rejected
+      policy: existing_A14_closed_set
+    locking:
+      aliases: one_or_two
+      order: lexicographic_subject_hash_ascending
+      requirement: all supplied rows locked before decision
+      missingRowPlaceholder:
+        requestCount: 0
+        windowStartedAt: now_minus_60_seconds
+        rationale: missing alias must not move an existing live window start forward before reconciliation
+    atomicReconciliation:
+      liveAliasDefinition: now < window_started_at + 60_seconds
+      whenNoLiveAlias:
+        canonicalWindowStartedAt: now
+        canonicalRequestCountBeforeConsume: 0
+      whenAnyLiveAlias:
+        canonicalWindowStartedAt: latest_live_window_started_at
+        canonicalRequestCountBeforeConsume: maximum_live_request_count
+        rationale: synthetic state must be no more permissive than any supplied live alias
+      allowedWhen: canonicalRequestCountBeforeConsume < policy_limit
+      onAllowed:
+        canonicalRequestCountAfterConsume: canonicalRequestCountBeforeConsume + 1
+        remaining: policy_limit_minus_canonicalRequestCountAfterConsume
+        retryAfterSeconds: 0
+      onDenied:
+        canonicalRequestCountAfterConsume: canonicalRequestCountBeforeConsume
+        remaining: 0
+        retryAfterSeconds: ceil_seconds_until_canonical_window_end_bounded_1_60
+      persistence:
+        - write identical canonical window start and post-decision count to every supplied alias
+        - update updated_at for every supplied alias
+      pruning: preserve_A14_max_32_rows_older_than_24_hours
+    capabilityDelta:
+      finalSwiftpayApiExecute: no_net_change
+      swiftpayWorkerExecute: no_change
+      directTablePrivileges: no_change
+
+mixedDeploymentInvariant:
+  databaseFirst: >-
+    The backward-compatible three-argument function with default previous=NULL is deployed before any A18 API replica.
+  rollout:
+    oldReplica:
+      code: A14
+      activeKey: old_key
+      previousKey: unsupported
+    newReplica:
+      code: A18
+      activeKey: new_key
+      previousKey: old_key
+    forbidden:
+      - old A14 code running with the new active key while old-key quota windows may still be live
+      - any A18 replica running active-only while any old A14 replica can still serve requests
+  retirement:
+    preconditions:
+      - all A14 old-key-only replicas are drained and incapable of serving
+      - all serving replicas run A18 active+previous
+      - at least 60 seconds have elapsed after the last old-key-only replica became incapable of serving
+    action: remove SWIFTPAY_ABUSE_HMAC_PREVIOUS_KEY and redeploy A18 active-only
+    rationale: any old-only quota state is then either reconciled by a dual request or expired
+
+failureSemantics:
+  malformedConfig: startup_failure_without_secret_echo
+  malformedStoreInputOrResult: fail_closed
+  databaseFailure: request_admission_unavailable
+  public429And503Contracts: unchanged_from_A14
+  financialOrProviderSideEffectBeforeAdmission: forbidden
+
+requirements:
+  - id: A18-R1
+    statement: Replacing the active HMAC key never grants fresh quota solely because the pseudonym changed.
+  - id: A18-R2
+    statement: Active and optional previous pseudonyms are consumed by one atomic PostgreSQL decision.
+  - id: A18-R3
+    statement: Mixed A14/A18 replicas remain conservative when the deployment invariant is followed.
+  - id: A18-R4
+    statement: PostgreSQL never receives raw subject material or HMAC key material.
+  - id: A18-R5
+    statement: A18 keeps exactly one active key and at most one previous continuity key.
+  - id: A18-R6
+    statement: Asymmetric alias windows reconcile to latest live start plus maximum live count before one logical consume.
+  - id: A18-R7
+    statement: Concurrent dual-key consumers cannot exceed the existing A14 logical ceiling.
+  - id: A18-R8
+    statement: The existing two-argument RPC invocation remains executable during rollout through a defaulted third argument.
+  - id: A18-R9
+    statement: Final API/worker database capability counts do not widen because of A18.
+  - id: A18-R10
+    statement: A18 introduces no provider, payment, ledger or other monetary authority.
+
+acceptanceCriteria:
+  - Active-only A18 reproduces A14 admission behavior.
+  - Previous key is optional, bounded to one, secret-distinct from active and never caller-selected.
+  - Old exhausted plus new missing/fresh alias remains denied during overlap.
+  - Old partially consumed plus new missing/fresh alias cannot gain extra allowance.
+  - Two live aliases with different starts/counts reconcile conservatively using latest start and maximum count.
+  - An expired alias does not constrain a still-live alias; a missing alias does not reset or extend an existing live window before reconciliation.
+  - A denied dual-key decision synchronizes both supplied aliases to the same conservative state.
+  - Concurrent dual-key consumers across API instances cannot admit beyond the policy limit.
+  - Old two-argument callers and new three-argument callers can coexist against the migrated function.
+  - Previous-key retirement after the frozen drain-plus-60-seconds invariant needs no raw-subject migration.
+  - Runtime roles still have zero direct privileges on app.api_abuse_windows and worker gains no EXECUTE.
+  - A12/A13 output contains no raw subject, subject hash or HMAC key canary.
+  - Existing A1-A17 application/database/runtime acceptance remains GREEN.
+
+edgeCases:
+  - active and previous keys identical
+  - active and previous derived hashes identical
+  - malformed or uppercase hash input
+  - both aliases absent
+  - only previous alias live
+  - only active alias live
+  - both aliases live with different window starts and counts
+  - one alias exactly at the 60-second boundary
+  - one alias at limit while the other is below limit
+  - concurrent calls with reversed active/previous lexical order
+  - old two-argument call interleaved with new dual-key call
+  - limiter database failure during overlap
+
+implementationAuthorityAfterFreeze:
+  nextStep: contract_then_fail_first_tests
+  implementationBeforeRed: forbidden

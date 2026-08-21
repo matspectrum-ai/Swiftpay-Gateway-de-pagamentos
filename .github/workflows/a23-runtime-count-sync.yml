@@ -1,0 +1,57 @@
+name: A23 runtime count sync
+
+on:
+  push:
+    branches:
+      - agent/foundation-phase-0
+    paths:
+      - .github/workflows/a23-runtime-count-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Sync exact A23 allowlist in legacy structural contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('supabase/tests/database/028_trusted_runtime_database_boundary_schema.test.sql'),
+              Path('supabase/tests/database/034_paid_transition_ledger_balance_schema.test.sql'),
+          ]
+          additions = """               to_regprocedure('app.create_dashboard_payment_link(uuid,uuid,text,text,text,jsonb)')::oid,
+               to_regprocedure('app.disable_dashboard_payment_link(uuid,uuid,text,uuid,text,text,jsonb)')::oid,
+               to_regprocedure('app.get_public_payment_link(text)')::oid,
+               to_regprocedure('app.list_dashboard_payment_links(uuid,uuid,text)')::oid,
+               to_regprocedure('app.prepare_payment_link_pix_payment(text,text,text)')::oid,
+"""
+          for path in paths:
+              text = path.read_text()
+              old_count = "select count(*) = 25"
+              if text.count(old_count) != 1:
+                  raise SystemExit(f'{path}: expected exactly one 25-count block')
+              text = text.replace(old_count, "select count(*) = 30", 1)
+              old_abuse = "               to_regprocedure('app.consume_api_abuse_quota(text,text)')::oid"
+              if text.count(old_abuse) != 1:
+                  raise SystemExit(f'{path}: expected exactly one old abuse signature')
+              new_abuse = "               to_regprocedure('app.consume_api_abuse_quota(text,text,text)')::oid"
+              text = text.replace(old_abuse, new_abuse + ',\n' + additions.rstrip('\n'), 1)
+              text = text.replace('twenty-five-routine API allowlist', 'thirty-routine A23 API allowlist')
+              text = text.replace('exact A21 twenty-five-routine API allowlist', 'exact A23 thirty-routine API allowlist')
+              path.write_text(text)
+          PY
+      - name: Commit synchronized contracts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/tests/database/028_trusted_runtime_database_boundary_schema.test.sql supabase/tests/database/034_paid_transition_ledger_balance_schema.test.sql
+          git diff --cached --quiet && exit 0
+          git commit -m "test(a23): sync legacy exact runtime allowlists"
+          git push origin HEAD:agent/foundation-phase-0

@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/abuse" },
+    { "path": "../../packages/auth" },
+    { "path": "../../packages/config" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/metrics" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/payments" },
+    { "path": "../../packages/webhooks" }
+  ],
+  "include": ["src/**/*.ts"]
+}

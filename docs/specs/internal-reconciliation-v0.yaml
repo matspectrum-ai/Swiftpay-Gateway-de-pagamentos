@@ -1,0 +1,81 @@
+feature: internal_reconciliation_detection_v0
+status: frozen_for_tdd
+phase: 2
+slice: I1
+
+objectives:
+  - Rebuild internal accounting expectations from canonical SwiftPay domain and ledger state without mutating either.
+  - Detect missing required payout/refund postings, orphan/unexpected payout/refund postings, account-cache drift, and Payment refund-projection drift.
+  - Provide deterministic discrepancy identities suitable for later durable reconciliation runs and operator workflows.
+  - Preserve strict environment isolation and provider-independent merchant balance semantics.
+
+requirements:
+  read_only_boundary:
+    - Reconciliation detection MUST be implemented as read-only views/functions for this slice.
+    - Detection MUST NOT update Payments, Payouts, Refunds, accounts, ledger transactions, ledger entries, provider evidence, webhook state, or jobs.
+    - Automatic correction is out of scope and remains disabled.
+
+  account_cache_parity:
+    - Every row in app.accounts MUST participate in cache reconciliation.
+    - Expected account balance MUST be rebuilt from app.ledger_entries using the account normal_side.
+    - The surface MUST expose cached_balance_cents, rebuilt_balance_cents, delta_cents, and is_consistent.
+    - Accounts with zero entries MUST rebuild to zero.
+
+  expected_financial_postings:
+    - Every persisted Payout MUST require one reservation posting with source_type=payout and posting_type=reservation.
+    - A completed Payout MUST additionally require posting_type=completed.
+    - A failed Payout MUST additionally require posting_type=release_failure.
+    - Every persisted Refund MUST require one reservation posting with source_type=refund and posting_type=reservation.
+    - A completed Refund MUST additionally require posting_type=completed.
+    - A failed Refund MUST additionally require posting_type=release_failure.
+    - processing and execution_unknown resources MUST NOT require terminal postings.
+    - Expected-posting identity MUST be environment + source_type + source_id + posting_type.
+
+  posting_integrity:
+    - A required expected posting with no matching ledger transaction MUST be reported as missing_required_posting.
+    - A payout/refund ledger transaction whose source resource does not exist MUST be reported as orphan_posting.
+    - A payout/refund ledger transaction whose posting_type is not valid for the current canonical resource state MUST be reported as unexpected_posting.
+    - Existing database uniqueness remains the duplicate-posting prevention boundary; reconciliation MUST NOT weaken it.
+
+  refund_projection:
+    - For every Payment, rebuilt_refunded_amount_cents MUST equal SUM(amount_cents) of completed first-class Refund resources.
+    - Payment.collection_status MUST remain independent from refund projection.
+    - A difference between Payment.refunded_amount_cents and the rebuilt total MUST be reported as refund_projection_mismatch.
+
+  findings_surface:
+    - app.internal_reconciliation_findings MUST expose environment, discrepancy_type, stable_key, resource_type, resource_id, account_id, expected_cents, actual_cents, and detail.
+    - stable_key MUST be deterministic for the same logical discrepancy and MUST NOT depend on reconciliation run time.
+    - detail MUST contain operationally useful non-secret context only.
+    - Provider credentials, webhook secrets, KYC evidence bytes, destination ciphertext, and customer PII MUST NOT be copied into findings.
+
+  isolation:
+    - Sandbox and Production discrepancies MUST remain distinct.
+    - Merchant-owned account checks MUST remain provider-independent; provider routing MUST NOT create merchant balance buckets.
+
+acceptance_criteria:
+  - A fully consistent fixture produces zero internal reconciliation findings.
+  - Direct test tampering of an account cache is detected without altering the account or ledger.
+  - A canonical completed Refund/Payout missing its required terminal posting is detected.
+  - A payout/refund ledger posting with no canonical source resource is detected.
+  - An invalid terminal posting for a non-terminal canonical resource is detected as unexpected.
+  - Payment.refunded_amount_cents drift from completed Refund aggregation is detected.
+  - Every app.accounts row appears in the cache-parity surface.
+  - Re-running the same SELECTs yields the same stable_key values and no mutations.
+  - All prior pgTAP suites remain green.
+
+edge_cases:
+  - Account with no ledger entries.
+  - Payout in execution_unknown with reservation only.
+  - Refund in processing with reservation only.
+  - Two distinct equal-value completed Refund resources on one Payment.
+  - Terminal Payout/Refund with reservation present but terminal posting absent.
+  - Ledger posting references a UUID that has no Payout/Refund row.
+  - Resource exists in Sandbox while a similarly shaped posting exists in Production.
+  - Payment refunded projection is lower or higher than completed Refund aggregate.
+
+out_of_scope:
+  - Durable reconciliation run/discrepancy tables and operator lifecycle; planned for I2.
+  - Provider API/report/balance evidence and external settlement reconciliation; planned for I3.
+  - Financial corrections, compensating postings, approvals, or admin step-up.
+  - Payment paid-settlement reconstruction until the executable Payment settlement vertical slice exists.
+  - Hard-coded severity thresholds.

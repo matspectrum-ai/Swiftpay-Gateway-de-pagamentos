@@ -1,0 +1,105 @@
+feature: app-schema-access-control-v0
+status: frozen_for_tdd
+phase: 2
+slice: J1
+
+problem:
+  statement: >-
+    SwiftPay financial, compliance, provider and reconciliation state lives in the
+    private PostgreSQL schema app. The schema is intentionally absent from the
+    Supabase Data API exposed-schema list, but privacy must not depend only on
+    config.toml or on remembering to REVOKE every newly-created object manually.
+    PostgreSQL privileges and default privileges must make the boundary fail-closed.
+  current_state:
+    - app schema exists and its USAGE/CREATE privileges are already revoked from PUBLIC, anon, authenticated and service_role.
+    - existing migrations revoke table/function access individually in many places.
+    - PostgreSQL grants EXECUTE on newly-created functions to PUBLIC by default unless default privileges are changed.
+    - app is not listed in supabase/config.toml api.schemas.
+  risk: >-
+    A future migration can create a SECURITY DEFINER or other trusted routine in app
+    and accidentally leave an EXECUTE grant inherited from PUBLIC. Object-by-object
+    revocation is therefore insufficient as the only control.
+
+objectives:
+  - make the private app schema boundary fail-closed for future objects as well as current objects
+  - prove browser/API roles cannot use the app schema directly
+  - prove current app tables and routines carry no privileges for PUBLIC, anon, authenticated or service_role
+  - prove future app routines do not inherit PUBLIC/anon/authenticated/service_role EXECUTE
+  - prove future app tables and sequences do not inherit Data-API-role privileges
+  - keep positive trusted-backend authorization out of this slice until its dedicated role/tenant-context contract is frozen
+
+requirements:
+  data_api_boundary:
+    - supabase/config.toml MUST continue to exclude app from api.schemas
+    - app MUST remain a server-owned private schema
+    - this slice MUST NOT expose app through PostgREST or GraphQL
+  schema_acl:
+    denied_roles:
+      - PUBLIC
+      - anon
+      - authenticated
+      - service_role
+    rules:
+      - denied roles MUST NOT have USAGE on schema app
+      - denied roles MUST NOT have CREATE on schema app
+  existing_object_acl:
+    tables:
+      - denied roles MUST NOT have SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES or TRIGGER on app tables
+    sequences:
+      - denied roles MUST NOT have USAGE, SELECT or UPDATE on app sequences
+    routines:
+      - denied roles MUST NOT have EXECUTE on app functions/procedures
+  default_acl:
+    owner: postgres
+    schema: app
+    rules:
+      - future tables MUST NOT inherit privileges for anon, authenticated or service_role
+      - future sequences MUST NOT inherit privileges for anon, authenticated or service_role
+      - future routines MUST NOT inherit EXECUTE for PUBLIC, anon, authenticated or service_role
+      - explicit positive grants in future migrations remain possible only when a later contract requires them
+  security_definer:
+    - SECURITY DEFINER MUST NOT be used as a workaround for browser/API permission errors
+    - every trusted SECURITY DEFINER routine MUST remain unreachable to denied roles unless a later explicit trusted-RPC contract says otherwise
+    - routine search_path MUST remain pinned rather than caller-controlled
+  service_role:
+    - service_role MUST remain denied direct app access in V1
+    - trusted SwiftPay API/worker access will use a separately specified server-side database boundary rather than browser-visible service_role credentials
+  rls_scope:
+    - RLS policies for future merchant-facing exposed tables are OUT OF SCOPE here
+    - absence of RLS on the private app schema does not authorize exposing it
+    - any future table placed in an exposed schema MUST have its own RLS/grant contract before use
+
+acceptance_criteria:
+  - pgTAP proves PUBLIC, anon, authenticated and service_role lack USAGE and CREATE on app
+  - pgTAP proves denied roles have no privileges on all current app tables
+  - pgTAP proves denied roles have no EXECUTE privilege on all current app routines
+  - pgTAP creates a transactional probe table in app and proves Data API roles receive no inherited table privileges
+  - pgTAP creates a transactional probe sequence in app and proves Data API roles receive no inherited sequence privileges
+  - pgTAP creates a transactional probe function in app and proves PUBLIC/anon/authenticated/service_role receive no inherited EXECUTE privilege
+  - probe objects are rolled back with the test transaction
+  - no merchant/domain/ledger state changes are introduced by this slice
+  - existing 001-020 database-contract suites remain green
+
+edge_cases:
+  - a routine explicitly revoked today must not become callable merely because a future replacement recreates it
+  - PUBLIC privilege inheritance must be tested separately from explicit anon/authenticated/service_role ACL entries
+  - service_role RLS bypass capability must not be mistaken for authorization to the private app schema
+  - schema-level denial and object-level denial are separate controls and both remain asserted
+  - a future exposed schema must not copy this private-schema model without its own RLS policy contract
+
+out_of_scope:
+  - merchant-facing public/API read models
+  - Supabase Auth session-to-merchant authorization policies
+  - positive grants for a dedicated SwiftPay backend database role
+  - transaction-local tenant context
+  - admin step-up/approval authorization
+  - KYC Storage bucket policies
+  - application HTTP authentication
+  - provider adapter authentication
+
+implementation_constraints:
+  - use PostgreSQL GRANT/REVOKE/default-ACL primitives; do not add application-side permission shims
+  - do not weaken the existing app-schema revocations
+  - do not grant app privileges to service_role
+  - do not expose secrets or credentials through test fixtures
+  - migration must be additive and safe for already-created app objects

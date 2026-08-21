@@ -1,0 +1,623 @@
+feature: paid-transition-ledger-balance-v0
+status: frozen_for_tdd
+phase: 3
+
+problem:
+  statement: >-
+    A2 can authenticate a merchant machine client and create/retrieve one durable
+    sandbox Pix Payment through a deterministic provider emulator. The Payment
+    stops at pending and creates no financial effect. SwiftPay therefore still
+    lacks the first canonical money-state transition: authoritative paid evidence
+    must move an eligible Payment to paid exactly once, post the corresponding
+    double-entry ledger transaction atomically, create a durable merchant
+    payment.paid event, and expose unambiguous merchant balance semantics without
+    giving the merchant API authority to fabricate settlement evidence.
+  observed_gaps:
+    - A2 has no paid-evidence application boundary.
+    - Payment pending does not create ledger effects or merchant funds.
+    - provider_events exists but A2 intentionally creates no provider event.
+    - The A2 Payment projection does not currently expose paid as a public status.
+    - The A2 Payment projection exposes Pix data only while pending and would lose it after paid.
+    - The ledger primitives exist but trusted API/worker roles cannot execute them directly.
+    - No narrow trusted merchant balance read routine or GET /v1/balance runtime route exists.
+    - Payment has no immutable settlement-policy snapshot even though ledger posting destination depends on settlement policy.
+    - A2 emulator provider cost remains null until paid evidence makes a sandbox cost authoritative.
+    - Merchant webhook persistence exists but no canonical payment.paid event is produced yet.
+
+source_of_truth:
+  contracts:
+    - docs/contracts/payment-and-provider-attempt.md
+    - docs/contracts/ledger-and-balance.md
+    - docs/contracts/financial-invariants.md
+    - docs/contracts/fees-and-rounding.md
+    - docs/contracts/native-pix-provider-adapter.md
+    - docs/contracts/merchant-webhooks.md
+    - docs/contracts/public-api.md
+    - docs/contracts/sandbox.md
+  legacy_evidence:
+    - docs/reverse-engineering/public-gateway-api.md
+    - docs/reverse-engineering/financial-calculation.md
+    - docs/reverse-engineering/financial-ledger.md
+  predecessor:
+    - docs/specs/pix-create-get-emulator-v0.yaml
+  existing_schema:
+    - supabase/migrations/20260814010000_payment_idempotency_and_provider_events.sql
+    - supabase/migrations/20260814014500_ledger_foundation.sql
+    - supabase/migrations/20260814020500_jobs_foundation.sql
+    - supabase/migrations/20260814022000_merchant_webhook_persistence.sql
+    - supabase/migrations/20260815101512_pix_create_get_emulator_foundation.sql
+    - supabase/migrations/20260815101609_pix_create_get_emulator_behavior.sql
+    - supabase/migrations/20260815101641_pix_create_get_emulator_prepare_key_count_fix.sql
+    - supabase/migrations/20260815101729_pix_create_get_emulator_resolve_coalesce_fix.sql
+
+precedence_rule:
+  - >-
+    Where the older general financial-invariants document still labels the exact
+    chart of accounts as open, the later and more specific ledger-and-balance
+    contract governs A3. Its first-release account types and posting vocabulary
+    already match the physical ledger schema.
+
+objectives:
+  - Accept one explicit, stable sandbox-simulator paid-evidence identity through a trusted non-merchant capability.
+  - Persist/claim a ProviderEvent identity before applying a financial transition.
+  - Allow authoritative sandbox paid evidence to transition Payment pending -> paid exactly once.
+  - Allow late authoritative sandbox paid evidence to transition Payment expired -> paid exactly once.
+  - Absorb paid -> paid duplicate/distinct consistent evidence without a second ledger posting.
+  - Reject unsupported creating/failed/cancelled -> paid transitions in this v0 simulator slice.
+  - Require exact payment amount evidence and an explicit authoritative provider cost in integer BRL centavos.
+  - Freeze sandbox emulator provider cost to zero in the runtime simulator adapter while keeping the database command generic over a validated nonnegative cost.
+  - Post the first-release payment settlement transaction atomically with Payment paid state.
+  - Credit merchant_pending_liability, not merchant_available_liability, in A3 v0.
+  - Persist the settlement policy version used by A3 so later release behavior cannot reinterpret history.
+  - Create one durable logical merchant payment.paid WebhookEvent in the same PostgreSQL transaction.
+  - Reuse existing webhook fanout/job persistence without implementing HTTP delivery in A3.
+  - Expose authenticated GET /v1/balance with explicit V2 balance buckets.
+  - Preserve K6 least privilege: no raw ledger/webhook/table capability is granted to API or worker roles.
+  - Keep all live PSP ingress/network behavior out of A3.
+
+non_objectives:
+  - Live AkkadPag/FlevoPay webhook ingress.
+  - Provider webhook authentication/HTTP parsing.
+  - A public HTTP sandbox simulation route.
+  - Production paid-evidence application.
+  - Settlement release from pending to available.
+  - Risk reserve activation.
+  - Payout/refund execution changes.
+  - Merchant webhook HTTP signing/delivery/retry execution.
+  - Provider fee estimation when authoritative provider cost is unavailable.
+  - Reconciliation adjustments or ledger reversals.
+  - Transaction list/history endpoint.
+  - Dashboard balance UI.
+
+resolved_decisions:
+  paid_evidence_authority:
+    merchant_api_may_mark_paid: false
+    v0_source: sandbox_simulator
+    rationale: >-
+      A Payment paid state is external-money evidence, not a merchant command.
+      A3 therefore exposes one narrow simulator capability to the trusted worker
+      boundary and only a balance read to swiftpay_api.
+  simulator_http_route:
+    included: false
+    rationale: >-
+      The sandbox contract requires deterministic simulate-paid semantics but the
+      legacy audit has not frozen a public simulator route. A3 freezes the domain
+      and trusted command first instead of inventing a public route by convenience.
+  settlement_policy:
+    version: sandbox-pending-settlement-v0
+    destination: merchant_pending_liability
+    immediate_availability: false
+    rationale: >-
+      The ledger contract permits immediate available credit only when an
+      immutable settlement policy says so. No approved immediate-release policy
+      exists yet; A3 must not manufacture withdrawable funds.
+  provider_cost:
+    evidence_required: true
+    unit: BRL_centavos_integer
+    minimum: 0
+    maximum: payment_amount_cents
+    emulator_runtime_value: 0
+    rationale: >-
+      Provider cost and merchant fee are distinct. A2 leaves provider_cost_cents
+      null. The paid-evidence transition is the first point where the sandbox
+      emulator can authoritatively snapshot cost as zero. Live providers must not
+      inherit this zero-cost assumption.
+  merchant_webhook_handoff:
+    create_logical_event_in_A3: true
+    execute_http_delivery_in_A3: false
+    rationale: >-
+      Domain transition, ledger posting and causally required outbox creation
+      belong in one DB transaction. A4 will implement the actual HTTP worker.
+  balance_route:
+    method: GET
+    path: /v1/balance
+    rationale: legacy-compatible route with corrected V2 semantics
+
+settlement_policy_snapshot:
+  payment_column:
+    name: settlement_policy_version
+    type: text
+    nullable_for_legacy_or_non_A3_rows: true
+  a2_create_extension:
+    routing_policy_required: sandbox-emulator-v0
+    environment_required: sandbox
+    value: sandbox-pending-settlement-v0
+    rule: >-
+      After the A3 migration, new A2 sandbox-emulator Payments snapshot this
+      policy during prepare. Existing A2 sandbox-emulator Payments with a null
+      policy may be deterministically backfilled to this exact value because
+      their environment/routing policy uniquely identifies the frozen simulator
+      path. No Production/non-emulator row may be backfilled by this rule.
+  mutation_after_snapshot: forbidden
+
+paid_evidence_command:
+  trust_boundary:
+    database_routine: app.apply_sandbox_pix_paid
+    executor: swiftpay_worker
+    swiftpay_api_execute: forbidden
+    anon_execute: forbidden
+    authenticated_execute: forbidden
+    service_role_execute: forbidden
+    direct_table_dml_for_runtime_roles: forbidden
+    raw_ledger_routines_granted_to_runtime_roles: false
+    raw_webhook_routines_granted_to_runtime_roles: false
+  input:
+    paymentId:
+      type: uuid
+      required: true
+    simulationSourceId:
+      type: uuid
+      required: true
+      meaning: stable idempotency/source identity for one explicit simulator action
+    amountCents:
+      type: integer
+      minimum: 1
+      maximum: javascript_safe_integer
+      required: true
+      must_equal_payment_amount: true
+    providerCostCents:
+      type: integer
+      minimum: 0
+      required: true
+      maximum: payment_amount_cents
+    payloadHash:
+      type: string
+      format: lowercase_sha256_hex
+      length: 64
+      required: true
+    occurredAt:
+      type: timestamptz
+      required: true
+  hard_scope:
+    payment_environment: sandbox
+    payment_routing_policy_version: sandbox-emulator-v0
+    payment_settlement_policy_version: sandbox-pending-settlement-v0
+    provider_code: swiftpay_emulator
+    provider_account_environment: sandbox
+    provider_account_merchant_id: null
+    provider_attempt_state: succeeded
+    exact_attempt_relation: payment active succeeded create_pix_charge attempt
+  provider_event_identity:
+    provider_event_id: "swiftpay-sandbox-sim:<simulationSourceId>"
+    fingerprint: "swiftpay-sandbox-sim:<simulationSourceId>"
+    resource_type: pix_charge
+    provider_resource_id: ProviderAttempt.provider_payment_id
+    event_type: pix_paid
+    payload_hash: payloadHash
+    raw_evidence_ref: null
+    initial_state: received
+  provider_event_reuse:
+    same_source_same_payload:
+      behavior: replay_existing_event
+    same_source_different_payload_hash:
+      behavior: fail_closed_integrity_conflict
+      financial_side_effect: none
+  allowed_payment_states:
+    pending:
+      transition_to: paid
+      provider_event_terminal_state: applied
+    expired:
+      transition_to: paid
+      provider_event_terminal_state: applied
+    paid:
+      transition_to: paid
+      provider_event_terminal_state: absorbed
+      additional_ledger_posting: false
+      additional_payment_paid_webhook_event: false
+    creating:
+      behavior: reject_invalid_state
+      provider_event_terminal_state: rejected
+    failed:
+      behavior: reject_invalid_state
+      provider_event_terminal_state: rejected
+    cancelled:
+      behavior: reject_invalid_state_in_v0
+      provider_event_terminal_state: rejected
+  evidence_validation:
+    amount_mismatch:
+      behavior: reject
+      provider_event_terminal_state: rejected
+      financial_side_effect: none
+    provider_cost_invalid:
+      behavior: reject
+      provider_event_terminal_state: rejected
+      financial_side_effect: none
+    wrong_provider_or_environment:
+      behavior: reject
+      financial_side_effect: none
+    payment_provider_cost_existing:
+      null:
+        first_applied_paid_evidence: set_to_providerCostCents
+      same_value:
+        behavior: allowed_for_consistent_replay
+      different_value:
+        behavior: reject_integrity_conflict
+        financial_side_effect: none
+  paid_timestamp:
+    Payment.paid_at: occurredAt
+    rule: first_applied_paid_evidence_only
+  result:
+    kind: applied | absorbed | rejected
+    payment: public_payment_projection
+    providerEventId: uuid
+    ledgerTransactionId: uuid_or_null
+    webhookEventId: uuid_or_null
+
+financial_posting:
+  atomicity:
+    required: true
+    transaction_contains:
+      - ProviderEvent claim/state
+      - Payment state/provider-cost/paid_at update
+      - deterministic account resolution
+      - ledger transaction and entries
+      - cached account balance updates
+      - logical merchant payment.paid WebhookEvent and eligible delivery/job fanout
+    rollback_rule: any failure rolls back all financial/domain/outbox effects
+  source_identity:
+    source_type: payment
+    source_id: Payment.id
+    posting_type: settlement_paid
+    database_unique: true
+  values:
+    gross: Payment.amount_cents
+    merchant_fee: Payment.merchant_fee_cents
+    merchant_net: Payment.merchant_net_cents
+    provider_fee: authoritative providerCostCents
+    provider_net: gross - provider_fee
+  validation:
+    - gross > 0
+    - merchant_fee >= 0
+    - merchant_net >= 0
+    - merchant_fee + merchant_net == gross
+    - provider_fee >= 0
+    - provider_fee <= gross
+    - provider_net >= 0
+    - currency == BRL
+  accounts:
+    provider_settlement_asset:
+      scope: ProviderAttempt.provider_account_id + environment + BRL
+      category: asset
+      normal_side: debit
+    provider_payment_fee_expense:
+      scope: platform + environment + BRL
+      category: expense
+      normal_side: debit
+    merchant_pending_liability:
+      scope: Payment.merchant_id + environment + BRL
+      category: liability
+      normal_side: credit
+    payment_fee_revenue:
+      scope: platform + environment + BRL
+      category: revenue
+      normal_side: credit
+  entries:
+    - direction: debit
+      account: provider_settlement_asset
+      amount: provider_net
+      omit_if_zero: true
+    - direction: debit
+      account: provider_payment_fee_expense
+      amount: provider_fee
+      omit_if_zero: true
+    - direction: credit
+      account: merchant_pending_liability
+      amount: merchant_net
+      omit_if_zero: true
+    - direction: credit
+      account: payment_fee_revenue
+      amount: merchant_fee
+      omit_if_zero: true
+  invariants:
+    total_debits_equal_total_credits: true
+    zero_value_entries_forbidden: true
+    ledger_entry_amount_positive: true
+    merchant_pending_balance_may_not_be_negative: true
+    reserve_account_effect: zero
+    merchant_available_effect: zero
+    duplicate_paid_evidence_second_posting: forbidden
+  a2_emulator_expected_posting:
+    merchant_fee: 0
+    provider_fee: 0
+    merchant_net: gross
+    provider_net: gross
+    entries:
+      - "DEBIT provider_settlement_asset gross"
+      - "CREDIT merchant_pending_liability gross"
+
+payment_public_projection_extension:
+  status_values_after_A3:
+    - creating
+    - pending
+    - paid
+    - failed
+    - expired
+    - cancelled
+  pix_projection:
+    pending: preserve_succeeded_attempt_pix_data
+    paid: preserve_succeeded_attempt_pix_data
+    other_states: null_unless_later_contract_says_otherwise
+  provider_internal_fields_exposed: false
+  provider_cost_exposed: false
+  settlement_policy_exposed: false
+  rule: >-
+    GET /v1/transactions/{id} after paid returns the same merchant Payment identity
+    with status paid and the existing normalized Pix charge data. Paid must not
+    erase the QR/TxId projection solely because collection state changed.
+
+merchant_webhook_event:
+  created_on_first_paid_transition: true
+  database_function_reused_internally: app.record_webhook_event
+  event:
+    type: payment.paid
+    resource_type: payment
+    resource_id: Payment.id
+    source_type: payment
+    source_id: Payment.id
+    payload_version: payment-v1
+    payload_snapshot: public_payment_projection_after_paid
+    occurred_at: Payment.paid_at
+  duplicate_paid_evidence:
+    logical_event_count: 1
+    new_delivery_fanout: false
+  endpoint_fanout:
+    existing_active_subscribed_sandbox_endpoints: create_pending_delivery
+    delivery_job: merchant_webhook_delivery
+  http_execution: deferred_to_A4
+
+balance_http_contract:
+  method: GET
+  path: /v1/balance
+  authentication: bearer_machine_principal
+  request_body: none
+  idempotency_key_required: false
+  merchant_scope:
+    merchant_id: authenticated_principal.merchantId
+    environment: authenticated_principal.environment
+    currency: BRL
+  production_read:
+    allowed: true
+    note: a read does not itself grant Production monetary capability
+  success:
+    status: 200
+    body:
+      currency: BRL
+      environment: sandbox | production
+      pendingSettlement: integer_centavos
+      available: integer_centavos
+      reserved: integer_centavos
+      blockedPayouts: integer_centavos
+      blockedRefunds: integer_centavos
+      blocked: integer_centavos
+      withdrawable: integer_centavos
+      totalMerchantFunds: integer_centavos
+  semantics:
+    pendingSettlement: merchant_pending_liability.balance_cents_or_zero
+    available: merchant_available_liability.balance_cents_or_zero
+    reserved: merchant_risk_reserved_liability.balance_cents_or_zero
+    blockedPayouts: merchant_payout_blocked_liability.balance_cents_or_zero
+    blockedRefunds: merchant_refund_blocked_liability.balance_cents_or_zero
+    blocked: blockedPayouts + blockedRefunds
+    withdrawable: available
+    totalMerchantFunds: pendingSettlement + available + reserved + blocked
+  absent_account_behavior:
+    return_zero: true
+    create_account_as_read_side_effect: false
+  invariants:
+    - all public bucket values are nonnegative integers
+    - withdrawable <= available
+    - in A3 v0 withdrawable == available
+    - blocked is not risk reserve
+    - available is not silently replaced by withdrawable
+    - provider-specific assets/costs are not exposed
+    - merchant A cannot read merchant B balances
+    - Sandbox and Production balances never cross
+  errors:
+    invalid_access_token:
+      status: 401
+      code: invalid_access_token
+    database_failure:
+      status: 500
+      code: internal_error
+      sanitized: true
+
+balance_database_boundary:
+  routine: app.get_api_balance
+  volatility: stable
+  security: security_definer
+  fixed_search_path: empty
+  executor: swiftpay_api
+  inputs:
+    merchant_id: uuid
+    environment: sandbox | production
+  direct_relation_privileges_required: false
+  worker_execute: false
+  anon_execute: false
+  authenticated_execute: false
+  service_role_execute: false
+
+least_privilege_delta:
+  swiftpay_api:
+    previous_exact_execute_count: 8
+    add:
+      - app.get_api_balance(uuid,text)
+    new_exact_execute_count: 9
+  swiftpay_worker:
+    previous_exact_execute_count: 3
+    add:
+      - app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamptz)
+    new_exact_execute_count: 4
+  explicitly_not_granted_to_either_runtime:
+    - app.ensure_account(uuid,uuid,text,text,text)
+    - app.post_ledger_transaction(text,text,uuid,text,jsonb)
+    - app.record_webhook_event(uuid,text,text,text,uuid,text,uuid,text,jsonb,timestamptz)
+    - app.enqueue_job(text,text,uuid,text,jsonb,integer,integer,timestamptz)
+    - direct SELECT/INSERT/UPDATE/DELETE on app financial/webhook tables
+
+concurrency_and_idempotency:
+  payment_lock:
+    required: true
+    purpose: serialize competing paid evidence for one Payment
+  provider_event_source_uniqueness:
+    required: true
+    source: simulationSourceId scoped through provider account/environment
+  ledger_source_uniqueness:
+    required: true
+    source: payment/payment_id/settlement_paid
+  webhook_source_uniqueness:
+    required: true
+    source: payment/payment_id/payment.paid
+  two_concurrent_distinct_paid_sources_same_payment:
+    expected:
+      - one applied
+      - one absorbed
+      - one Payment paid transition
+      - one settlement_paid ledger transaction
+      - one payment.paid logical webhook event
+  two_concurrent_same_source:
+    expected:
+      - one applied or the winner result
+      - replay absorbed/idempotent
+      - no duplicate financial effect
+
+failure_semantics:
+  invalid_state_or_evidence:
+    internal_result: rejected
+    payment_mutation: none
+    ledger_mutation: none
+    merchant_webhook_event: none
+  source_identity_reused_with_different_hash:
+    behavior: fail_closed_integrity_conflict
+    provider_event_original_row_mutation: none
+    financial_side_effect: none
+  internal_failure_mid_transition:
+    behavior: rollback_entire_postgresql_transaction
+  ambiguous_external_execution:
+    note: not created by this simulator command
+    rule: A3 does not reinterpret A2 execution_unknown as paid without explicit authoritative evidence
+
+security_and_observability:
+  secrets_in_paid_command: none
+  provider_credentials_in_result: forbidden
+  raw_provider_payload_in_public_logs: forbidden
+  public_balance_logs:
+    may_include:
+      - requestId
+      - merchantId
+      - environment
+      - statusCode
+    must_not_include:
+      - access token
+      - provider credentials
+      - webhook signing secrets
+  simulator_command_auditability:
+    stable_source_id: simulationSourceId
+    provider_event_row: required
+    ledger_transaction_id: required_on_applied
+    webhook_event_id: required_on_applied
+
+required_database_RED_tests:
+  schema:
+    - Payment settlement_policy_version column exists with intended shape.
+    - app.apply_sandbox_pix_paid has the frozen signature/security/volatility boundary.
+    - app.get_api_balance has the frozen signature/security/volatility boundary.
+    - K6 exact API EXECUTE allowlist becomes 9 and contains only the approved A1/A2/A3 read routines.
+    - K6 exact worker EXECUTE allowlist becomes 4 and adds only apply_sandbox_pix_paid.
+    - raw ledger/webhook primitives remain unavailable to API/worker roles.
+  behavior:
+    - pending -> paid creates one ProviderEvent, one ledger transaction and one payment.paid WebhookEvent atomically.
+    - expired -> paid is accepted with the same posting template.
+    - paid -> paid consistent duplicate is absorbed without second posting/event.
+    - concurrent duplicate source creates one financial effect.
+    - concurrent distinct paid sources create one financial effect and one logical merchant event.
+    - amount mismatch rejects with no Payment/ledger/webhook mutation.
+    - wrong simulator provider/account/environment rejects with no financial effect.
+    - invalid provider cost rejects with no effect.
+    - existing different provider_cost_cents rejects without rewriting economics.
+    - creating/failed/cancelled transitions are rejected in v0.
+    - ledger debits equal credits and cached balances match ledger recomputation.
+    - zero fee/cost emulator posting produces exactly two positive entries.
+    - nonzero fee/cost fixture produces the four-account template with zero components omitted.
+    - merchant pending balance increases by merchant_net only.
+    - available/reserved/blocked balances do not change from settlement_paid.
+    - payment.paid event payload is the public paid Payment projection and leaks no provider internals.
+    - injected failure between transition/posting/outbox leaves all three absent/unmodified.
+    - get_api_balance returns zero for absent buckets without creating accounts.
+    - get_api_balance formulas distinguish pending/available/reserved/blocked/withdrawable exactly.
+    - merchant/environment balance isolation is enforced.
+
+required_application_RED_tests:
+  - PublicPayment accepts paid and preserves normalized Pix data after paid.
+  - Balance response validator rejects malformed/negative/provider-internal shapes.
+  - DB balance adapter calls only app.get_api_balance and no table.
+  - DB simulator-paid adapter calls only app.apply_sandbox_pix_paid and no raw ledger/webhook routine/table.
+  - GET /v1/balance authenticates first and forwards principal merchant/environment scope.
+  - GET /v1/balance maps successful balance directly to 200.
+  - GET /v1/balance maps auth failure to 401 and DB failure to sanitized 500.
+  - runtime composition exposes balance read without exposing a merchant mark-paid route.
+
+required_real_runtime_acceptance:
+  setup:
+    - isolated PostgreSQL with all canonical migrations
+    - production-like swiftpay_api_runtime and swiftpay_worker_runtime identities
+    - A1/A2 test-only credentials/provider emulator fixture
+    - optional sandbox webhook endpoint fixture subscribed to payment.paid
+  flow:
+    - obtain a real sandbox Bearer through POST /v1/auth/token
+    - create one Pix through POST /v1/transactions and observe pending
+    - read GET /v1/balance before paid and prove all merchant buckets are zero
+    - apply one paid simulation through the trusted worker capability using a stable simulationSourceId
+    - GET the Payment and observe paid with the same Pix data
+    - GET /v1/balance and observe pendingSettlement == merchant_net, available == 0 and withdrawable == 0
+    - replay the same simulation source and prove no second posting
+    - race a second distinct paid source and prove it is absorbed with no second posting
+    - prove exactly one payment/Payment.id/settlement_paid ledger transaction
+    - prove cached pending balance equals ledger recomputation
+    - prove exactly one logical payment.paid webhook event
+    - if a subscribed endpoint fixture exists, prove one pending delivery/job exists before any HTTP send
+    - prove swiftpay_api_runtime cannot execute apply_sandbox_pix_paid or raw ledger routines
+    - prove swiftpay_worker_runtime cannot execute get_api_balance or raw ledger/webhook primitives
+    - prove a Production Payment/scope cannot be simulated
+  no_live_network_provider_calls: true
+
+implementation_order:
+  - Problem Analysis and this YAML are frozen first.
+  - Add RED database schema/ACL tests.
+  - Add RED database paid-transition/balance behavior tests.
+  - Add minimal schema/trusted-routine implementation until database GREEN.
+  - Add RED application projection/store/balance HTTP tests.
+  - Add minimal application implementation until application GREEN.
+  - Add real runtime acceptance for API + worker capability + PostgreSQL.
+  - Refactor only after all gates are GREEN.
+  - Apply canonical migration to hosted Supabase only after local/CI acceptance.
+  - Record evidence and update readiness before starting A4.
+
+completion_criteria:
+  - All pre-A3 database/application contracts remain GREEN.
+  - All A3 RED tests become GREEN without weakening assertions.
+  - Exactly-once paid transition and settlement posting are proven under duplicate/concurrent evidence.
+  - Payment/ledger/webhook-event atomicity is proven with rollback injection.
+  - Merchant balance semantics are exposed through GET /v1/balance and are not legacy-conflated.
+  - A3 trusted capability additions remain exact and least-privilege.
+  - No live PSP call exists.
+  - Hosted Supabase migration history is aligned with repository filenames after acceptance.

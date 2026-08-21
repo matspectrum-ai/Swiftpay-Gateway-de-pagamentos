@@ -1,0 +1,133 @@
+name: A21 integration green
+
+on:
+  push:
+    branches: [agent/foundation-phase-0]
+    paths:
+      - ".github/workflows/a21-integration-green.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  integrate-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
+          test "$(pnpm --version)" = "11.17.0"
+      - name: Apply frozen A21 integration
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"anchor mismatch {path}: {text.count(old)}")
+              p.write_text(text.replace(old, new))
+
+          replace(
+              'packages/auth/src/index.ts',
+              "export * from './a8.js';",
+              "export * from './dashboard-context-discovery.js';\nexport * from './a8.js';",
+          )
+
+          replace(
+              'apps/api/src/app.ts',
+              "export interface DashboardTransactionsHttpService {\n  list?(input: DashboardTransactionListInput): Promise<Record<string, unknown>>;\n  get?(input: DashboardTransactionItemInput): Promise<Record<string, unknown>>;\n}\n\nexport interface BuildAppOptions {",
+              "export interface DashboardTransactionsHttpService {\n  list?(input: DashboardTransactionListInput): Promise<Record<string, unknown>>;\n  get?(input: DashboardTransactionItemInput): Promise<Record<string, unknown>>;\n}\n\nexport interface DashboardContextDiscoveryHttpService {\n  list(authorization?: string): Promise<Record<string, unknown>>;\n}\n\nexport interface BuildAppOptions {",
+          )
+          replace(
+              'apps/api/src/app.ts',
+              "  readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;\n  readonly dashboardTransactions?: DashboardTransactionsHttpService;",
+              "  readonly dashboardApiCredentials?: DashboardApiCredentialManagementService;\n  readonly dashboardContextDiscovery?: DashboardContextDiscoveryHttpService;\n  readonly dashboardTransactions?: DashboardTransactionsHttpService;",
+          )
+          transaction_error = "function dashboardTransactionError(kind: string, requestId: string): {"
+          context_helpers = """function dashboardContextError(kind: string, requestId: string): {\n  status: 401 | 500 | 503;\n  body: { error: { code: string; message: string; requestId: string } };\n} {\n  switch (kind) {\n    case 'invalid_session':\n      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };\n    case 'authentication_unavailable':\n      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };\n    default:\n      return { status: 500, body: { error: { code: 'internal_error', message: 'Dashboard context discovery failed.', requestId } } };\n  }\n}\n\nasync function sendDashboardContextResult(\n  reply: FastifyReply,\n  requestId: string,\n  result: Record<string, unknown>,\n) {\n  reply.header('Cache-Control', 'private, no-store');\n  const kind = resultKind(result);\n  if (kind !== 'ok') {\n    const failure = dashboardContextError(kind, requestId);\n    return reply.code(failure.status).send(failure.body);\n  }\n  return reply.code(200).send({ object: 'list', data: result.contexts ?? [] });\n}\n\n"""
+          replace('apps/api/src/app.ts', transaction_error, context_helpers + transaction_error)
+          transaction_route = "  const dashboardTransactionBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/transactions';"
+          context_route = """  app.get('/dashboard/v1/contexts', async (request, reply) => {\n    const service = options.dashboardContextDiscovery?.list;\n    if (!service) return sendDashboardContextResult(reply, request.id, { kind: 'internal_error' });\n    const authorization = dashboardAuthorizationHeader(request.headers.authorization);\n    try {\n      const result = await service(authorization);\n      return sendDashboardContextResult(reply, request.id, result);\n    } catch {\n      return sendDashboardContextResult(reply, request.id, { kind: 'internal_error' });\n    }\n  });\n\n"""
+          replace('apps/api/src/app.ts', transaction_route, context_route + transaction_route)
+
+          replace(
+              'apps/api/src/runtime.ts',
+              "  createDashboardApiCredentialManagementService,\n  createDashboardAuthorizationService,",
+              "  createDashboardApiCredentialManagementService,\n  createDashboardAuthorizationService,\n  createDashboardContextDiscoveryService,",
+          )
+          replace(
+              'apps/api/src/runtime.ts',
+              "  createDashboardApiCredentialStore,\n  createDashboardMerchantContextStore,",
+              "  createDashboardApiCredentialStore,\n  createDashboardContextDiscoveryStore,\n  createDashboardMerchantContextStore,",
+          )
+          replace(
+              'apps/api/src/runtime.ts',
+              "  BearerAuthenticator,\n  DashboardTransactionsHttpService,",
+              "  BearerAuthenticator,\n  DashboardContextDiscoveryHttpService,\n  DashboardTransactionsHttpService,",
+          )
+          replace(
+              'apps/api/src/runtime.ts',
+              "  readonly dashboardApiCredentials: DashboardApiCredentialManagementService;\n  readonly dashboardTransactions: DashboardTransactionsHttpService;",
+              "  readonly dashboardApiCredentials: DashboardApiCredentialManagementService;\n  readonly dashboardContextDiscovery: DashboardContextDiscoveryHttpService;\n  readonly dashboardTransactions: DashboardTransactionsHttpService;",
+          )
+          replace(
+              'apps/api/src/runtime.ts',
+              "  const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({\n    projectUrl: options.supabaseUrl,\n    publishableKey: options.supabasePublishableKey,\n  });",
+              "  const dashboardSessionVerifier = createSupabaseDashboardSessionVerifier({\n    projectUrl: options.supabaseUrl,\n    publishableKey: options.supabasePublishableKey,\n  });\n  const dashboardContextDiscovery = createDashboardContextDiscoveryService({\n    sessionVerifier: dashboardSessionVerifier,\n    store: createDashboardContextDiscoveryStore(pool),\n  });",
+          )
+          replace(
+              'apps/api/src/runtime.ts',
+              "    ...(dashboardWebhookEndpoints === undefined ? {} : { dashboardWebhookEndpoints }),\n    dashboardApiCredentials,\n    dashboardTransactions,",
+              "    ...(dashboardWebhookEndpoints === undefined ? {} : { dashboardWebhookEndpoints }),\n    dashboardApiCredentials,\n    dashboardContextDiscovery: {\n      list: async (authorization) => ({ ...(await dashboardContextDiscovery.list(authorization)) }),\n    },\n    dashboardTransactions,",
+          )
+
+          replace(
+              'tests/application/063_a20_runtime_capability_manifest_attestation.contract.test.mjs',
+              "  'app.list_dashboard_api_credentials(uuid,uuid,text)',\n  'app.list_dashboard_transactions",
+              "  'app.list_dashboard_api_credentials(uuid,uuid,text)',\n  'app.list_dashboard_merchant_contexts(uuid)',\n  'app.list_dashboard_transactions",
+          )
+          replace(
+              'tests/application/063_a20_runtime_capability_manifest_attestation.contract.test.mjs',
+              "manifest.roles.swiftpay_api.expectedCount, 24",
+              "manifest.roles.swiftpay_api.expectedCount, 25",
+          )
+
+          replace(
+              'supabase/tests/runtime/002_exact_runtime_capability_allowlist.test.sql',
+              "  ('swiftpay_api', 'app.list_dashboard_api_credentials(uuid,uuid,text)'),\n  ('swiftpay_api', 'app.list_dashboard_transactions",
+              "  ('swiftpay_api', 'app.list_dashboard_api_credentials(uuid,uuid,text)'),\n  ('swiftpay_api', 'app.list_dashboard_merchant_contexts(uuid)'),\n  ('swiftpay_api', 'app.list_dashboard_transactions",
+          )
+          replace(
+              'supabase/tests/runtime/002_exact_runtime_capability_allowlist.test.sql',
+              "  24,\n  'A20 manifest mirror contains exactly 24 API RPC signatures'",
+              "  25,\n  'A20/A21 manifest mirror contains exactly 25 API RPC signatures'",
+          )
+
+          Path('apps/dashboard/src/styles.css').write_text(r'''* { box-sizing: border-box; }\n:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #eef1f6; background: #090b10; font-synthesis: none; }\nbody { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 82% 5%, rgba(78, 116, 255, .14), transparent 28rem), #090b10; }\nbutton, input, select { font: inherit; }\nbutton { cursor: pointer; }\nbutton:disabled { cursor: not-allowed; opacity: .62; }\n.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }\n.login-card { width: min(100%, 440px); padding: 34px; border: 1px solid #222733; border-radius: 20px; background: rgba(16, 19, 27, .94); box-shadow: 0 24px 80px rgba(0,0,0,.34); }\n.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -.02em; }\n.brand-login { margin-bottom: 28px; }\n.brand-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #f4f6fa; color: #090b10; font-weight: 900; }\n.eyebrow { margin: 0 0 8px; color: #8690a2; text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 700; }\nh1, h2, h3, p { margin-top: 0; }\nh1 { margin-bottom: 10px; font-size: clamp(28px, 5vw, 38px); letter-spacing: -.035em; }\n.muted { color: #929bad; line-height: 1.55; }\n.login-form { display: grid; gap: 16px; margin-top: 28px; }\nlabel { display: grid; gap: 8px; color: #c8ced9; font-size: 13px; font-weight: 650; }\ninput, select { width: 100%; border: 1px solid #2a303c; border-radius: 10px; background: #0d1016; color: #eef1f6; padding: 12px 13px; outline: none; }\ninput:focus, select:focus { border-color: #68799a; box-shadow: 0 0 0 3px rgba(104,121,154,.14); }\n.primary-button, .secondary-button, .ghost-button { border-radius: 10px; padding: 11px 14px; font-weight: 700; }\n.primary-button { border: 1px solid #eef1f6; background: #eef1f6; color: #090b10; }\n.secondary-button { border: 1px solid #303746; background: #161b24; color: #eef1f6; }\n.ghost-button { border: 1px solid transparent; background: transparent; color: #aab2c0; }\n.inline-error { margin: 0; color: #ff9b9b; font-size: 13px; }\n.security-note { margin: 20px 0 0; color: #697386; font-size: 12px; text-align: center; }\n.app-shell { min-height: 100vh; }\n.topbar { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 28px; border-bottom: 1px solid #1d222c; background: rgba(9,11,16,.88); backdrop-filter: blur(16px); position: sticky; top: 0; z-index: 10; }\n.topbar-actions { display: flex; align-items: center; gap: 10px; }\n.shell { width: min(1220px, calc(100% - 40px)); margin: 0 auto; padding: 32px 0 56px; }\n.context-bar { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px); gap: 12px; margin-bottom: 28px; }\n.page-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }\n.page-header h1 { margin: 0; }\n.panel, .state-card, .detail-panel { border: 1px solid #202631; border-radius: 15px; background: #10131a; }\n.panel { overflow: hidden; }\n.state-card { padding: 28px; color: #b8c0ce; }\n.state-card h2 { color: #eef1f6; }\n.state-error { border-color: #4b2b31; background: #171014; }\n.table-wrap { overflow-x: auto; }\ntable { width: 100%; border-collapse: collapse; }\nth, td { padding: 15px 18px; border-bottom: 1px solid #1c222c; text-align: left; white-space: nowrap; font-size: 13px; }\nth { color: #778195; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }\ntbody tr { transition: background .16s ease; }\ntbody tr:hover { background: #141923; }\ntbody tr:last-child td { border-bottom: 0; }\n.transaction-button { border: 0; background: transparent; color: #dfe5f0; padding: 0; text-align: left; font-weight: 700; }\n.status { display: inline-flex; padding: 5px 8px; border-radius: 999px; background: #1b2130; color: #c3ccda; font-size: 12px; }\n.pagination { display: flex; justify-content: center; padding: 18px; border-top: 1px solid #1c222c; }\n.detail-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: 1fr minmax(320px, 520px); background: rgba(0,0,0,.56); }\n.detail-panel { grid-column: 2; height: 100vh; overflow-y: auto; border-radius: 0; border-width: 0 0 0 1px; padding: 28px; background: #0e1118; }\n.detail-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; }\n.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }\n.detail-grid > div { padding: 14px; border: 1px solid #1f2530; border-radius: 11px; background: #0b0e14; }\n.detail-grid dt { color: #788296; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }\n.detail-grid dd { margin: 7px 0 0; color: #e5e9f0; overflow-wrap: anywhere; }\n.code-box { margin-top: 20px; padding: 15px; border: 1px solid #1f2530; border-radius: 11px; background: #090c11; color: #c3ccda; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; }\n@media (max-width: 720px) { .topbar { padding: 0 18px; } .shell { width: min(100% - 24px, 1220px); padding-top: 22px; } .context-bar { grid-template-columns: 1fr; } .page-header { align-items: start; flex-direction: column; } .detail-backdrop { grid-template-columns: 1fr; } .detail-panel { grid-column: 1; border-left: 0; } .detail-grid { grid-template-columns: 1fr; } .login-card { padding: 26px; } }\n'''.replace('\\n', '\n'))
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck application workspace
+        run: pnpm typecheck
+      - name: Build application workspace
+        run: pnpm build
+      - name: Run application contracts
+        run: pnpm test
+      - name: Commit proven A21 integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/app.ts apps/api/src/runtime.ts apps/dashboard/src/styles.css packages/auth/src/index.ts tests/application/063_a20_runtime_capability_manifest_attestation.contract.test.mjs supabase/tests/runtime/002_exact_runtime_capability_allowlist.test.sql
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(a21): integrate dashboard context discovery runtime"
+          git push origin HEAD:agent/foundation-phase-0

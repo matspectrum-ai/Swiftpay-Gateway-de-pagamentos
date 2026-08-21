@@ -1,0 +1,20 @@
+{
+  "name": "@swiftpay/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "swiftpayInternalBoundaries": ["@swiftpay/abuse"],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@swiftpay/auth": "workspace:*",
+    "@swiftpay/config": "workspace:*",
+    "@swiftpay/db": "workspace:*",
+    "@swiftpay/metrics": "workspace:*",
+    "@swiftpay/observability": "workspace:*",
+    "fastify": "5.11.0"
+  }
+}

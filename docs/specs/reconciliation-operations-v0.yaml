@@ -1,0 +1,105 @@
+feature: reconciliation_operations_v0
+status: frozen_for_tdd
+phase: 2
+slice: I2
+
+objectives:
+  - Persist each internal reconciliation execution as a durable run with explicit scope, detector version, timestamps, status, and counts.
+  - Preserve one durable discrepancy identity for the same logical stable_key across repeated runs.
+  - Persist each run-to-discrepancy observation without mutating canonical financial/domain state.
+  - Provide explicit operator acknowledgement and resolution metadata while keeping financial repair disabled.
+  - Keep Sandbox and Production completely isolated.
+
+requirements:
+  trusted_boundary:
+    - All I2 tables and functions MUST live in the server-owned app schema.
+    - Direct access MUST remain revoked from public, anon, authenticated, and service_role roles.
+    - Actor metadata persisted by I2 is audit context only; authentication/step-up authorization remains a trusted application/admin responsibility and is not implemented by this slice.
+
+  run_identity:
+    - app.reconciliation_runs MUST persist a durable UUID primary key.
+    - Every run MUST have layer=internal, environment, scope, detector_version, status, started_at, completed_at, finding_count, and created_at.
+    - Run environment MUST be sandbox or production.
+    - Run status MUST be one of running, completed, or failed.
+    - A completed run MUST have completed_at and a non-negative finding_count.
+    - scope MUST be a JSON object and MUST NOT contain provider credentials, webhook secrets, KYC evidence bytes, customer PII, or payout destination secrets.
+    - detector_version MUST be explicit and non-empty so historical runs remain interpretable after detection logic changes.
+
+  discrepancy_identity:
+    - app.reconciliation_discrepancies MUST persist a durable UUID independent from run IDs.
+    - Logical identity MUST be unique by layer + environment + stable_key.
+    - Repeated runs observing the same logical discrepancy MUST reuse the same discrepancy ID.
+    - Each discrepancy MUST persist discrepancy_type, stable_key, resource_type, resource_id, account_id, expected_cents, actual_cents, detail, lifecycle_state, first_seen_at, last_seen_at, occurrence_count, first_run_id, and last_run_id.
+    - lifecycle_state MUST be open, acknowledged, or resolved.
+    - New discrepancies MUST start open.
+    - Rediscovery MUST update last_seen_at, occurrence_count, last_run_id, and current non-secret finding snapshot without changing first_seen_at or first_run_id.
+    - Rediscovery MUST NOT silently change acknowledged or resolved lifecycle state.
+
+  run_observations:
+    - app.reconciliation_run_observations MUST persist the exact set of discrepancy observations captured by each run.
+    - A run MUST contain at most one observation for one logical discrepancy.
+    - Observation rows MUST link run_id and discrepancy_id and preserve the detector snapshot for discrepancy_type, stable_key, expected_cents, actual_cents, detail, and observed_at.
+    - Historical observations MUST remain immutable after capture.
+
+  capture_boundary:
+    - app.capture_internal_reconciliation_run(environment, detector_version, scope, started_at, completed_at) MUST atomically snapshot app.internal_reconciliation_findings for exactly one environment.
+    - Capture MUST create one completed run and persist all currently visible findings for that environment.
+    - Capture MUST upsert durable discrepancies by layer + environment + stable_key.
+    - Capture MUST insert one immutable run observation per captured finding.
+    - finding_count MUST equal the number of observations inserted for the run.
+    - A coherent environment with zero current findings MUST still produce a completed run with finding_count=0.
+    - Capture MUST NOT mutate Payments, Payouts, Refunds, accounts, ledger transactions, ledger entries, provider evidence, webhook state, or jobs.
+    - Capture MUST NOT create financial corrections or ledger postings.
+
+  operator_lifecycle:
+    - app.acknowledge_reconciliation_discrepancy(discrepancy_id, actor_type, actor_id, note, acted_at) MUST transition open to acknowledged.
+    - Repeated acknowledgement of an already acknowledged discrepancy with the same lifecycle outcome MUST be idempotent and MUST NOT create duplicate financial effects.
+    - A resolved discrepancy MUST NOT be reopened or downgraded by acknowledgement.
+    - app.resolve_reconciliation_discrepancy(discrepancy_id, actor_type, actor_id, resolution_code, note, acted_at) MUST transition open or acknowledged to resolved.
+    - Resolution MUST persist resolved_at, resolved_by_actor_type, resolved_by_actor_id, resolution_code, and resolution_note.
+    - Resolution metadata MUST be explicit and non-empty where required.
+    - Resolution is operational classification only; it MUST NOT mutate any financial/domain source row or ledger history.
+
+  lifecycle_history:
+    - app.reconciliation_discrepancy_events MUST record append-only acknowledgement/resolution events.
+    - Event rows MUST include discrepancy_id, event_type, actor_type, actor_id, note, resolution_code where applicable, and created_at.
+    - Event_type MUST be acknowledged or resolved.
+    - Duplicate idempotent acknowledgement/resolution calls MUST NOT append duplicate lifecycle events.
+
+  isolation_and_safety:
+    - Sandbox capture MUST never persist Production findings and vice versa.
+    - stable_key MUST remain the detector-defined logical identity; I2 MUST NOT invent timestamp-based discrepancy identities.
+    - detail/scope/event metadata MUST remain non-secret.
+    - Automatic repair, compensating postings, provider evidence application, and provider API/report comparison are out of scope.
+
+acceptance_criteria:
+  - Capturing a coherent Sandbox environment creates one completed run with zero observations/findings.
+  - Capturing one Sandbox finding creates one durable discrepancy and one run observation.
+  - Capturing the same unresolved finding again creates a second run/observation but reuses the discrepancy ID and increments occurrence_count.
+  - first_seen_at/first_run_id remain stable across rediscovery while last_seen_at/last_run_id advance.
+  - Acknowledgement persists actor/note metadata and one append-only acknowledgement event.
+  - Repeating the same acknowledgement is idempotent.
+  - Resolution persists explicit actor/code/note metadata and one append-only resolution event.
+  - Reconciliation lifecycle actions do not change Payments, Payouts, Refunds, account balances, or ledger row counts.
+  - A resolved discrepancy remains resolved when rediscovered by a later run.
+  - Production and Sandbox observations never share a logical discrepancy identity.
+  - All prior pgTAP suites remain green.
+
+edge_cases:
+  - Zero-finding completed run.
+  - Same stable_key seen in two sequential runs.
+  - Same stable_key text in Sandbox and Production.
+  - Rediscovery after acknowledgement.
+  - Rediscovery after resolution.
+  - Acknowledge already resolved discrepancy.
+  - Resolve already resolved discrepancy with the same resolution metadata.
+  - Resolve already resolved discrepancy with conflicting resolution metadata.
+  - Empty actor identity, empty detector_version, non-object scope, invalid timestamps.
+  - Finding disappears in a later run; capture records no observation and does not silently resolve the prior discrepancy.
+
+out_of_scope:
+  - Provider API/report/balance evidence and external reconciliation; planned for I3.
+  - Automatic or manual financial correction execution.
+  - Admin authentication, step-up authorization, approval policy, and generic audit-event infrastructure.
+  - Severity threshold policy.
+  - Auto-resolution merely because a finding is absent from a later run.

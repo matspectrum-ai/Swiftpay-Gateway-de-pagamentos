@@ -1,0 +1,39 @@
+name: A21 apply frozen patch
+
+on:
+  push:
+    branches: [agent/foundation-phase-0]
+    paths:
+      - ".github/workflows/a21-apply-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/foundation-phase-0
+      - name: Extract and apply frozen patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/a21-integration-green.yml').read_text()
+          start_marker = "      - name: Apply frozen A21 integration\n        shell: python\n        run: |\n"
+          end_marker = "      - name: Install frozen dependencies\n"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          block = source[start:end]
+          Path('/tmp/a21_patch.py').write_text('\n'.join(line[10:] if line.startswith('          ') else line for line in block.splitlines()) + '\n')
+          PY
+          python /tmp/a21_patch.py
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/app.ts apps/api/src/runtime.ts apps/dashboard/src/styles.css packages/auth/src/index.ts tests/application/063_a20_runtime_capability_manifest_attestation.contract.test.mjs supabase/tests/runtime/002_exact_runtime_capability_allowlist.test.sql
+          git commit -m "feat(a21): integrate dashboard context discovery runtime"
+          git push origin HEAD:agent/foundation-phase-0

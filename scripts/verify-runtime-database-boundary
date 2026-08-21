@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo 'usage: verify-runtime-database-boundary <api|worker>' >&2
+  exit 64
+fi
+
+case "$1" in
+  api)
+    readonly DATABASE_URL="${SWIFTPAY_API_DATABASE_URL:-}"
+    readonly EXPECTED_USER='swiftpay_api_runtime'
+    readonly EXPECTED_CAPABILITY='swiftpay_api'
+    readonly FORBIDDEN_CAPABILITY='swiftpay_worker'
+    readonly ALLOWED_FUNCTION='app.require_dashboard_merchant_context(uuid,uuid,text,text)'
+    readonly FORBIDDEN_FUNCTION='app.claim_jobs(text,integer,integer)'
+    ;;
+  worker)
+    readonly DATABASE_URL="${SWIFTPAY_WORKER_DATABASE_URL:-}"
+    readonly EXPECTED_USER='swiftpay_worker_runtime'
+    readonly EXPECTED_CAPABILITY='swiftpay_worker'
+    readonly FORBIDDEN_CAPABILITY='swiftpay_api'
+    readonly ALLOWED_FUNCTION='app.claim_jobs(text,integer,integer)'
+    readonly FORBIDDEN_FUNCTION='app.require_dashboard_merchant_context(uuid,uuid,text,text)'
+    ;;
+  *)
+    echo 'usage: verify-runtime-database-boundary <api|worker>' >&2
+    exit 64
+    ;;
+esac
+
+if [[ -z "${DATABASE_URL}" ]]; then
+  echo 'runtime database URL is required' >&2
+  exit 78
+fi
+
+if ! command -v psql >/dev/null 2>&1; then
+  echo 'psql is required to verify the SwiftPay runtime database boundary.' >&2
+  exit 127
+fi
+
+# This check intentionally emits only a single boolean. It never prints the URL,
+# password, provider credentials or database metadata.
+result="$(psql "${DATABASE_URL}" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --quiet <<SQL
+select (
+  current_user = '${EXPECTED_USER}'
+  and pg_has_role(current_user, '${EXPECTED_CAPABILITY}', 'MEMBER')
+  and not pg_has_role(current_user, '${FORBIDDEN_CAPABILITY}', 'MEMBER')
+  and has_schema_privilege(current_user, 'app', 'USAGE')
+  and not has_schema_privilege(current_user, 'app', 'CREATE')
+  and not has_table_privilege(current_user, 'app.payments', 'SELECT')
+  and not has_table_privilege(current_user, 'app.payments', 'INSERT')
+  and not has_table_privilege(current_user, 'app.payments', 'UPDATE')
+  and not has_table_privilege(current_user, 'app.payments', 'DELETE')
+  and has_function_privilege(current_user, '${ALLOWED_FUNCTION}', 'EXECUTE')
+  and not has_function_privilege(current_user, '${FORBIDDEN_FUNCTION}', 'EXECUTE')
+)::integer;
+SQL
+)"
+
+if [[ "${result}" != '1' ]]; then
+  echo "SwiftPay runtime database boundary verification failed for $1." >&2
+  exit 1
+fi
+
+echo "SwiftPay $1 runtime database boundary: OK"

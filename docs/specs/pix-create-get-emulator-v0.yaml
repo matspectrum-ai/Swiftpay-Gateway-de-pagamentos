@@ -1,0 +1,687 @@
+feature: pix-create-get-emulator-v0
+status: frozen_for_tdd
+phase: 3
+
+problem:
+  statement: >-
+    A1 provides a real machine principal and reusable Bearer revalidation, while
+    the database already represents RequestIdempotency, Payment and
+    ProviderAttempt. SwiftPay still cannot create or retrieve a Pix payment.
+    The next slice must connect those proven foundations without calling a live
+    PSP, inventing Production pricing, weakening K6 least privilege, or adding
+    ledger/webhook effects before a paid-transition contract exists.
+  observed_gaps:
+    - No authenticated business route consumes the A1 machine principal.
+    - No trusted API routine atomically claims create-Payment idempotency and creates the initial Payment/ProviderAttempt.
+    - No provider execution claim/finalization routine is executable by swiftpay_api.
+    - No narrow merchant-scoped Payment read routine exists for the API runtime.
+    - Existing Payment schema lacks part of the immutable pricing/routing snapshot vocabulary required by the Phase 1 contracts.
+    - K5 intentionally has no provider account and must remain unchanged.
+
+source_of_truth:
+  contracts:
+    - docs/contracts/public-api.md
+    - docs/contracts/payment-and-provider-attempt.md
+    - docs/contracts/native-pix-provider-adapter.md
+    - docs/contracts/fees-and-rounding.md
+    - docs/contracts/merchant-kyc.md
+  architecture:
+    - docs/architecture/target-architecture.md
+  legacy_evidence:
+    - docs/reverse-engineering/public-gateway-api.md
+  existing_schema:
+    - supabase/migrations/20260814005500_identity_compliance_and_providers.sql
+    - supabase/migrations/20260814010000_payment_idempotency_and_provider_events.sql
+    - supabase/migrations/20260814044000_payment_refund_policy_snapshot.sql
+  authentication_predecessor:
+    - docs/specs/api-credential-token-exchange-v0.yaml
+
+objectives:
+  - Add authenticated POST /v1/transactions for Pix creation.
+  - Add authenticated GET /v1/transactions/{id} for merchant-scoped Payment retrieval.
+  - Require durable Idempotency-Key semantics for create.
+  - Persist Payment and ProviderAttempt before emulator execution.
+  - Atomically claim one ProviderAttempt before emulator execution.
+  - Execute only a deterministic, non-networked Pix provider emulator in this slice.
+  - Support deterministic success, definitive rejection and execution-unknown orchestration behavior in application tests.
+  - Keep runtime A2 routing sandbox-only and fail closed for Production creation.
+  - Preserve provider invisibility in public responses.
+  - Preserve zero ledger/job/merchant-webhook side effects until a later paid-transition slice.
+  - Preserve K6 direct-table-access denial and expose only explicit new trusted API routines.
+
+non_objectives:
+  - Live AkkadPag or FlevoPay HTTP calls.
+  - Production Pix creation.
+  - Provider webhook ingress.
+  - Payment paid transition or ledger posting.
+  - Merchant balance mutation/read API.
+  - Merchant webhook HTTP delivery.
+  - Provider fallback/fan-out.
+  - Automatic recovery of an expired executing lease.
+  - Credential create/rotate/revoke management.
+  - Commercial merchant pricing configuration UI/API.
+  - Checkout, payment-link or Quick Pix HTTP surfaces.
+  - Transaction list endpoint.
+
+compatibility:
+  routes_preserved:
+    create:
+      method: POST
+      path: /v1/transactions
+    get:
+      method: GET
+      path: /v1/transactions/{id}
+  retained_create_fields:
+    - method
+    - amount
+    - currency
+    - description
+    - externalId
+    - pixExpirationMinutes
+    - customerName
+    - customerDocument
+    - customerEmail
+    - customerPhone
+  intentionally_not_supported_in_v0:
+    - card fields
+    - boleto fields
+    - callbackUrl
+    - customerId
+    - arbitrary metadata
+  corrected_legacy_behavior:
+    - externalId is not financial idempotency
+    - Idempotency-Key is mandatory
+    - unknown provider execution is not treated as definitive failure
+    - provider identity/cost/raw status remain private
+    - no synthetic customer identity/contact fields are generated
+
+bearer_authentication:
+  source: packages/auth.authenticateAccessToken
+  header:
+    name: Authorization
+    format: Bearer <access-token>
+  required_for:
+    - POST /v1/transactions
+    - GET /v1/transactions/{id}
+  revalidation_before_business_logic:
+    required: true
+    checks_inherited_from_A1:
+      - JWT signature/algorithm/issuer/audience/expiry
+      - credential still exists and active
+      - credential secret_version still matches
+      - credential merchant_id still matches token subject
+      - credential environment still matches token environment
+      - merchant lifecycle_status still active
+  failure:
+    status: 401
+    code: invalid_access_token
+    message: Access token is invalid or no longer authorized.
+  infrastructure_failure:
+    status: 500
+    code: internal_error
+    rule: database/auth infrastructure failure must not be misrepresented as invalid credentials
+
+create_http_contract:
+  method: POST
+  path: /v1/transactions
+  authentication: bearer_machine_principal
+  content_type: application/json
+  required_header:
+    Idempotency-Key:
+      normalization: trim
+      min_length: 1
+      max_length: 160
+      storage: normalized_value
+  request:
+    strict_unknown_fields: true
+    fields:
+      method:
+        required: true
+        type: string
+        allowed: [pix]
+      amount:
+        required: true
+        type: integer
+        minimum: 1
+        maximum: javascript_safe_integer
+        unit: BRL_centavos
+      currency:
+        required: true
+        type: string
+        allowed: [BRL]
+      description:
+        required: false
+        type: string
+        empty_string: allowed
+      externalId:
+        required: false
+        type: string
+        empty_string: forbidden
+      pixExpirationMinutes:
+        required: false
+        type: integer
+        minimum: 5
+        maximum: 1440
+        default: 60
+      customerName:
+        required: false
+        type: string
+        empty_string: forbidden
+      customerDocument:
+        required: false
+        type: string
+        empty_string: forbidden
+      customerEmail:
+        required: false
+        type: string
+        empty_string: forbidden
+      customerPhone:
+        required: false
+        type: string
+        empty_string: forbidden
+  validation:
+    collect_all_deterministic_violations: true
+    error_status: 400
+    error_code: validation_error
+    no_database_or_emulator_side_effect_on_failure: true
+  production_behavior:
+    enabled: false
+    status: 403
+    code: operation_forbidden
+    message: Pix creation is not enabled for this environment.
+    side_effects: none
+  sandbox_capability:
+    merchant_lifecycle_required: active
+    kyc_required_for_this_slice: false
+    rationale: >-
+      The merchant/KYC contract makes approved KYC mandatory for Production
+      financial capability. A2 is sandbox-only. K5 nevertheless uses an approved
+      synthetic KYC fixture, but A2 does not redefine sandbox as Production KYC.
+
+create_success_projection:
+  body:
+    id: uuid
+    externalId: string_or_null
+    method: pix
+    amount: integer_centavos
+    fee: integer_centavos
+    netAmount: integer_centavos
+    currency: BRL
+    status: creating | pending | failed
+    description: string_or_null
+    environment: sandbox
+    expiresAt: utc_rfc3339
+    createdAt: utc_rfc3339
+    pix:
+      nullable: true
+      when_pending:
+        txId: string
+        qrCode: string
+        copyAndPaste: string
+        expiresAt: utc_rfc3339
+  forbidden_fields:
+    - provider
+    - providerId
+    - providerAccountId
+    - providerPaymentId
+    - providerStatusRaw
+    - providerCost
+    - providerCostCents
+    - routingPolicy
+    - executionToken
+    - secret
+    - credentials
+
+create_outcomes:
+  emulator_success_pending:
+    http_status_first_completion: 201
+    provider_attempt_state: succeeded
+    payment_status: pending
+    idempotency_state: completed
+    pix_fields_required: true
+  emulator_execution_unknown:
+    http_status: 202
+    provider_attempt_state: execution_unknown
+    payment_status: creating
+    idempotency_state: in_progress
+    pix_fields_required: false
+    retry_rule: >-
+      Same Idempotency-Key plus same canonical request returns the same logical
+      Payment and never invokes the emulator again while the attempt is unknown.
+  emulator_definitive_rejection:
+    http_status: 201
+    provider_attempt_state: definitively_failed
+    payment_status: failed
+    idempotency_state: completed
+    pix_fields_required: false
+    rationale: >-
+      The SwiftPay Payment resource was durably created even though the external
+      charge was definitively rejected. The resource response communicates the
+      terminal collection state without pretending the local resource did not exist.
+
+get_http_contract:
+  method: GET
+  path: /v1/transactions/{id}
+  authentication: bearer_machine_principal
+  path_parameter:
+    id:
+      type: uuid
+      invalid_shape:
+        status: 400
+        code: validation_error
+  lookup_scope:
+    - principal.merchantId
+    - principal.environment
+    - payment.id
+  found:
+    status: 200
+    projection: create_success_projection.body
+  absent_foreign_or_wrong_environment:
+    status: 404
+    code: resource_not_found
+    indistinguishable: true
+  provider_internals: forbidden
+
+idempotency_contract:
+  operation: create_payment
+  database_scope:
+    - merchant_id
+    - environment
+    - operation
+    - idempotency_key
+  canonicalization_version: pix-create-v0
+  canonical_request_vector_order:
+    - method
+    - amount
+    - currency
+    - externalId_or_null
+    - description_or_null
+    - pixExpirationMinutes_after_default
+    - customerName_or_null
+    - customerDocument_or_null
+    - customerEmail_or_null
+    - customerPhone_or_null
+  hash:
+    algorithm: sha256
+    encoding: lowercase_hex
+    input: >-
+      UTF-8 bytes of the literal prefix `pix-create-v0\n` followed by JSON.stringify
+      of the canonical request vector above. This ordered vector is the v0
+      canonicalization algorithm; object-key order is not relied upon.
+  first_claim_transaction:
+    atomic: true
+    effects:
+      - claim app.request_idempotency as in_progress
+      - create app.payments with collection_status=creating
+      - create exactly one app.provider_attempts row with state=prepared
+      - link idempotency resource_type=payment and resource_id=payment.id
+    provider_execution_before_commit: forbidden
+  same_key_same_hash:
+    create_second_payment: false
+    create_second_attempt: false
+    completed: replay stored approved response snapshot with original HTTP creation status
+    in_progress_prepared: may atomically compete to claim the same prepared attempt; only one caller can win
+    in_progress_executing: return same Payment as 202; no second emulator call
+    in_progress_execution_unknown: return same Payment as 202; no second emulator call
+  same_key_different_hash:
+    status: 409
+    code: idempotency_key_reused
+    create_side_effects: none
+  externalId:
+    unique: false
+    substitutes_for_idempotency: false
+
+sandbox_pricing_contract:
+  purpose: >-
+    A2 must snapshot internally coherent economics without inventing a real
+    merchant commercial rate. Production pricing remains outside this sandbox-only slice.
+  pricing_version: sandbox-zero-fee-v0
+  fee_mode: fixed
+  fee_fixed_cents: 0
+  fee_basis_points: 0
+  fee_percentage_component_cents: 0
+  merchant_fee_cents: 0
+  merchant_net_cents_formula: amount_cents
+  provider_cost_cents: null
+  rounding_policy_version: ceil-bp-v1
+  refund_fee_policy: merchant_fee_non_refundable
+  mutable_after_creation: false
+
+routing_contract:
+  routing_policy_version: sandbox-emulator-v0
+  production_enabled: false
+  provider_code: swiftpay_emulator
+  provider_account:
+    source: A2 test/runtime fixture only
+    persisted_in_K5_seed: false
+    environment: sandbox
+    merchant_scope: platform_account_only
+    required_status: active
+    required_capability: create_pix_charge
+  eligible_account_count: exactly_one
+  zero_or_multiple_accounts: fail_closed_internal_error
+  provider_fanout: forbidden
+  live_psp_network: forbidden
+
+emulator_contract:
+  module_role: implementation_of_native_pix_provider_boundary
+  network_access: none
+  secret_material: none
+  runtime_default_outcome: success_pending
+  outcome_control:
+    public_request_field: forbidden
+    application_tests: dependency_injection
+    real_runtime_tests: test_only_process_configuration
+    production_environment: forbidden
+  success_pending:
+    stable_provider_payment_id: deterministic_from_provider_attempt_id
+    stable_txid: deterministic_from_provider_attempt_id
+    copy_and_paste: deterministic_non_payable_sandbox_sentinel
+    qr_code: deterministic_non_payable_sandbox_sentinel
+    expires_at: requested_expiration
+  execution_unknown:
+    external_identity_exposed: false
+    second_create_on_replay: forbidden
+  definitive_rejection:
+    external_identity_exposed: false
+  safety:
+    emulator_payload_must_be_visibly_non_payable: true
+    emulator_must_not_use_akkadpag_or_flevopay_provider_identity: true
+
+provider_attempt_claim_contract:
+  claimable_state: prepared
+  target_state: executing
+  atomic_compare_and_set: true
+  execution_token: random_uuid
+  lease_seconds: 30
+  concurrent_claims:
+    winners: 1
+    losers: observe_not_claimed
+  expired_executing_lease:
+    automatic_replay_in_A2: forbidden
+    rationale: >-
+      A2 proves the no-double-execution boundary. Safe crash recovery is a later
+      slice and must not infer that an expired lease means the provider call never happened.
+
+provider_attempt_resolution_contract:
+  requires_current_execution_token: true
+  accepted_from_state: executing
+  success_pending:
+    attempt:
+      state: succeeded
+      persist:
+        - provider_payment_id
+        - provider_txid
+        - pix_copy_paste
+        - pix_qr_reference
+        - expires_at
+        - finished_at
+    payment:
+      collection_status: pending
+      expires_at: emulator_expires_at
+    idempotency:
+      state: completed
+      http_status_snapshot: 201
+      response_snapshot: canonical_public_payment_json
+  execution_unknown:
+    attempt:
+      state: execution_unknown
+      persist:
+        - last_error_class=execution_unknown
+        - recovery_required_at
+    payment:
+      collection_status: creating
+    idempotency:
+      state: in_progress
+      response_snapshot: null
+  definitive_rejection:
+    attempt:
+      state: definitively_failed
+      persist:
+        - last_error_class=definitive_rejection
+        - finished_at
+    payment:
+      collection_status: failed
+    idempotency:
+      state: completed
+      http_status_snapshot: 201
+      response_snapshot: canonical_public_payment_json
+
+schema_delta_contract:
+  app.payments_additive_columns:
+    - fee_mode
+    - fee_fixed_cents
+    - fee_basis_points
+    - fee_percentage_component_cents
+    - routing_policy_version
+  app.provider_attempts_additive_columns:
+    - recovery_required_at
+  compatibility:
+    existing_rows_may_remain_null: true
+    A2_created_payments_require_all_A2_snapshot_fields: true
+  reason: >-
+    The Phase 1 contract requires immutable fee/routing snapshots, but the initial
+    physical schema stores only pricing_version, aggregate fee/net and rounding version.
+
+trusted_database_contract:
+  direct_table_access_by_swiftpay_api: forbidden
+  direct_table_access_by_swiftpay_worker: forbidden
+  routines:
+    - name: app.prepare_api_pix_payment
+      role: swiftpay_api
+      security_definer: true
+      behavior: >-
+        Atomically validate the sandbox merchant/environment boundary, claim or
+        replay RequestIdempotency, and create the Payment/initial ProviderAttempt
+        only for the first canonical request.
+    - name: app.claim_api_pix_attempt
+      role: swiftpay_api
+      security_definer: true
+      behavior: >-
+        Atomically claim the merchant/environment-scoped prepared attempt and
+        return a fresh execution token only to the winning caller.
+    - name: app.resolve_api_pix_attempt
+      role: swiftpay_api
+      security_definer: true
+      behavior: >-
+        Apply only a frozen emulator resolution while holding the exact execution
+        token; update attempt, Payment and idempotency state atomically.
+    - name: app.get_api_payment
+      role: swiftpay_api
+      security_definer: true
+      behavior: >-
+        Return only merchant-safe Payment projection fields plus normalized Pix
+        output from the succeeded attempt for the exact merchant/environment/id.
+  security:
+    fixed_search_path: required
+    revoke_from:
+      - PUBLIC
+      - anon
+      - authenticated
+      - service_role
+      - swiftpay_worker
+    grant_execute_to:
+      - swiftpay_api
+
+application_modules:
+  new_package:
+    path: packages/payments
+    responsibilities:
+      - public create request validation/canonicalization
+      - canonical request hash
+      - Payment/public projection types
+      - Pix create orchestration
+      - ProviderAttempt outcome normalization contract
+      - deterministic Pix emulator
+  db_package:
+    responsibilities:
+      - typed adapters for the four trusted A2 database routines
+      - strict row-shape validation
+      - sanitized infrastructure errors
+  api:
+    responsibilities:
+      - parse Bearer header
+      - invoke A1 bearer revalidation
+      - map machine principal into Payment service
+      - require Idempotency-Key on POST
+      - map domain/application outcomes to exact HTTP statuses
+      - preserve X-Request-Id/error envelope
+
+error_contract:
+  envelope:
+    error:
+      code: stable_string
+      message: sanitized_string
+      requestId: string
+      details: optional_array_or_object
+  mappings:
+    invalid_access_token: 401
+    operation_forbidden: 403
+    resource_not_found: 404
+    idempotency_key_reused: 409
+    validation_error: 400
+    internal_error: 500
+  forbidden:
+    - SQL details
+    - stack traces
+    - provider identity
+    - provider account identity
+    - provider raw error/status
+    - execution token
+    - access token
+    - credential secret/verifier
+
+observability_and_secrets:
+  request_id: required
+  authorization_header_redaction: inherited_from_K7
+  customer_fields_in_logs: do_not_log_request_body
+  emulator_has_secrets: false
+  provider_credentials_loaded: forbidden
+
+no_financial_side_effect_contract:
+  during_A2:
+    app.ledger_transactions_delta: 0
+    app.ledger_entries_delta: 0
+    merchant_balance_effect: none
+    app.jobs_delta: 0
+    app.webhook_events_delta: 0
+    app.webhook_deliveries_delta: 0
+  rationale: >-
+    A2 creates an unpaid/pending or failed/unknown collection resource only.
+    Paid settlement and merchant notification are separate later slices with
+    their own exactly-once accounting/event contracts.
+
+requirements:
+  - id: A2-R1
+    statement: POST /v1/transactions requires a currently valid A1 Bearer machine principal and a valid Idempotency-Key.
+  - id: A2-R2
+    statement: A2 create is sandbox-only; Production tokens cannot create emulator-backed Payments.
+  - id: A2-R3
+    statement: First create atomically persists idempotency, Payment creating and exactly one ProviderAttempt prepared before emulator execution.
+  - id: A2-R4
+    statement: Same key plus same canonical request never creates a second Payment or ProviderAttempt and never double-executes the emulator.
+  - id: A2-R5
+    statement: Same key plus different canonical request returns deterministic 409 idempotency_key_reused with no extra state.
+  - id: A2-R6
+    statement: externalId is an optional business reference and is not unique/idempotency authority.
+  - id: A2-R7
+    statement: Only one caller can atomically claim a prepared ProviderAttempt for execution.
+  - id: A2-R8
+    statement: execution_unknown preserves Payment creating and forbids a second create execution on replay.
+  - id: A2-R9
+    statement: Emulator success yields Payment pending with deterministic visibly non-payable sandbox Pix fields.
+  - id: A2-R10
+    statement: GET /v1/transactions/{id} is merchant/environment scoped and foreign/wrong-environment resources are indistinguishable 404.
+  - id: A2-R11
+    statement: Public serialization leaks no provider/routing/cost/execution internals.
+  - id: A2-R12
+    statement: A2 Payments snapshot the frozen sandbox pricing and routing versions immutably.
+  - id: A2-R13
+    statement: swiftpay_api receives only EXECUTE on explicit A2 routines and no direct canonical table DML.
+  - id: A2-R14
+    statement: A2 creates no ledger, balance, durable job or merchant webhook side effect.
+  - id: A2-R15
+    statement: Existing A1/K5/K6/K7 and database suites remain GREEN.
+
+acceptance_criteria:
+  - Valid sandbox Bearer plus Idempotency-Key can create one Pix Payment and receive 201 pending with deterministic emulator Pix fields.
+  - The created Payment stores amount in integer centavos, BRL, zero sandbox fee, full merchant net and frozen pricing/routing versions.
+  - Missing/invalid Bearer returns sanitized 401 and creates no Payment/idempotency/attempt.
+  - Missing/blank/oversized Idempotency-Key returns 400 and creates no state.
+  - Invalid request returns all deterministic field violations known before DB access.
+  - Production Bearer returns 403 operation_forbidden and creates no state.
+  - Two independent API processes racing the same key/request produce one Payment, one ProviderAttempt and one emulator execution winner.
+  - Same key/request after 201 replays the same Payment creation snapshot and does not execute emulator again.
+  - Same key/different amount returns 409 and leaves one Payment/attempt.
+  - Two different idempotency keys with the same externalId are allowed and create two distinct Payments.
+  - execution_unknown returns 202, keeps one Payment creating/attempt unknown, and same-key replay makes no second emulator call.
+  - definitive_rejection creates one terminal failed Payment resource and replays it deterministically.
+  - GET returns the owner Payment and returns indistinguishable 404 for foreign merchant or wrong environment.
+  - Public create/get JSON contains no provider name/id/account/cost/raw status/execution token.
+  - API and worker retain no direct DML privileges on app.payments, app.provider_attempts or app.request_idempotency.
+  - Worker cannot execute A2 routines.
+  - Ledger transaction/entry, jobs and merchant webhook event/delivery counts are unchanged by all A2 acceptance flows.
+  - No test/runtime A2 path performs external network access to AkkadPag, FlevoPay or any PSP.
+
+red_test_plan:
+  application_contracts:
+    - create request validation and canonical hash are deterministic
+    - payment service idempotency outcome mapping
+    - concurrent claim invokes emulator exactly once
+    - success_pending projection
+    - execution_unknown replay safety
+    - definitive_rejection projection
+    - provider-internal serialization exclusion
+    - Bearer route mapping and merchant/environment scope
+  database_contracts:
+    - additive pricing/routing/recovery schema fields exist with safe constraints
+    - prepare routine atomically creates first idempotency/payment/attempt
+    - concurrent prepare same key creates one resource
+    - same key/different hash reports conflict with no extra rows
+    - claim routine has exactly one concurrent winner
+    - resolution requires exact execution token and legal state
+    - get routine cannot reveal foreign merchant/environment rows
+    - exact swiftpay_api routine ACL and no table DML
+  real_runtime_acceptance:
+    - separate A2 test fixture provisions API credential plus swiftpay_emulator sandbox provider/account without modifying K5 seed
+    - two API processes share PostgreSQL and race the same create idempotency key
+    - real HTTP create/get/replay/conflict behavior
+    - real Bearer revalidation inherited from A1
+    - invariance checks for ledger/jobs/webhooks
+
+edge_cases:
+  - body is null, array or non-object
+  - amount is float, zero, negative or outside JavaScript safe integer range
+  - method is not pix
+  - currency is not BRL
+  - expiration is 4, 1441 or non-integer
+  - optional customer field is present but empty or wrong type
+  - unknown request field appears
+  - Idempotency-Key differs only by surrounding whitespace
+  - two concurrent first requests use same key/hash
+  - two concurrent requests use same key with different hashes
+  - first process commits prepared attempt and crashes before claim
+  - process crashes after claim; expired lease must not cause blind emulator replay
+  - emulator outcome becomes execution_unknown
+  - response to successful create is lost and same request is retried
+  - GET uses valid UUID owned by another merchant
+  - bearer token environment differs from Payment environment
+  - emulator provider account is missing, duplicated, disabled or Production-scoped
+  - forged caller tries to resolve another merchant attempt by guessed UUID
+
+implementation_order:
+  - Freeze this YAML specification.
+  - Add contract tests that fail because packages/payments and A2 trusted DB routines do not exist.
+  - Add database schema/routines under pgTAP RED -> GREEN.
+  - Add packages/payments primitives/service/emulator under application RED -> GREEN.
+  - Wire DB adapter and Fastify Bearer routes.
+  - Add real two-process A2 runtime acceptance.
+  - Refactor only after all A2 lanes are GREEN.
+  - Record evidence and update readiness ledger.
+
+next_slice_after_green:
+  name: pix-paid-ledger-balance-v0
+  intent: >-
+    Consume deterministic provider evidence to transition a Payment to paid
+    exactly once, post the canonical balanced ledger effect exactly once, and
+    expose the merchant balance/read model before merchant webhook delivery.

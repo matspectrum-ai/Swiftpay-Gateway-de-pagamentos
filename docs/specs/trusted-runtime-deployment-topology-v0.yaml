@@ -1,0 +1,226 @@
+feature: trusted_runtime_deployment_topology_v0
+status: frozen_for_tdd
+phase: 2
+slice: K6
+
+problem:
+  statement: >-
+    K4 established least-privilege NOLOGIN capability roles inside PostgreSQL, but no production
+    runtime identity or connection topology exists for the future SwiftPay API and worker. The
+    application must not connect as postgres, service_role, authenticator or another Supabase
+    platform role. K6 freezes a provider-agnostic deployment boundary before application scaffolding.
+  risks:
+    - using postgres or service_role as an application shortcut
+    - one shared database credential collapsing API/worker blast-radius separation
+    - committing database passwords or complete production connection strings
+    - application login roles receiving direct table privileges
+    - migration/admin credentials being reused by runtime services
+    - transaction-pooler assumptions breaking prepared statements or session semantics
+    - connection-pool sizing being invented before representative workload evidence
+    - deployment-specific vendor choices leaking into the core application contract
+
+objectives:
+  - define separate production database identities for API and worker runtimes
+  - inherit only the already-proven K4 capability-role privileges
+  - keep runtime credentials outside repository migrations and source control
+  - separate migration/admin connectivity from application traffic
+  - define connection-mode selection rules compatible with current Supabase guidance
+  - establish deterministic startup/readiness checks before the TypeScript runtime exists
+  - keep the topology deployable on a persistent container/VM without binding V1 to a hosting vendor
+
+non_goals:
+  - selecting the final application hosting vendor
+  - provisioning a paid Supabase networking add-on
+  - hardcoding production passwords, hosts or complete DATABASE_URL values
+  - implementing the Fastify API or worker process
+  - implementing provider adapters
+  - tuning connection pool sizes without workload evidence
+  - exposing app schema through the Supabase Data API
+  - changing K4 capability grants
+
+canonical_managed_database:
+  project_name: swiftpay v2
+  project_ref: vsidrgbbyzibqfjkuiqb
+  region: us-west-2
+  postgres_major: 17
+  private_schema: app
+
+sources_of_truth:
+  capability_roles:
+    api: swiftpay_api
+    worker: swiftpay_worker
+  capability_contract: docs/specs/trusted-runtime-database-boundary-v0.yaml
+  current_supabase_connection_guidance: >-
+    Persistent backends prefer direct Postgres connectivity when network reachability permits;
+    Supavisor session mode is the fallback for persistent IPv4-only runtimes. Transaction pooling
+    is reserved for short-lived/serverless traffic and requires prepared-statement compatibility.
+
+runtime_identities:
+  api:
+    logical_name: swiftpay_api_runtime
+    properties:
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      bypassrls: false
+      direct_object_grants: none
+      inherited_capability_role: swiftpay_api
+  worker:
+    logical_name: swiftpay_worker_runtime
+    properties:
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      bypassrls: false
+      direct_object_grants: none
+      inherited_capability_role: swiftpay_worker
+
+requirements:
+  - id: K6-R1
+    statement: >-
+      API and worker use distinct PostgreSQL LOGIN identities and distinct credentials. A single
+      shared runtime DATABASE_URL is forbidden.
+  - id: K6-R2
+    statement: >-
+      Runtime LOGIN identities receive no direct schema/table/sequence/routine grants. Their usable
+      database capability is inherited solely through exactly one K4 capability role.
+  - id: K6-R3
+    statement: >-
+      The API login may inherit only `swiftpay_api`; the worker login may inherit only
+      `swiftpay_worker`. Cross-membership is forbidden.
+  - id: K6-R4
+    statement: >-
+      Runtime LOGIN roles remain NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION and
+      NOBYPASSRLS.
+  - id: K6-R5
+    statement: >-
+      Database passwords and complete managed connection strings are secret-manager/deployment
+      inputs and must never appear in migrations, repository files, test fixtures or logs.
+  - id: K6-R6
+    statement: >-
+      Schema migrations and privileged operational SQL use a separate administrative connection.
+      Neither runtime identity may run migrations or create/alter database objects.
+  - id: K6-R7
+    statement: >-
+      Persistent API/worker services use direct PostgreSQL connectivity when the deployment network
+      can reach the managed endpoint. If the runtime network is IPv4-only, use Supavisor session
+      mode rather than silently switching to transaction pooling.
+  - id: K6-R8
+    statement: >-
+      Transaction-pooler mode is not the default K6 topology. Any later adoption requires an
+      explicit runtime/library contract proving prepared-statement and session-state compatibility.
+  - id: K6-R9
+    statement: >-
+      Application-side connection pools are separate for API and worker. Exact pool sizes/timeouts
+      are configuration values and remain evidence-driven; K6 does not invent production numbers.
+  - id: K6-R10
+    statement: >-
+      Startup/readiness verification must prove current_user is the expected runtime identity, the
+      expected K4 membership is effective, app schema usage exists, direct app table access remains
+      denied, and a cross-workload K4 function remains denied.
+  - id: K6-R11
+    statement: >-
+      Readiness checks are read-only and may not create merchant, payment, ledger, job, webhook,
+      audit or reconciliation state.
+  - id: K6-R12
+    statement: >-
+      The application must never use Supabase service_role, anon, authenticated, authenticator,
+      dashboard_user, supabase_admin or postgres as its direct PostgreSQL runtime identity.
+  - id: K6-R13
+    statement: >-
+      Secret rotation must be possible without changing K4 grants or business schema. Rotation is a
+      deployment operation on runtime LOGIN credentials, not a schema migration.
+  - id: K6-R14
+    statement: >-
+      Development/test topology may use local PostgreSQL identities, but production-like acceptance
+      tests must preserve the same API-versus-worker capability separation.
+
+configuration_contract:
+  required_runtime_secrets:
+    api:
+      - SWIFTPAY_API_DATABASE_URL
+    worker:
+      - SWIFTPAY_WORKER_DATABASE_URL
+  forbidden_runtime_database_credentials:
+    - postgres
+    - service_role
+    - authenticator
+    - anon
+    - authenticated
+    - dashboard_user
+    - supabase_admin
+  administrative_connection:
+    purpose:
+      - migrations
+      - controlled deployment bootstrap
+      - audited operational repair approved by a separate future admin contract
+    availability_to_application_runtime: false
+
+connection_mode_policy:
+  persistent_ipv6_or_managed_ipv4:
+    preferred: direct
+    port: 5432
+  persistent_ipv4_only:
+    preferred: supavisor_session
+    port: 5432
+  temporary_serverless_or_edge:
+    possible_future_mode: supavisor_transaction
+    port: 6543
+    status: requires_explicit_runtime_compatibility_contract
+
+acceptance_criteria:
+  - repository contains no production DB password or complete managed runtime URL
+  - API and worker runtime identities are distinct
+  - each runtime identity inherits exactly one expected K4 capability role
+  - no runtime identity has direct app table/sequence privileges
+  - API runtime can execute the API K4 context boundary and cannot execute worker lease functions
+  - worker runtime can execute worker lease functions and cannot execute API dashboard context
+  - neither runtime identity can execute financial primitives unless a later vertical-slice grant explicitly adds one
+  - neither runtime identity can perform DDL in app
+  - migration/admin credential is absent from API/worker runtime configuration
+  - startup/readiness contract fails closed for wrong role, missing capability membership or unexpected direct privileges
+  - local production-like acceptance harness can exercise both identities separately
+
+edge_cases:
+  - application host has IPv4 only
+  - a deployment accidentally provides postgres DATABASE_URL to API
+  - API and worker secrets are swapped
+  - one runtime identity is accidentally granted both K4 roles
+  - direct SELECT on app table is added manually outside migrations
+  - future function receives PUBLIC/default EXECUTE unexpectedly
+  - credential rotation occurs while old application instances are draining
+  - future hosting platform is serverless and needs transaction pooling
+
+security_notes:
+  - K6 preserves least privilege by separating identity from capability groups
+  - service_role remains a Supabase API concept and is not accepted as the trusted financial database identity
+  - password material is provisioned outside Git and outside migrations
+  - runtime privilege expansion must be a reviewed, tested capability migration tied to a concrete vertical slice
+  - K6 does not weaken J1/J2 private-schema/Data-API hardening
+
+test_strategy:
+  structural_red:
+    - assert production-like API and worker LOGIN identities/bootstrap contract does not yet exist
+    - assert separate runtime environment variables/config schema does not yet exist
+    - assert startup privilege verifier does not yet exist
+  green_boundary:
+    - provide secret-free bootstrap/provisioning template for creating/rotating runtime LOGIN identities
+    - provide local production-like role provisioning with deterministic non-production credentials
+    - provide privilege/readiness verification script/tests for API and worker independently
+    - prove existing 29-file / 973-test canonical database suite remains GREEN
+    - do not apply production password-bearing SQL through repository migrations
+
+handoff_after_k6:
+  next_phase: first_executable_pix_vertical_slice
+  first_runtime_work:
+    - scaffold TypeScript workspace
+    - Fastify API process
+    - small durable-job worker process
+    - typed runtime configuration
+    - database pools bound to K6 identities
+    - API credential issuance/verification acceptance slice
+    - Pix create/get path initially against deterministic sandbox/provider emulator

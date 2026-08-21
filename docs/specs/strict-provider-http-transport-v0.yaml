@@ -1,0 +1,330 @@
+feature: strict-provider-http-transport-v0
+status: frozen_for_tdd
+phase: 4
+
+problem:
+  statement: >-
+    A10 proves outbound provider authority but A5 intentionally has no live
+    HTTP implementation. A11 establishes a provider-only HTTPS boundary that
+    cannot choose its own origin, cannot bypass A10, cannot follow redirects,
+    and never transparently retries a monetary request.
+  primary_risk: >-
+    A generic or weak live transport could leak provider credentials, escape
+    the reviewed provider base path, connect to private addresses after DNS
+    manipulation, follow cross-origin redirects, or duplicate a monetary POST.
+
+source_of_truth:
+  problem_analysis: docs/design/a11-strict-provider-http-transport-problem-analysis.md
+  activation_spec: docs/specs/provider-activation-outbound-safety-v0.yaml
+  provider_spec: docs/specs/provider-conformance-v0.yaml
+  proven_network_pattern: packages/webhooks/src/legacy.ts
+
+scope:
+  package: packages/providers
+  module: src/http-transport.ts
+  provider_specific_live_integration: forbidden
+  retained_psp_calls: forbidden
+  database_changes: none
+  public_http_changes: none
+  activation_registry_changes: none
+
+required_exports:
+  - ProviderHttpTransportError
+  - createStrictProviderHttpTransport
+  - createNodeProviderDnsResolver
+  - createNodeProviderHttpsExecutor
+
+constants:
+  request_timeout_ms: 5000
+  request_body_max_bytes: 262144
+  response_body_max_bytes: 1048576
+  response_header_max_bytes: 16384
+  relative_path_max_bytes: 4096
+  request_header_count_max: 64
+  request_header_total_bytes_max: 16384
+  minimum_tls_version: TLSv1.2
+
+activation_dependency:
+  constructor_input: validated A10 registry runtime value
+  raw_grant_input: forbidden
+  raw_base_url_input: forbidden
+  authorizer_creation: internal via createProviderOperationAuthorizer
+  invalid_or_unbranded_registry:
+    behavior: constructor_throw
+    error_name: ProviderHttpTransportError
+    code: activation_registry_invalid
+    phase: pre_transmission
+  default_registry_consequence:
+    authorized_provider_calls: 0
+    dns_calls_on_denied_send: 0
+    https_executor_calls_on_denied_send: 0
+
+subject:
+  fields_exact:
+    - provider
+    - operation
+    - environment
+    - contractLineage
+  authority: A10 exact tuple + lineage decision
+
+request:
+  shape:
+    subject: A10 authorization subject
+    request:
+      method: GET_or_POST
+      relativePath: string
+      headers: record_string_string
+      bodyUtf8: optional_string
+  method:
+    allowed:
+      - GET
+      - POST
+    GET_body: forbidden
+  relative_path:
+    nonempty: true
+    max_utf8_bytes: 4096
+    leading_slash: forbidden
+    scheme_relative_prefix: forbidden
+    absolute_url: forbidden
+    backslash: forbidden
+    fragment: forbidden
+    dot_segments_literal_or_percent_encoded: forbidden
+    final_origin_must_equal_approved_origin: true
+    final_pathname_must_start_with_approved_base_pathname: true
+    query_string: allowed
+  headers:
+    max_count: 64
+    total_utf8_bytes_max: 16384
+    name_http_token_required: true
+    value_crlf_forbidden: true
+    arrays_or_non_strings: forbidden
+    case_insensitive_reserved_names:
+      - host
+      - connection
+      - proxy-connection
+      - proxy-authorization
+      - transfer-encoding
+      - upgrade
+      - te
+      - trailer
+      - forwarded
+      - x-forwarded-host
+      - x-forwarded-proto
+      - x-forwarded-for
+      - content-length
+      - accept-encoding
+      - expect
+    transport_owned:
+      host: approved URL host including explicit port when present
+      accept-encoding: identity
+      content-length: exact UTF-8 body byte count when body is present; 0 for POST without body
+  body:
+    encoding: UTF-8
+    max_bytes: 262144
+
+url_derivation:
+  origin_source: A10 authorized grant approvedBaseUrl only
+  relative_path_source: validated adapter request only
+  base_url_from_env: forbidden
+  base_url_from_headers: forbidden
+  base_url_from_customer_or_merchant: forbidden
+  base_url_from_provider_response: forbidden
+  normalized_target:
+    protocol: https
+    no_fragment: true
+    exact_origin: approved grant origin
+    base_path_containment: required
+
+resolver:
+  production_factory: createNodeProviderDnsResolver
+  implementation: dns.lookup
+  options:
+    all: true
+    order: verbatim
+  every_send_resolves_again: true
+  no_addresses: destination_policy_error
+  mixed_public_private: destination_policy_error
+  all_addresses_must_be_public: true
+  pinned_address: first_resolved_public_address
+  blocked_ipv4_cidrs_minimum:
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.0.0.0/24
+    - 192.0.2.0/24
+    - 192.168.0.0/16
+    - 198.18.0.0/15
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+    - 224.0.0.0/4
+    - 240.0.0.0/4
+  blocked_ipv6_cidrs_minimum:
+    - ::/128
+    - ::1/128
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+    - 2001:db8::/32
+    - 2001:2::/48
+    - 2001:10::/28
+  ipv4_mapped_ipv6: evaluate_embedded_ipv4_with_same_policy
+
+https_execution:
+  production_factory: createNodeProviderHttpsExecutor
+  attempts_per_send: 1
+  redirects_followed: 0
+  proxy_environment: ignored
+  connection_target: pinned_address
+  port: approved_base_url_explicit_port_or_443
+  tls_servername: approved_hostname
+  host_header: approved_host
+  reject_unauthorized: true
+  minimum_tls_version: TLSv1.2
+  keep_alive_required: false
+  response_max_header_bytes: 16384
+  timeout_ms: 5000
+  request_body_max_bytes: 262144
+  response_body_max_bytes: 1048576
+  response_utf8:
+    decoder: fatal
+    replacement_character_decoding: forbidden
+  compression:
+    request_accept_encoding: identity
+    automatic_decompression: none
+  redirects:
+    any_3xx: return_raw_response
+    location_follow: forbidden
+  retry:
+    dns: none
+    connect: none
+    tls: none
+    timeout: none
+    reset: none
+    http_408: none
+    http_425: none
+    http_429: none
+    http_5xx: none
+    redirect: none
+    oversized_response: none
+
+response:
+  shape:
+    statusCode: integer_100_599
+    headers: record_lowercase_string_string
+    bodyUtf8: string
+  headers:
+    normalized_names: lowercase
+    repeated_values: join_comma_space
+    sensitive_logging: forbidden
+  interpretation:
+    provider_status: none
+    payment_status: none
+    pix_data: none
+    recovery_semantics: none
+
+errors:
+  class_name: ProviderHttpTransportError
+  fields_safe:
+    - code
+    - phase
+  secret_or_payload_fields: forbidden
+  phases:
+    - pre_transmission
+    - transmission_unknown
+  pre_transmission_codes:
+    - activation_registry_invalid
+    - activation_denied
+    - request_invalid
+    - destination_policy
+    - dns_unavailable
+  transmission_unknown_codes:
+    - network_error
+    - timeout
+    - response_too_large
+    - response_invalid_utf8
+    - response_invalid_status
+  classification_rule: >-
+    A10 denial, request validation, destination derivation and DNS/public-address
+    policy occur before the HTTPS executor is invoked. Once the HTTPS executor
+    is invoked, failures are conservatively transmission_unknown.
+
+logging_and_persistence:
+  request_headers: never_log_or_persist
+  request_body: never_log_or_persist
+  response_body: never_log_or_persist
+  provider_credentials: never_log_or_persist
+  customer_pii: never_log_or_persist
+  safe_error_context_only:
+    - provider
+    - operation
+    - environment
+    - contractLineage
+    - code
+    - phase
+  a11_itself_emits_logs: false
+  database_writes: none
+
+injection_seam:
+  purpose: deterministic network-free contract tests
+  constructor_optional_dependencies:
+    resolver: ProviderDnsResolver
+    executor: ProviderHttpsExecutor
+  constraints:
+    - authorization and URL/path/header/body policy always execute before injected dependencies
+    - injected resolver cannot select a destination origin
+    - injected executor receives only the fully derived pinned request
+    - production factories remain separately exported/tested structurally
+
+relationship_to_a5:
+  existing_ProviderTransport_modified: false
+  existing_adapters_wired_to_A11: false
+  reason: current provider contract authority remains blocked
+  future_bridge_required: true
+
+side_effects:
+  retained_psp_network: none_in_acceptance
+  supabase: none
+  payment: none
+  provider_attempt: none
+  provider_event: none
+  ledger: none
+  payout_refund: none
+  jobs: none
+  webhooks: none
+  credentials: none
+  idempotency: none
+  audit: none
+  kyc_customer: none
+
+tdd_vectors:
+  required:
+    - unvalidated_activation_registry_is_rejected_at_construction
+    - default_A10_registry_denies_before_resolver_or_executor
+    - authorized_synthetic_registry_derives_origin_only_from_grant
+    - absolute_scheme_relative_leading_slash_backslash_fragment_and_dot_segment_paths_reject_before_dns
+    - normalized_path_cannot_escape_approved_base_path
+    - GET_body_and_unsupported_methods_reject_before_dns
+    - reserved_routing_hop_by_hop_headers_and_crlf_reject_before_dns
+    - request_header_count_total_size_path_size_and_body_size_limits_are_enforced
+    - DNS_failure_no_address_private_reserved_mixed_results_are_pre_transmission_and_executor_is_not_called
+    - public_DNS_result_pins_first_address_and_preserves_SNI_and_Host
+    - executor_input_has_single_attempt_timeout_TLS12_header_and_body_bounds_and_identity_encoding
+    - 3xx_is_returned_once_and_never_followed
+    - 408_425_429_5xx_are_returned_once_and_never_retried
+    - executor_timeout_network_error_and_stream_error_are_transmission_unknown
+    - oversized_response_is_transmission_unknown
+    - invalid_UTF8_response_is_transmission_unknown_without_replacement
+    - response_headers_are_lowercased_and_repeated_values_are_deterministic
+    - error_objects_do_not_contain_request_headers_bodies_or_credentials
+    - node_resolver_uses_all_true_order_verbatim
+    - node_https_executor_uses_pinned_IP_SNI_certificate_verification_no_proxy_and_no_redirect_logic
+    - A5_adapter_contracts_remain_unchanged_and_A11_is_not_wired_into_real_provider_execution
+
+acceptance:
+  default_runtime_authorized_provider_calls: 0
+  real_psp_calls: forbidden
+  readiness_change_on_A11_green_alone: none
+  hosted_supabase_change: none

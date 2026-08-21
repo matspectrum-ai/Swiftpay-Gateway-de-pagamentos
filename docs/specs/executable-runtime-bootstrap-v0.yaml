@@ -1,0 +1,223 @@
+feature: executable-runtime-bootstrap-v0
+status: frozen_for_tdd
+phase: 3
+
+problem:
+  statement: >-
+    SwiftPay V2 has a proven PostgreSQL/Supabase domain and least-privilege
+    deployment topology, but no executable TypeScript application. The first
+    application slice must establish a minimal API and worker runtime without
+    bypassing K6, introducing payment behavior prematurely, or coupling provider
+    credentials into generic bootstrap code.
+
+objectives:
+  - Create the canonical TypeScript workspace for the SwiftPay V2 application.
+  - Start a Fastify API process with deterministic liveness and database-backed readiness endpoints.
+  - Start a separate worker process with its own K6 database identity and a deterministic readiness/check mode.
+  - Centralize strict typed environment parsing and secret-safe configuration errors.
+  - Centralize PostgreSQL pool creation without exposing generic privileged clients.
+  - Prove API and worker connect using different database URLs and expected K6 identities.
+  - Establish application CI before implementing public Pix behavior.
+
+technology_contract:
+  runtime:
+    node_line: '24 LTS'
+    module_system: ESM
+  package_manager:
+    tool: pnpm
+    workspace: true
+    lockfile_required: true
+  http:
+    framework: Fastify
+    major_line: 5
+  database:
+    protocol: PostgreSQL
+    driver: pg
+    generic_supabase_service_role_client: forbidden
+  validation:
+    environment: schema_validated
+    request_response: explicit_schema_required
+  tests:
+    unit_runner: node_test_or_equivalent_thin_runner
+    integration_database: isolated_supabase_cli
+
+workspace_contract:
+  required_paths:
+    - apps/api
+    - apps/worker
+    - packages/config
+    - packages/db
+  forbidden_initial_paths:
+    - apps/dashboard
+    - packages/provider-akkadpag
+    - packages/provider-flevopay
+  rationale: >-
+    The bootstrap slice must prove process/config/database boundaries first.
+    Provider and UI modules enter only under their own specs and tests.
+
+configuration_contract:
+  common:
+    required:
+      - SWIFTPAY_ENVIRONMENT
+    allowed_environment_values:
+      - sandbox
+      - production
+  api:
+    required:
+      - SWIFTPAY_API_DATABASE_URL
+    optional_with_defaults:
+      SWIFTPAY_API_HOST: 127.0.0.1
+      SWIFTPAY_API_PORT: 3000
+  worker:
+    required:
+      - SWIFTPAY_WORKER_DATABASE_URL
+  prohibitions:
+    - A process must not silently fall back from its own database URL to another workload URL.
+    - Configuration errors must not print database passwords, full database URLs, provider secrets or API credential secrets.
+    - Generic SUPABASE_SERVICE_ROLE_KEY use is forbidden in this slice.
+    - AkkadPag/FlevoPay credentials are forbidden in generic runtime bootstrap configuration.
+
+api_contract:
+  routes:
+    - method: GET
+      path: /health/live
+      authentication: none
+      database_required: false
+      success:
+        status: 200
+        body:
+          status: live
+      semantics: >-
+        Process liveness only. A database outage must not turn liveness into a
+        restart loop.
+
+    - method: GET
+      path: /health/ready
+      authentication: none
+      database_required: true
+      success:
+        status: 200
+        body:
+          status: ready
+          workload: api
+      failure:
+        status: 503
+        body_must_not_include:
+          - database_url
+          - password
+          - connection_string
+      semantics: >-
+        Readiness executes a bounded database probe through
+        SWIFTPAY_API_DATABASE_URL and proves current_user=swiftpay_api_runtime,
+        membership in swiftpay_api, no membership in swiftpay_worker, app schema
+        USAGE, and no direct app.payments table DML.
+
+worker_contract:
+  process:
+    long_running_mode: >-
+      The process may initialize and remain alive, but K7 does not claim or
+      execute domain jobs yet.
+    check_mode:
+      command_semantics: >-
+        A deterministic one-shot readiness command connects through
+        SWIFTPAY_WORKER_DATABASE_URL, proves current_user=swiftpay_worker_runtime,
+        expected swiftpay_worker membership, absence of swiftpay_api membership,
+        app schema USAGE and no direct app.payments DML, then exits zero.
+  forbidden_behavior:
+    - No job claim loop in this bootstrap slice.
+    - No payment/provider/webhook processing.
+    - No reuse of SWIFTPAY_API_DATABASE_URL.
+
+postgres_contract:
+  connection:
+    api_pool_source: SWIFTPAY_API_DATABASE_URL
+    worker_pool_source: SWIFTPAY_WORKER_DATABASE_URL
+    statement_timeout_required: true
+    connection_timeout_required: true
+  boundary_probe:
+    api:
+      expected_current_user: swiftpay_api_runtime
+      expected_group: swiftpay_api
+      forbidden_group: swiftpay_worker
+    worker:
+      expected_current_user: swiftpay_worker_runtime
+      expected_group: swiftpay_worker
+      forbidden_group: swiftpay_api
+  secret_safety:
+    - Database client errors exposed through HTTP/logging must be sanitized at the application boundary.
+    - Database URLs must never be serialized in health responses.
+
+logging_contract:
+  structured: true
+  request_id: required_for_http
+  forbidden_fields:
+    - authorization
+    - cookie
+    - password
+    - secret
+    - secret_key
+    - withdrawal_key
+    - database_url
+    - connection_string
+  provider_credentials_in_scope: false
+
+requirements:
+  - id: K7-R1
+    statement: The repository installs from a committed pnpm lockfile and typechecks from a clean checkout.
+  - id: K7-R2
+    statement: API and worker are separate executable entrypoints.
+  - id: K7-R3
+    statement: Missing or invalid required configuration fails before accepting work.
+  - id: K7-R4
+    statement: `/health/live` never requires a database query.
+  - id: K7-R5
+    statement: `/health/ready` fails closed unless the K6 API identity/boundary is proven.
+  - id: K7-R6
+    statement: Worker check mode fails closed unless the K6 worker identity/boundary is proven.
+  - id: K7-R7
+    statement: API and worker configuration cannot substitute or fall back to each other's database URL.
+  - id: K7-R8
+    statement: Health/config/database failures do not disclose secrets or full database URLs.
+  - id: K7-R9
+    statement: No payment/provider/ledger/job/webhook side effect is introduced by bootstrap/readiness.
+  - id: K7-R10
+    statement: Existing database, sandbox and K6 runtime-topology CI remains GREEN.
+
+acceptance_criteria:
+  - A clean CI job installs dependencies, typechecks and runs application tests successfully.
+  - API liveness returns 200 even when its database readiness probe is unavailable.
+  - API readiness returns 200 only through an API-runtime connection that satisfies the K6 boundary.
+  - API readiness returns 503 for wrong identity, wrong membership or database failure without leaking the connection string.
+  - Worker one-shot check exits zero only through the worker-runtime identity that satisfies K6.
+  - Worker one-shot check fails with a non-zero exit for API identity or unavailable database.
+  - Static/config tests prove no service-role/provider credential is required by the bootstrap.
+  - Existing 29/973 database suite, 1/20 sandbox fixture suite and 1/27 K6 runtime suite remain PASS.
+
+edge_cases:
+  - Database accepts TCP but current_user is the wrong role.
+  - Runtime role accidentally receives the other workload capability role.
+  - Runtime role accidentally receives direct app.payments privileges.
+  - DATABASE_URL contains reserved URL characters in its password.
+  - PostgreSQL returns an error containing host/user/database metadata.
+  - Readiness database call times out.
+  - API receives concurrent readiness requests during database degradation.
+  - SIGTERM arrives while API is listening or worker is initialized.
+  - Port is already in use.
+  - SWIFTPAY_ENVIRONMENT contains an unsupported value.
+
+out_of_scope:
+  - API credential issuance or authentication middleware.
+  - Payment/Pix HTTP endpoints.
+  - Provider router or emulator.
+  - AkkadPag or FlevoPay HTTP calls.
+  - Provider credentials or provider account decryption.
+  - Durable job claim/execution loop.
+  - Merchant webhook HTTP delivery.
+  - Dashboard/UI.
+  - Production deployment itself.
+
+next_slice_after_green:
+  name: api-credentials-http-v0
+  intent: >-
+    Add the first authenticated merchant-facing capability on top of the proven
+    executable runtime, then use it as the entry boundary for Pix create/get.

@@ -1,0 +1,21 @@
+{
+  "name": "@swiftpay/dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "build": "tsc -b && vite build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "vite": "8.2.1"
+  }
+}
