@@ -95,9 +95,9 @@ jobs:
       - name: Run A2 real Pix runtime acceptance
         run: bash tests/application/017_a2_real_runtime_acceptance.sh
       - name: Run A3 real paid ledger balance acceptance
-        run: bash tests/application/021_a3_real_paid_ledger_balance_runtime_acceptance.sh
+        run: bash tests/application/021_a3_real_runtime_acceptance.sh
       - name: Run A4 real merchant webhook runtime acceptance
-        run: bash tests/application/027_a4_real_merchant_webhook_runtime_acceptance.sh
+        run: bash tests/application/027_a4_real_runtime_acceptance.sh
       - name: Run A6 dashboard authorization real-database acceptance
         run: bash tests/application/036_a6_dashboard_authorization_runtime_acceptance.sh
       - name: Run A7 webhook endpoint management real-database acceptance
