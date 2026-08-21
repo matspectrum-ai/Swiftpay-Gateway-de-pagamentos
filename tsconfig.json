@@ -4,6 +4,7 @@
     { "path": "./packages/auth" },
     { "path": "./packages/config" },
     { "path": "./packages/db" },
+    { "path": "./packages/observability" },
     { "path": "./packages/payments" },
     { "path": "./packages/providers" },
     { "path": "./packages/webhooks" },
