@@ -1,0 +1,148 @@
+id: A25
+name: hosted-runtime-identity-sandbox-e2e-v0
+status: frozen-for-tdd
+date: 2026-08-21
+
+problem_analysis: docs/design/a25-hosted-runtime-identity-sandbox-e2e-problem-analysis.md
+
+scope:
+  runtime_identities:
+    api_login: swiftpay_api_runtime
+    worker_login: swiftpay_worker_runtime
+    api_group: swiftpay_api
+    worker_group: swiftpay_worker
+  hosted_project:
+    name: swiftpay v2
+    project_id: vsidrgbbyzibqfjkuiqb
+  hosted_acceptance:
+    type: transaction_scoped_database_runtime_role_smoke
+    environment: sandbox
+    http_deployment_proof: explicitly_out_of_scope
+
+runtime_role_contract:
+  common:
+    login: true
+    inherit: true
+    superuser: false
+    createdb: false
+    createrole: false
+    replication: false
+    bypassrls: false
+    migration_installs_password: false
+    direct_app_schema_create: false
+    direct_app_table_dml: false
+    direct_app_sequence_privileges: false
+    direct_app_routine_execute: false
+  api:
+    member_of:
+      - swiftpay_api
+    not_member_of:
+      - swiftpay_worker
+    inherited_app_execute_count: 30
+  worker:
+    member_of:
+      - swiftpay_worker
+    not_member_of:
+      - swiftpay_api
+    inherited_app_execute_count: 6
+
+local_k6:
+  remote_target_allowed: false
+  fixed_database_url: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+  local_passwords:
+    purpose: synthetic_test_only
+    source: scripts/provision-local-runtime-identities
+    committed_remote_password_forbidden: true
+  behavior_after_a25_migration:
+    - verify_existing_runtime_role_attributes_are_safe
+    - install_synthetic_local_passwords_only_on_fixed_loopback_database
+    - reassert_matching_group_memberships
+    - reassert_zero_direct_app_object_privileges
+
+hosted_smoke:
+  transaction_required: true
+  rollback_required: true
+  administrative_session:
+    purpose: fixture_setup_and_temporary_set_role_authority_only
+    persistent_runtime_membership_forbidden: true
+  runtime_execution:
+    expected_current_user: swiftpay_api_runtime
+    expected_group: swiftpay_api
+  synthetic_fixture:
+    retained_psp_rows: forbidden
+    production_rows: forbidden
+    durable_secrets: forbidden
+    entities:
+      merchants: 2
+      auth_users: 2
+      merchant_memberships: 2
+      sandbox_emulator_providers: 1
+      sandbox_emulator_provider_accounts: 1
+  payment_link:
+    environment: sandbox
+    amount_cents: 1250
+    currency: BRL
+    pix_expiration_minutes: 30
+    production_create_result: forbidden
+  flow:
+    - authorized_dashboard_payment_link_create
+    - completed_payment_link_create_replay_no_duplicate
+    - foreign_tenant_dashboard_create_denied
+    - public_payment_link_read
+    - checkout_prepare
+    - checkout_prepare_same_key_same_hash_replay
+    - provider_attempt_claim_single_winner
+    - sandbox_success_resolution
+    - checkout_completed_replay_same_payment
+    - checkout_same_key_different_hash_conflict
+  payment_invariants:
+    source: payment_link
+    environment: sandbox
+    initial_status: creating
+    resolved_status: pending
+    pricing_version: sandbox-zero-fee-v0
+    merchant_fee_cents: 0
+    routing_policy_version: sandbox-emulator-v0
+    ledger_posting: forbidden
+    paid_transition: forbidden
+    retained_provider_io: forbidden
+  cleanup:
+    fixture_namespace_rows_after_rollback: 0
+    payment_links_delta: 0
+    payments_delta: 0
+    provider_attempts_delta: 0
+    ledger_transactions_delta: 0
+    jobs_delta: 0
+    retained_provider_calls: 0
+
+security:
+  data_api_new_execute: 0
+  direct_protected_table_grants: 0
+  retained_provider_authority_change: 0
+  a10_transition: 0
+  service_role_browser_exposure: forbidden
+  runtime_password_in_repository: forbidden
+
+red_acceptance:
+  expected_missing_behavior:
+    - swiftpay_api_runtime_role_absent
+    - swiftpay_worker_runtime_role_absent
+  existing_regressions_must_remain_green: true
+
+green_acceptance:
+  database_pgtap_all_green: true
+  application_contracts_green: true
+  runtime_database_acceptance_green: true
+  k5_green: true
+  k6_green: true
+  hosted_migration_applied: true
+  hosted_runtime_role_smoke_green: true
+  hosted_post_smoke_state_restored: true
+
+next_gate:
+  name: deployed-http-runtime-e2e
+  requires:
+    - server_side_runtime_database_credential_bootstrap_contract
+    - actual_swiftpay_api_deployment
+    - actual_checkout_http_surface
+  must_not_reuse_unrelated_existing_vercel_projects: true
