@@ -1,0 +1,48 @@
+id: A27
+name: a23-coalesce-special-form-runtime-fix-v0
+status: frozen-for-tdd
+date: 2026-08-21
+
+problem_analysis: docs/design/a27-a23-coalesce-special-form-runtime-fix-problem-analysis.md
+
+defect:
+  affected_function: app._a23_resolve_payment_link_pix_attempt(uuid,text,uuid,uuid,uuid,jsonb)
+  invalid_expression: pg_catalog.coalesce(...)
+  postgres_runtime_error: "42883"
+  affected_app_functions_before_fix: 1
+
+repair:
+  function_replacements: 1
+  replace:
+    from: pg_catalog.coalesce(...)
+    to: coalesce(...)
+  forbidden_changes:
+    - function_identity
+    - arguments
+    - result_type
+    - security_definer
+    - empty_search_path
+    - idempotency_semantics
+    - payment_transitions
+    - provider_attempt_transitions
+    - public_projection
+    - runtime_capability_manifest
+    - data_api_authority
+    - provider_activation
+    - pricing_or_ledger_behavior
+
+acceptance:
+  a26_database_047: 15_of_15_pass
+  a27_database_048: pass
+  previous_database_contracts: pass
+  application_contracts: pass
+  runtime_database_acceptance: pass
+  k5: pass
+  k6: pass
+  runtime_capabilities:
+    swiftpay_api: 30
+    swiftpay_worker: 6
+  hosted_migrations_applied_in_order:
+    - a23_jsonb_object_arity_runtime_fix
+    - a23_coalesce_special_form_runtime_fix
+  next: restart_a25_hosted_runtime_role_e2e_from_beginning
