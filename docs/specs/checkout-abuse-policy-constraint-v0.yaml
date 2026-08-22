@@ -1,0 +1,71 @@
+schema_version: swiftpay-a24-v0
+slice: A24
+name: checkout-abuse-policy-constraint
+status: frozen_for_tdd
+date: 2026-08-21
+
+problem:
+  observed_sqlstate: '23514'
+  constraint: app.api_abuse_windows_policy_check
+  failing_policy: checkout_request_pre_auth
+  cause: >-
+    A23 extended app.consume_api_abuse_quota to recognize checkout_request_pre_auth
+    but did not extend the persisted api_abuse_windows policy CHECK vocabulary.
+
+allowed_policies:
+  - token_exchange_pre_auth
+  - machine_request_pre_auth
+  - machine_read
+  - machine_mutation
+  - dashboard_request_pre_auth
+  - checkout_request_pre_auth
+  - readiness_probe
+
+repair:
+  type: forward_only_database_migration
+  table: app.api_abuse_windows
+  operation:
+    - drop_constraint: api_abuse_windows_policy_check
+    - add_constraint: api_abuse_windows_policy_check
+      exact_allowed_policies_ref: allowed_policies
+
+invariants:
+  quota_limits_unchanged:
+    token_exchange_pre_auth: 30
+    machine_request_pre_auth: 12000
+    machine_read: 6000
+    machine_mutation: 3000
+    dashboard_request_pre_auth: 300
+    checkout_request_pre_auth: 120
+    readiness_probe: 120
+  window_seconds: 60
+  consume_function_identity: app.consume_api_abuse_quota(text,text,text)
+  api_capability_count: 30
+  worker_capability_count: 6
+  direct_runtime_table_privileges: 0
+  data_api_app_execute: 0
+  retained_provider_authority_delta: 0
+  financial_behavior_delta: 0
+
+acceptance:
+  database:
+    - exact seven-value CHECK vocabulary
+    - checkout_request_pre_auth quota call succeeds
+    - first call materializes one row with request_count 1
+    - unknown policy remains CHECK-rejected
+    - full pgTAP regression green
+  runtime:
+    - existing K7/A14/A18/A1-A9 acceptance remains green
+  hosted:
+    - migration recorded in canonical project
+    - rollback smoke for checkout_request_pre_auth succeeds
+    - exact runtime capabilities remain 30 API / 6 worker
+    - payments_rows: 0
+    - provider_attempts_rows: 0
+
+non_scope:
+  - changing quota limits
+  - changing HMAC subject semantics
+  - adding provider authority
+  - adding payment or ledger behavior
+  - adding browser or Data API database authority
