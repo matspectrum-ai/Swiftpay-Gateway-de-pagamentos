@@ -19,45 +19,49 @@ scope:
     environment: sandbox
     http_deployment_proof: explicitly_out_of_scope
 
-runtime_role_contract:
-  common:
-    login: true
-    inherit: true
-    superuser: false
-    createdb: false
-    createrole: false
-    replication: false
-    bypassrls: false
-    migration_installs_password: false
-    direct_app_schema_create: false
-    direct_app_table_dml: false
-    direct_app_sequence_privileges: false
-    direct_app_routine_execute: false
-  api:
-    member_of:
-      - swiftpay_api
-    not_member_of:
-      - swiftpay_worker
-    inherited_app_execute_count: 30
-  worker:
-    member_of:
-      - swiftpay_worker
-    not_member_of:
-      - swiftpay_api
-    inherited_app_execute_count: 6
+bootstrap:
+  artifact: ops/sql/bootstrap-hosted-runtime-identities.sql
+  artifact_type: deployment_operational_sql
+  supabase_migration: forbidden
+  idempotent: true
+  installs_hosted_credential: false
+  unsafe_existing_role: fail_closed
+  runtime_role_contract:
+    common:
+      login: true
+      inherit: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      bypassrls: false
+      direct_app_schema_create: false
+      direct_app_table_dml: false
+      direct_app_sequence_privileges: false
+      direct_app_routine_execute: false
+    api:
+      member_of: [swiftpay_api]
+      not_member_of: [swiftpay_worker]
+      inherited_app_execute_count: 30
+    worker:
+      member_of: [swiftpay_worker]
+      not_member_of: [swiftpay_api]
+      inherited_app_execute_count: 6
 
 local_k6:
   remote_target_allowed: false
-  fixed_database_url: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-  local_passwords:
-    purpose: synthetic_test_only
+  existing_fixed_loopback_guard_preserved: true
+  shared_bootstrap_required: true
+  synthetic_local_login_credentials:
+    purpose: test_only
     source: scripts/provision-local-runtime-identities
-    committed_remote_password_forbidden: true
-  behavior_after_a25_migration:
-    - verify_existing_runtime_role_attributes_are_safe
-    - install_synthetic_local_passwords_only_on_fixed_loopback_database
-    - reassert_matching_group_memberships
-    - reassert_zero_direct_app_object_privileges
+    hosted_reuse: forbidden
+  behavior:
+    - execute_shared_credentialless_bootstrap
+    - validate_runtime_role_attributes_are_safe
+    - install_test_only_local_login_credentials
+    - retain_exact_matching_group_memberships
+    - retain_zero_direct_app_object_privileges
 
 hosted_smoke:
   transaction_required: true
@@ -116,26 +120,28 @@ hosted_smoke:
     retained_provider_calls: 0
 
 security:
+  hosted_credential_in_bootstrap_artifact: forbidden
+  runtime_login_creation_in_supabase_migrations: forbidden
   data_api_new_execute: 0
   direct_protected_table_grants: 0
   retained_provider_authority_change: 0
   a10_transition: 0
   service_role_browser_exposure: forbidden
-  runtime_password_in_repository: forbidden
 
 red_acceptance:
   expected_missing_behavior:
-    - swiftpay_api_runtime_role_absent
-    - swiftpay_worker_runtime_role_absent
+    - hosted_safe_bootstrap_artifact_absent
+    - local_k6_does_not_yet_reuse_shared_bootstrap
   existing_regressions_must_remain_green: true
 
 green_acceptance:
-  database_pgtap_all_green: true
   application_contracts_green: true
+  database_pgtap_all_green: true
   runtime_database_acceptance_green: true
   k5_green: true
   k6_green: true
-  hosted_migration_applied: true
+  hosted_operational_bootstrap_applied: true
+  hosted_runtime_identity_attestation_green: true
   hosted_runtime_role_smoke_green: true
   hosted_post_smoke_state_restored: true
 
