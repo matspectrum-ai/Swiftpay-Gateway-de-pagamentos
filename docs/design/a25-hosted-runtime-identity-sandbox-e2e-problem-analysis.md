@@ -70,9 +70,23 @@ A transaction-only Sandbox smoke then:
 11. resolves a contract-valid Sandbox emulator success to `pending` only;
 12. proves completed replay and conflicting-hash behavior;
 13. proves ledger/jobs/payout/refund deltas remain zero;
-14. issues `ROLLBACK` so fixture DML and temporary administrative membership disappear.
+14. issues `ROLLBACK` so all fixture/business DML disappears and the administrative session's runtime `SET` authority returns to its exact pre-smoke state.
 
 No AkkadPag/FlevoPay row, credential, activation or network call is allowed.
+
+## PostgreSQL 17 creator-admin membership semantics
+
+The managed hosted `postgres` role is `NOSUPERUSER + CREATEROLE`. PostgreSQL 17 automatically grants a newly created role back to a non-superuser `CREATEROLE` creator with the equivalent membership options `ADMIN TRUE, SET FALSE, INHERIT FALSE`.
+
+Therefore an administrative `pg_auth_members` row from `swiftpay_*_runtime` to the role creator is expected after bootstrap and is **not** runtime authority. A25 must distinguish that creator-admin relationship from usable workload authority:
+
+- before the smoke, `postgres` MUST have `SET=false` and `INHERIT=false` for both runtime roles;
+- the smoke may temporarily enable API runtime SET authority inside its transaction;
+- after `ROLLBACK`, `SET=false` and `INHERIT=false` MUST be restored;
+- the creator-admin row may remain exactly as PostgreSQL created it;
+- application capability still comes only from `swiftpay_api_runtime -> swiftpay_api` and `swiftpay_worker_runtime -> swiftpay_worker`.
+
+The cleanup invariant is therefore restoration of effective SET/INHERIT authority and all business state, not physical absence of PostgreSQL's automatic ADMIN-only creator membership row.
 
 ## Explicit non-claim
 
@@ -85,6 +99,7 @@ The subsequent deployment slice must define server-side runtime database credent
 - LOGIN identities are operational bootstrap, not schema migration.
 - Bootstrap creates them credentialless.
 - Runtime authority comes only from K4 NOLOGIN groups.
+- PostgreSQL creator ADMIN-only membership is not treated as workload SET/INHERIT authority.
 - Local synthetic passwords remain local-only.
 - Hosted secret installation is deferred to a dedicated deployment contract.
 - All hosted A25 business fixture state is transaction-scoped and rolled back.
