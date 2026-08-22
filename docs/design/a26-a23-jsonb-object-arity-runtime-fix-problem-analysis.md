@@ -38,6 +38,8 @@ A fail-first pgTAP must independently prove:
 3. invalid extra-key command/resolution inputs remain rejected so replacing arity logic does not weaken strict schemas;
 4. all pre-A26 contracts remain GREEN.
 
+A26 is a dependent repair on top of A25. Repository workflows currently trigger only for pull requests targeting `main`, so PR #6 may temporarily target `main` solely to obtain RED/GREEN CI for the complete A25+A26 SHA. Before dependent merge, its base returns to the A25 branch; this CI routing does not authorize an independent A26-to-main merge.
+
 ## Hosted acceptance
 
 After repository GREEN, apply one forward migration to canonical `swiftpay v2`, then rerun the A25 runtime-role E2E from the beginning. No manual hot-patch outside migration history is acceptable for this schema behavior repair.
