@@ -1,116 +1,90 @@
 # SwiftPay V2 — A25 Hosted Runtime Identity + Sandbox DB E2E Problem Analysis
 
-Status: PROBLEM_ANALYSIS / FROZEN FOR SPEC
+Status: FROZEN FOR TDD
 Date: 2026-08-21 (America/Santarem)
 
 ## Problem
 
-A23/A24 are deployed in the canonical hosted Supabase project and the hosted capability groups are exact at 30 `swiftpay_api` routines and 6 `swiftpay_worker` routines. However, the first controlled attempt to close the positive hosted Sandbox E2E exposed a more fundamental deployment gap:
+A23/A24 are deployed in canonical hosted Supabase with exact NOLOGIN capability groups: 30 `swiftpay_api` routines and 6 `swiftpay_worker` routines. The first controlled hosted-E2E investigation found that the deployment LOGIN identities do not exist:
 
-- hosted `swiftpay_api_runtime` LOGIN role: absent;
-- hosted `swiftpay_worker_runtime` LOGIN role: absent;
-- only the NOLOGIN capability groups `swiftpay_api` and `swiftpay_worker` exist;
-- the local K6 helper provisions the LOGIN identities only on fixed loopback Postgres and intentionally refuses a remote target.
+- `swiftpay_api_runtime`: absent hosted;
+- `swiftpay_worker_runtime`: absent hosted;
+- `scripts/provision-local-runtime-identities` creates them only on fixed loopback Postgres.
 
-Therefore there is no canonical hosted runtime identity that can satisfy `verifyRuntimeBoundary()` or support a real API/worker database connection. Running the positive checkout flow as hosted `postgres`, `service_role`, or a Data API role would bypass the intended least-privilege boundary and cannot be accepted as runtime E2E evidence.
+Without those identities, a hosted API/worker cannot satisfy `packages/db/src/core.ts::verifyRuntimeBoundary()`. Running A23 checkout operations as `postgres`, `service_role`, or a Data API role is not acceptable runtime evidence.
 
-## Evidence
+## Existing boundary discovered during Problem Analysis
 
-Hosted inspection on canonical project `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`) returned:
+K4 explicitly freezes `swiftpay_api` and `swiftpay_worker` as NOLOGIN capability roles and states that production LOGIN identities/passwords are **deployment concerns that must not be committed in migrations** (`20260815031330_trusted_runtime_database_boundary_foundation.sql`).
 
-```text
-current_user               = postgres
-postgres member swiftpay_api = true
-swiftpay_api_runtime        = absent
-swiftpay_worker_runtime     = absent
-```
+Therefore the initial idea of creating A25 LOGIN identities in a Supabase migration is rejected before implementation. A25 must preserve K4 and introduce an explicit operational bootstrap artifact outside `supabase/migrations`.
 
-Repository evidence:
+## Decision
 
-- `packages/db/src/core.ts::verifyRuntimeBoundary()` requires exact `current_user` `swiftpay_api_runtime` or `swiftpay_worker_runtime` and group membership without direct Payment DML authority.
-- `scripts/provision-local-runtime-identities` creates those LOGIN roles only against `127.0.0.1:54322` with synthetic local passwords and explicitly rejects production/managed targeting.
-- `scripts/seed-local-sandbox` and `supabase/seeds/local-sandbox.sql` are explicitly local-only and must not become a remote seed path.
-- A23 checkout DB routines are executable only through `swiftpay_api`; Data API/PUBLIC roles remain denied.
+A25 will add one versioned, credentialless deployment bootstrap SQL artifact under `ops/` that:
 
-## Decision boundary
+1. idempotently creates `swiftpay_api_runtime` and `swiftpay_worker_runtime` when absent;
+2. validates any pre-existing same-name roles and fails closed if attributes are unsafe;
+3. uses `LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`;
+4. installs no password/secret;
+5. grants only the matching NOLOGIN capability group;
+6. removes opposite workload-group membership;
+7. removes direct `app` schema/table/sequence/routine grants from the LOGIN identities.
 
-A25 will establish hosted-safe runtime identity objects and prove the hosted Sandbox database lifecycle under the exact API runtime identity. It will not smuggle production credentials into migrations, source, docs, CI output, or browser code.
+The existing K6 local helper remains fixed to `127.0.0.1:54322`. It will execute the same credentialless bootstrap artifact first, then install only its synthetic local passwords so existing real-connection K6 acceptance remains executable.
 
-A25 is allowed to:
+Hosted application passwords remain a later secret/deployment operation and must never appear in repository artifacts, CI output, browser code, evidence docs, or migration history.
 
-1. create `swiftpay_api_runtime` and `swiftpay_worker_runtime` as LOGIN roles with no password credential installed by the migration;
-2. grant only their matching NOLOGIN capability group;
-3. revoke the opposite capability group and any direct `app` schema/table/sequence/routine authority from the LOGIN roles;
-4. keep the K6 local helper loopback-only and let it install only its known synthetic local passwords after migrations;
-5. add database contracts proving exact role attributes, memberships and inherited capability counts;
-6. after repository GREEN, apply the migration hosted;
-7. run a bounded hosted smoke in one PostgreSQL transaction that temporarily grants the administrative smoke session SET authority to `swiftpay_api_runtime`, changes `current_user` to that runtime role, exercises the A23 Sandbox Payment Link → prepare → claim → resolve → replay path, and rolls the transaction back;
-8. prove Production remains fail-closed, a foreign merchant/user cannot administer the fixture link, and no fixture/financial/provider state survives rollback.
+## TDD boundary
 
-A25 is not allowed to:
+A25 RED is not a migration pgTAP. Existing K6 already proves the role topology after local provisioning. The missing behavior is a reusable hosted-safe deployment bootstrap artifact and K6 reuse of that exact topology source.
 
-- set or persist a hosted runtime password in Git/migrations/docs;
-- reuse or relax K5/K6 local-only guards;
-- create AkkadPag/FlevoPay hosted authority or change A10 activation;
-- grant direct protected-table DML to runtime LOGIN roles;
-- grant Data API roles new `app` EXECUTE/table authority;
-- expose provider/runtime/service credentials to browser code;
-- call a retained PSP;
-- mark a Payment paid or post ledger state;
-- claim that a database-role smoke is an HTTP deployment E2E.
+Fail-first application contract therefore requires:
 
-## Hosted smoke fixture
+- `ops/sql/bootstrap-hosted-runtime-identities.sql` to exist;
+- zero runtime password literals in that artifact;
+- safe role attributes and exact workload memberships in that artifact;
+- explicit revocation of direct `app` authority;
+- no `swiftpay_*_runtime` creation in `supabase/migrations`;
+- `scripts/provision-local-runtime-identities` to execute the shared bootstrap artifact before adding local-only passwords;
+- its fixed loopback guard to remain unchanged.
 
-The hosted smoke fixture is transaction-scoped and synthetic. It contains only:
+K5/K6 and all A1-A24 application/database/runtime tests must remain GREEN after implementation.
 
-- two synthetic active merchants for tenant-isolation checks;
-- two synthetic Auth users/memberships;
-- one platform Sandbox `swiftpay_emulator` provider and provider account;
-- one A23 fixed-amount Payment Link;
-- the Payment/ProviderAttempt/idempotency rows created by the A23 path.
+## Hosted execution proof
 
-It must not create AkkadPag/FlevoPay rows, payout/refund/ledger state, durable credentials, or a production Payment.
+After repository GREEN, the credentialless bootstrap artifact is applied deliberately to `swiftpay v2` through the administrative SQL channel. Hosted attestation must show both LOGIN roles exist with exact safe attributes and group memberships while effective capability counts remain API 30 / worker 6 and Data API authority remains unchanged.
 
-All smoke DML and temporary role membership are rolled back. Post-smoke row counts must equal their pre-smoke values for the fixture namespace and financial objects touched by A23.
+A transaction-only Sandbox smoke then:
 
-## Acceptance layers
+1. records pre-smoke counts;
+2. creates two synthetic active merchants/users/memberships and one synthetic `swiftpay_emulator` platform Sandbox account;
+3. temporarily grants the administrative smoke session SET authority to `swiftpay_api_runtime` inside the transaction;
+4. executes the A23 application DB calls with `current_user = swiftpay_api_runtime`;
+5. creates one Payment Link and proves same-key replay;
+6. proves Production create is forbidden and foreign-tenant administration is denied;
+7. reads the public link projection;
+8. prepares one `source='payment_link'` Payment and ProviderAttempt;
+9. proves prepare replay creates no duplicate;
+10. claims the attempt exactly once;
+11. resolves a contract-valid Sandbox emulator success to `pending` only;
+12. proves completed replay and conflicting-hash behavior;
+13. proves ledger/jobs/payout/refund deltas remain zero;
+14. issues `ROLLBACK` so fixture DML and temporary administrative membership disappear.
 
-### Layer 1 — repository/CI
+No AkkadPag/FlevoPay row, credential, activation or network call is allowed.
 
-Fail-first pgTAP proves runtime LOGIN identities are missing before implementation. GREEN requires:
+## Explicit non-claim
 
-- both LOGIN roles exist;
-- `LOGIN + INHERIT` are true;
-- `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION`, `BYPASSRLS` are false;
-- API LOGIN inherits only `swiftpay_api` among SwiftPay workload groups;
-- worker LOGIN inherits only `swiftpay_worker`;
-- neither LOGIN has direct `app` object grants;
-- inherited function capability counts remain exactly API 30 / worker 6;
-- existing K5/K6/application/runtime suites remain GREEN.
+A25 proves hosted PostgreSQL deployment identity topology and the A23 database/runtime-role lifecycle. It does not prove the Fastify application is deployed over HTTP.
 
-### Layer 2 — canonical hosted database/runtime-role smoke
+The subsequent deployment slice must define server-side runtime database credential injection, deploy the actual V2 API/checkout surfaces, and exercise HTTP/CORS/TLS without overwriting the unrelated historical Vercel projects already present in the account.
 
-After deployment, a transaction-only acceptance must prove:
+## Risk controls
 
-- `current_user = swiftpay_api_runtime` during the application DB operations;
-- Payment Link creation succeeds only in Sandbox for an authorized owner/admin;
-- public link projection is available without leaking private identifiers;
-- checkout prepare creates exactly one `source='payment_link'` Payment and one ProviderAttempt;
-- claim is single-winner;
-- deterministic Sandbox success resolution moves only `creating -> pending` and records Pix projection;
-- completed replay returns the original Payment and creates no duplicate Payment/ProviderAttempt;
-- same idempotency key with a different request hash conflicts;
-- Production create remains forbidden;
-- foreign tenant administration is denied;
-- no ledger/job/webhook/payout/refund state is created;
-- rollback removes every synthetic fixture and smoke-created row.
-
-## HTTP deployment boundary
-
-A25 does not close the public HTTP deployment proof. The repository API process requires runtime database credentials plus server-only signing/HMAC/wrapping configuration. Those credentials do not currently have an approved hosted secret-bootstrap/deployment contract and the existing Vercel projects are unrelated older applications.
-
-After A25 GREEN/HOSTED, the next slice must freeze the deploy/runtime secret contract and exercise the actual Fastify API + checkout HTTP surface without overwriting unrelated Vercel projects.
-
-## Risk
-
-Creating cluster LOGIN roles is security-sensitive even without passwords. The repair is safe only if the LOGIN roles remain credentialless at schema deployment, inherit one exact capability group, carry no direct object grants, and future credential installation occurs through a separate server-side secret/bootstrap operation.
+- LOGIN identities are operational bootstrap, not schema migration.
+- Bootstrap creates them credentialless.
+- Runtime authority comes only from K4 NOLOGIN groups.
+- Local synthetic passwords remain local-only.
+- Hosted secret installation is deferred to a dedicated deployment contract.
+- All hosted A25 business fixture state is transaction-scoped and rolled back.
