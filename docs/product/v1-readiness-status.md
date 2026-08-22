@@ -2,7 +2,7 @@
 
 Date: 2026-08-21 (America/Santarem)  
 Canonical source: `main`  
-Current repair PR: #4 — A24 checkout abuse-policy constraint
+Latest accepted merge: A24 PR #4, `4beb379bf62afe26faaf720d7698a4698988aa2f`
 
 This document reports engineering/readiness by risk, not by lines of code or number of files.
 
@@ -68,7 +68,7 @@ Do not interpret 78% engineering completion as 78% launch safety. The production
 
 Canonical Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`).
 
-A23 hosted migrations are applied. The first post-deploy smoke discovered a stale CHECK constraint in the distributed abuse-quota table; A24 repaired it under a clean RED→GREEN cycle.
+A23 hosted migrations are applied. The first post-deploy smoke discovered a stale CHECK constraint in the distributed abuse-quota table; A24 repaired it under a clean RED→GREEN cycle and is now merged into `main`.
 
 Current hosted attestation after A24:
 
@@ -112,6 +112,11 @@ GREEN Database workflow `32543077585`:
 - **46 files / 1382 assertions PASS**;
 - A24 #046: **14/14 PASS**;
 - K5/K6 GREEN.
+
+Final documentation HEAD was independently rerun before merge:
+
+- Application workflow `32543357285`: GREEN including real PostgreSQL runtime acceptance;
+- Database workflow `32543357255`: GREEN for pgTAP, K5 and K6.
 
 Evidence: `docs/evidence/application/2026-08-21-a24-checkout-abuse-policy-constraint.md`.
 
@@ -178,4 +183,4 @@ What remains is smaller in raw code volume but higher in launch risk. That is wh
 
 ## Next milestone
 
-After A24 merges, the next internal slice should be a **controlled positive hosted Sandbox E2E/bootstrap**. In parallel, current provider evidence acquisition continues. No retained provider should be activated merely to increase a completion percentage.
+A24 is merged and hosted. The next internal slice should be a **controlled positive hosted Sandbox E2E/bootstrap**. In parallel, current provider evidence acquisition continues. No retained provider should be activated merely to increase a completion percentage.
