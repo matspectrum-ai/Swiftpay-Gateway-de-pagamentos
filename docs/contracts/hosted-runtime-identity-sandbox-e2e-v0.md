@@ -5,30 +5,36 @@ Date: 2026-08-21 (America/Santarem)
 
 ## Purpose
 
-A25 closes the missing hosted database LOGIN identity boundary required by the existing SwiftPay API/worker runtime and proves the A23 Sandbox Payment Link lifecycle in the canonical hosted database while executing application database capabilities as the exact API runtime identity.
+A25 closes the missing hosted PostgreSQL LOGIN identity boundary required by the existing SwiftPay API/worker runtime and proves the A23 Sandbox Payment Link lifecycle while application database capabilities execute as the exact API runtime identity.
 
-This contract does **not** authorize a retained PSP, install hosted runtime passwords, or claim that the Fastify HTTP application is deployed.
+This contract does **not** authorize a retained PSP, store hosted runtime credentials, or claim that the Fastify HTTP application is deployed.
 
-## 1. Runtime identity topology
+## 1. K4 boundary remains authoritative
 
-The PostgreSQL cluster must contain exactly these SwiftPay workload LOGIN identities:
+K4 defines `swiftpay_api` and `swiftpay_worker` as NOLOGIN capability roles and explicitly leaves production LOGIN identities and credentials to deployment concerns rather than Supabase migrations.
+
+A25 therefore MUST NOT add `swiftpay_api_runtime` or `swiftpay_worker_runtime` creation to `supabase/migrations`.
+
+The canonical deployment artifact is:
+
+```text
+ops/sql/bootstrap-hosted-runtime-identities.sql
+```
+
+It is operational SQL, not migration history.
+
+## 2. Runtime identity topology
+
+The bootstrap idempotently establishes:
 
 ```text
 swiftpay_api_runtime
 swiftpay_worker_runtime
 ```
 
-Both roles MUST be:
+Both roles MUST be `LOGIN INHERIT` and MUST be `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`.
 
-- `LOGIN`;
-- `INHERIT`;
-- `NOSUPERUSER`;
-- `NOCREATEDB`;
-- `NOCREATEROLE`;
-- `NOREPLICATION`;
-- `NOBYPASSRLS`.
-
-The schema migration MUST NOT set a usable password. Runtime credential installation is a separate operational/deployment concern.
+The bootstrap MUST install no hosted credential. If a same-name role already exists with unsafe attributes, bootstrap MUST fail closed instead of silently normalizing a potentially compromised identity.
 
 Membership is exact:
 
@@ -39,157 +45,124 @@ swiftpay_worker_runtime -> swiftpay_worker
 
 The API LOGIN MUST NOT be a member of `swiftpay_worker`. The worker LOGIN MUST NOT be a member of `swiftpay_api`.
 
-## 2. Authority source
+## 3. Authority source
 
-LOGIN roles receive capability only by inheritance from the existing NOLOGIN workload groups.
+LOGIN roles receive capability only by inheritance from their existing NOLOGIN workload groups.
 
-The LOGIN roles MUST receive no direct grant on:
+The bootstrap explicitly removes direct grants on:
 
-- schema `app` beyond authority inherited from their workload group;
+- schema `app`;
 - `app` tables;
 - `app` sequences;
 - `app` routines.
 
-At A25 the effective inherited routine counts remain:
+Effective inherited routine counts remain exactly:
 
 ```text
 swiftpay_api_runtime    30 app EXECUTE capabilities
 swiftpay_worker_runtime  6 app EXECUTE capabilities
 ```
 
-A25 adds zero API/worker application capabilities.
+A25 adds zero application capabilities.
 
-## 3. Local K6 identity provisioning
+## 4. Local K6 reuse
 
-`scripts/provision-local-runtime-identities` remains fixed to the loopback Supabase database and MUST NOT accept a remote URL/project ref/override.
+`scripts/provision-local-runtime-identities` remains fixed to its existing loopback Supabase database and MUST NOT accept a remote target or project reference.
 
-Because A25 migrations now create credentialless LOGIN identities before K6 runs, the local helper MAY set only the synthetic local passwords:
+A25 changes the helper so it first executes the shared credentialless bootstrap SQL, then installs only the existing synthetic local LOGIN credentials needed by K6 real-connection tests. Those local test credentials are not hosted deployment credentials and MUST NOT move into the shared bootstrap artifact.
 
-```text
-local_api_runtime_only
-local_worker_runtime_only
+K6 remains responsible for proving:
+
+- both LOGIN roles exist;
+- safe role attributes;
+- exact matching workload memberships;
+- zero direct `app` object ACL entries;
+- API/worker real connections use their own LOGIN identities;
+- effective capability allowlist remains exact.
+
+## 5. A25 RED/GREEN evidence
+
+The fail-first application contract requires the shared bootstrap artifact and local-helper reuse. Before implementation it fails because the artifact is absent and K6 local provisioning is still self-contained.
+
+GREEN requires:
+
+- application contracts GREEN;
+- all database pgTAP GREEN with no A25 schema migration;
+- K5 GREEN;
+- K6 GREEN using the shared bootstrap artifact;
+- K7/A14/A18/A1-A9 real PostgreSQL runtime acceptance GREEN.
+
+## 6. Hosted bootstrap execution
+
+After repository GREEN, `ops/sql/bootstrap-hosted-runtime-identities.sql` is applied deliberately to canonical `swiftpay v2` through an administrative SQL channel.
+
+Hosted attestation must prove:
+
+- both runtime LOGIN roles exist with exact safe attributes;
+- exact group memberships;
+- no direct `app` object grants;
+- effective API/worker function counts remain 30/6;
+- Data API authority remains unchanged;
+- no retained-provider activation changes.
+
+## 7. Hosted smoke administration
+
+Hosted acceptance runs in one PostgreSQL transaction.
+
+Administrative authority is used only for fixture setup, temporary SET-role authority, inspection, and rollback. Inside the transaction, the administrative session may temporarily receive membership allowing:
+
+```sql
+SET LOCAL ROLE swiftpay_api_runtime
 ```
 
-on its fixed `127.0.0.1:54322` database after validating the role attributes. Those values are test fixtures, never hosted credentials.
+Every A23 application database operation used as runtime evidence MUST execute with:
 
-The helper then reasserts matching group membership and zero direct `app` object grants.
+```text
+current_user = swiftpay_api_runtime
+```
 
-## 4. Hosted smoke administration
+Application behavior executed as `postgres` is not accepted as runtime evidence. The temporary administrative membership must disappear on rollback.
 
-Hosted acceptance runs in a single PostgreSQL transaction through the managed administrative SQL channel.
+## 8. Synthetic hosted fixture
 
-Administrative authority is allowed only for:
-
-1. recording pre-smoke counts;
-2. creating synthetic transaction-scoped fixture rows;
-3. temporarily granting `postgres` SET authority to `swiftpay_api_runtime` inside that transaction;
-4. switching to `swiftpay_api_runtime` for the application capability calls;
-5. resetting role for inspection;
-6. rolling back all fixture DML and temporary membership.
-
-A successful smoke MUST prove `current_user = 'swiftpay_api_runtime'` while exercising the application DB routines. Application behavior executed as `postgres` is not acceptable runtime evidence.
-
-The temporary administrative membership MUST disappear on rollback.
-
-## 5. Synthetic hosted fixture
-
-All fixture identities use the A25 UUID namespace and exist only inside the smoke transaction.
-
-Required fixture shape:
+The transaction-scoped fixture contains only:
 
 - merchant A: active;
 - merchant B: active;
-- auth user A: owner/admin member of merchant A;
-- auth user B: owner/admin member of merchant B;
-- one platform provider with code `swiftpay_emulator`, active;
-- exactly one platform Sandbox provider account for that emulator, active, with only `create_pix_charge=true` required by A2/A23.
+- Auth user A: owner/admin member of merchant A;
+- Auth user B: owner/admin member of merchant B;
+- one active platform `swiftpay_emulator` provider;
+- exactly one active platform Sandbox emulator account with `create_pix_charge=true`.
 
-The fixture MUST NOT insert:
+The fixture MUST NOT insert AkkadPag, FlevoPay, retained-provider credentials, Production provider accounts, API credentials, webhook secrets, ledger postings, payouts, or refunds.
 
-- AkkadPag;
-- FlevoPay;
-- retained-provider credentials;
-- Production provider accounts;
-- API credentials;
-- webhook secrets;
-- ledger entries/transactions;
-- payout/refund state.
+## 9. Payment Link creation
 
-## 6. Payment Link creation
-
-As `swiftpay_api_runtime`, authorized user A creates a link for merchant A through:
+As `swiftpay_api_runtime`, authorized user A calls:
 
 ```sql
 app.create_dashboard_payment_link(uuid, uuid, text, text, text, jsonb)
 ```
 
-Frozen input:
+with Sandbox, BRL 1250, 30-minute Pix expiration, a dedicated valid A25 public token and stable idempotency/request-hash values.
 
-```json
-{
-  "amount": 1250,
-  "currency": "BRL",
-  "description": "A25 hosted Sandbox E2E",
-  "pixExpirationMinutes": 30,
-  "publicToken": "<valid dedicated A25 token>"
-}
-```
+Expected first result: `kind=created`, `replayed=false`.
 
-Expected first result:
+Same key + same hash MUST replay the same link with no duplicate. Production MUST return `kind=forbidden`. User B administering merchant A MUST be denied with no cross-tenant row.
 
-```text
-kind=created
-replayed=false
-environment=sandbox
-amount=1250
-currency=BRL
-```
+## 10. Public checkout read
 
-The same idempotency key and request hash MUST return `replayed=true` and MUST NOT create a second Payment Link.
+`app.get_public_payment_link(text)` must return only the A23 public projection: merchant name, amount, currency, description, environment and Pix expiration. It must not leak internal merchant/link/provider identifiers or private membership data.
 
-A Production create attempt MUST return `kind=forbidden` and create no row.
+## 11. Checkout prepare and idempotency
 
-User B attempting to administer merchant A MUST be denied by `require_dashboard_merchant_context`; no cross-tenant link is created.
+`app.prepare_payment_link_pix_payment(text,text,text)` first call MUST return `kind=prepared` and create exactly one checkout idempotency owner, one Payment and one ProviderAttempt.
 
-## 7. Public checkout read
-
-As `swiftpay_api_runtime`, the dedicated public token is passed to:
-
-```sql
-app.get_public_payment_link(text)
-```
-
-The result MUST expose only the A23 public projection:
-
-- merchant name;
-- amount;
-- currency;
-- description;
-- environment;
-- Pix expiration.
-
-It MUST NOT expose merchant ID, internal Payment Link ID, provider account ID, provider credentials, or private membership data.
-
-## 8. Checkout prepare and idempotency
-
-As `swiftpay_api_runtime`, checkout creation uses:
-
-```sql
-app.prepare_payment_link_pix_payment(text, text, text)
-```
-
-The first same-key/same-hash call MUST return `kind=prepared` and create exactly:
-
-- one `request_idempotency` owner for the Payment Link create-payment operation;
-- one `app.payments` row;
-- one `app.provider_attempts` row.
-
-The Payment MUST have:
+The Payment must remain:
 
 ```text
 environment=sandbox
 source=payment_link
-source_resource_id=<A25 link id>
 collection_status=creating
 amount_cents=1250
 currency=BRL
@@ -199,101 +172,50 @@ merchant_net_cents=1250
 routing_policy_version=sandbox-emulator-v0
 ```
 
-The ProviderAttempt MUST target the synthetic `swiftpay_emulator` account and begin `prepared`.
+The ProviderAttempt targets the synthetic emulator and starts `prepared`.
 
-A same-key/same-hash prepare replay before resolution MUST return the same Payment/ProviderAttempt and create no duplicate.
+Same key + same hash before resolution returns the same Payment/ProviderAttempt. Same key + different hash conflicts without duplication.
 
-A same key with another request hash MUST return a conflict result and create no duplicate.
+## 12. Claim and resolution
 
-## 9. Claim and resolution
+First `app.claim_api_pix_attempt(...)` returns `claimed=true` with one execution token. A second claim returns `claimed=false`.
 
-The first call to:
+The smoke passes one contract-valid Sandbox emulator success projection to `app.resolve_api_pix_attempt(...)`, containing exactly certainty, providerPaymentId, txId, copyAndPaste, qrCode and expiresAt.
 
-```sql
-app.claim_api_pix_attempt(merchant, 'sandbox', payment, attempt)
-```
-
-MUST return `claimed=true` and a UUID execution token. A second claim of the same attempt MUST return `claimed=false`.
-
-The smoke then passes one contract-valid deterministic Sandbox success projection to:
-
-```sql
-app.resolve_api_pix_attempt(merchant, 'sandbox', payment, attempt, execution_token, resolution)
-```
-
-The success resolution is fixture evidence only; it represents the already-frozen deterministic emulator output shape and MUST contain exactly:
-
-- `certainty=success`;
-- `providerPaymentId`;
-- `txId`;
-- `copyAndPaste`;
-- `qrCode`;
-- `expiresAt`.
-
-Expected result/state:
+Expected state:
 
 ```text
 Payment creating -> pending
 ProviderAttempt executing -> succeeded
-idempotency in_progress -> completed
+checkout idempotency in_progress -> completed
 Pix projection populated
 ```
 
-A25 MUST NOT transition the Payment to `paid`, create ledger postings, or invoke an external provider.
+A25 MUST NOT transition to paid, create ledger postings, or perform external provider I/O.
 
-## 10. Completed replay
+## 13. Completed replay
 
-After successful resolution, the same checkout idempotency key/hash MUST return the same completed Payment with HTTP snapshot semantics from A23 and MUST NOT create another Payment or ProviderAttempt.
+After resolution, same checkout key/hash returns the same completed Payment and creates no duplicate Payment/ProviderAttempt. Different hash with the same key conflicts.
 
-A different hash with that same key MUST conflict.
+## 14. Side-effect boundary and rollback
 
-## 11. Side-effect boundary
+Before rollback the only allowed A25 business deltas are one synthetic Payment Link, one checkout Payment and one ProviderAttempt plus their idempotency state. Ledger transactions, jobs, payouts and refunds remain unchanged.
 
-Across A25 smoke execution before rollback:
+The smoke MUST issue `ROLLBACK`, not best-effort manual deletes. After rollback all A25 fixture/business rows and temporary administrative membership must equal pre-smoke state.
 
-- Payment Links may increase only by the one synthetic A25 link;
-- Payments may increase only by the one A25 checkout Payment;
-- ProviderAttempts may increase only by one A25 create attempt;
-- ledger transactions delta = 0;
-- jobs delta = 0;
-- retained-provider network calls = 0;
-- payouts/refunds delta = 0.
-
-## 12. Rollback/cleanup
-
-The smoke MUST issue `ROLLBACK`, not manual best-effort deletes.
-
-After rollback, all of these must equal pre-smoke state:
-
-- synthetic A25 merchants/users/memberships;
-- synthetic emulator/provider account;
-- A25 Payment Link;
-- A25 request idempotency rows;
-- A25 Payment;
-- A25 ProviderAttempt;
-- temporary `postgres -> swiftpay_api_runtime` membership.
-
-## 13. Security invariants after hosted deployment
-
-Post-deploy attestation must remain:
+## 15. Post-bootstrap security invariants
 
 ```text
-swiftpay_api group app EXECUTE       30
-swiftpay_worker group app EXECUTE     6
-Data API effective app EXECUTE        0
-retained PSP production authority     0
+swiftpay_api effective app EXECUTE       30
+swiftpay_worker effective app EXECUTE     6
+Data API effective app EXECUTE            0
+retained PSP production authority         0
 ```
 
-The new LOGIN roles do not alter A10 provider activation state.
+A25 changes no A10 provider activation state.
 
-## 14. Explicit non-claim
+## 16. Explicit non-claim
 
-A25 GREEN/HOSTED proves the canonical hosted PostgreSQL runtime identity and A23 database lifecycle. It does not prove:
+A25 GREEN/HOSTED proves hosted PostgreSQL deployment identity topology and the A23 database/runtime-role lifecycle. It does not prove deployed Fastify configuration, HTTP routing/CORS/TLS, Vercel compute, hosted server-side credential injection, or browser checkout against a deployed API.
 
-- deployed Fastify process configuration;
-- HTTP routing/CORS/TLS;
-- Vercel or other compute deployment;
-- hosted server-side secret injection;
-- browser checkout rendering against the deployed API.
-
-Those are the next deployment/HTTP E2E gate and must use the actual V2 application rather than an unrelated historical Vercel project.
+Those belong to the next deployment/HTTP E2E slice and must use the actual V2 application, not unrelated historical Vercel projects.
