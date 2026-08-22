@@ -22,11 +22,11 @@ Functional checklist: `docs/product/v1-functional-checklist.md`
 ## Current checkpoint
 
 - Canonical source branch: `main`
-- A24 work branch: `agent/a24-checkout-abuse-policy-constraint`
-- A24 PR: #4 — `A24: repair checkout abuse-policy table constraint`
+- Latest accepted merge: PR #4 — A24, merge commit `4beb379bf62afe26faaf720d7698a4698988aa2f`
+- No active implementation slice at this checkpoint; the next behavior starts again at `PROBLEM_ANALYSIS`.
 - Canonical hosted Supabase: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A24: `DONE` for their frozen scopes after A24 final GREEN/hosted evidence; PR #4 remains to be merged into `main` at this checkpoint.
+- A1-A24: `DONE` for their frozen scopes.
 - A5 remains `DONE / FIXTURE-ONLY` for live retained-provider authority.
 - A10 remains default-deny: repository defaults authorize zero retained-provider operations.
 - A11 strict HTTPS transport remains intentionally unbound from retained A5 adapters.
@@ -54,6 +54,7 @@ These percentages are risk/effort-weighted, not file counts and not a claim that
 - RED Database workflow `32542942243`: existing #001-#045 GREEN; A24 #046 failed exactly 4/14 intended assertions; K5/K6 GREEN.
 - GREEN Application workflow `32543077528`: install/typecheck/build/application contracts GREEN; K7/A14/A18/A1-A9 real PostgreSQL acceptance GREEN.
 - GREEN Database workflow `32543077585`: **46 files / 1382 pgTAP assertions PASS**; K5/K6 GREEN.
+- Final documentation HEAD also reran GREEN before merge: Application `32543357285`, Database `32543357255`.
 - Hosted migration history: `20260822012110_checkout_abuse_policy_constraint`.
 - Hosted checkout quota smoke: allowed=true, remaining=119, retry_after_seconds=0; rollback left no smoke row.
 - Hosted authority after repair: exactly **30 API / 6 worker**, Data API `app` EXECUTE 0, Payments 0, ProviderAttempts 0.
@@ -194,13 +195,13 @@ Production-hardening path:
 - `supabase/migrations/20260822012000_checkout_abuse_policy_constraint.sql`
 - `docs/evidence/application/2026-08-21-a24-checkout-abuse-policy-constraint.md`
 - `TODOS.md`
-- product readiness/checklist docs updated in the same handoff sequence.
+- `docs/product/v1-readiness-status.md`
+- `docs/product/v1-functional-checklist.md`
 
 ## Immediate next action
 
-1. merge A24 PR #4 after the final documentation HEAD re-runs required checks;
-2. protect `main` with required Application/Database checks;
-3. freeze a controlled positive hosted Sandbox E2E/bootstrap slice so A23 is exercised through deployed API/runtime without seeding ad-hoc production data;
-4. continue current provider-owned contract evidence acquisition in parallel;
-5. do not wire or activate AkkadPag/AkadPay/FlevoPay until current-contract + authenticated-Sandbox gates close;
-6. after the positive hosted Sandbox E2E, take the highest-risk launch slice: deployment/cutover/backup/rollback or merchant KYC/payout/refund, chosen by explicit Problem Analysis rather than speculative implementation.
+1. protect `main` with required Application/Database checks;
+2. freeze a controlled positive hosted Sandbox E2E/bootstrap slice so A23 is exercised through deployed API/runtime without seeding ad-hoc production data;
+3. continue current provider-owned contract evidence acquisition in parallel;
+4. do not wire or activate AkkadPag/AkadPay/FlevoPay until current-contract + authenticated-Sandbox gates close;
+5. after the positive hosted Sandbox E2E, take the highest-risk launch slice: deployment/cutover/backup/rollback or merchant KYC/payout/refund, chosen by explicit Problem Analysis rather than speculative implementation.
