@@ -20,10 +20,16 @@ test('A25 frozen artifacts keep runtime LOGIN bootstrap outside Supabase migrati
   ]);
 
   assert.match(problem, /deployment concerns.*must not be committed in migrations/is);
+  assert.match(problem, /ADMIN TRUE, SET FALSE, INHERIT FALSE/i);
   assert.match(spec, /artifact: ops\/sql\/bootstrap-hosted-runtime-identities\.sql/);
   assert.match(spec, /supabase_migration: forbidden/);
+  assert.match(spec, /temporary_runtime_set_authority_after_rollback: false/);
+  assert.match(spec, /temporary_runtime_inherit_authority_after_rollback: false/);
+  assert.match(spec, /creator_admin_membership_must_equal_pre_smoke: true/);
   assert.match(contract, /operational SQL, not migration history/i);
   assert.match(contract, /current_user = swiftpay_api_runtime/);
+  assert.match(contract, /ADMIN TRUE, SET FALSE, INHERIT FALSE/i);
+  assert.match(contract, /pg_has_role\('postgres','swiftpay_api_runtime','SET'\).*false/is);
 });
 
 test('A25 provides one credentialless hosted-safe runtime identity bootstrap artifact', async () => {
