@@ -2,8 +2,7 @@
 
 Date: 2026-09-03 (America/Santarem)  
 Canonical source: `main`  
-Latest canonical merge: A25+A26+A27 PR #5, `8be66916a14126e8e86f4858b32d56d5866a7c9f`  
-Active provider-evidence slice: A28 PR #8
+Latest accepted behavioral merge: A28 PR #8, `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
 
 This document reports engineering/readiness by risk, not by lines of code or number of files.
 
@@ -38,7 +37,7 @@ Security Advisor still reports one INFO `rls_enabled_no_policy` for intentionall
 
 ## Quality baseline
 
-A25+A26+A27 are canonical in `main`.
+A25+A26+A27 are canonical in `main` through PR #5 (`8be66916a14126e8e86f4858b32d56d5866a7c9f`).
 
 - final A25 branch Application workflow `33807825924`: GREEN
 - final A25 branch Database workflow `33807825927`: GREEN
@@ -53,41 +52,48 @@ Evidence:
 - `docs/evidence/application/2026-08-21-a26-a23-jsonb-object-arity-runtime-fix.md`
 - `docs/evidence/application/2026-08-21-a27-a23-coalesce-special-form-runtime-fix.md`
 
-## A28 MagicPay evidence status
+## A28 MagicPay status — canonical partial contract
 
-The provider-supplied integration guide closes a meaningful portion of the MagicPay contract:
+A28 is now `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL` and is canonical in `main` through PR #8 (`9f612c5a7592f1b05064e2e4238cc9f60699adf5`).
 
-- API base URL: `https://api.dashboardmagicpay.com/v1`
-- Basic Auth: public key username + secret key password
+The provider-supplied integration guide establishes:
+
+- API base URL `https://api.dashboardmagicpay.com/v1`
+- Basic Auth with public key as username and secret key as password
 - integer-centavo amounts
-- Pix create request: `POST /transactions`, `paymentMethod=pix`
-- transaction query route: `GET /transactions/{id}`
+- Pix create request via `POST /transactions` with `paymentMethod=pix`
+- transaction query route `GET /transactions/{id}`
 - read-only company and available-balance routes
-- `postbackUrl` acknowledgement/retry behavior
+- `postbackUrl` 2xx acknowledgement/retry behavior
 - separate `x-withdraw-key` requirement for withdrawal/anticipation
 
 A28 implements only an internal, non-authorizing module with:
 
-- exact contract-gap metadata;
-- pure Pix request serialization;
-- local validation/normalization;
-- read-only company/balance request primitives.
+- exact contract-gap metadata
+- pure Pix request serialization
+- local validation/normalization
+- read-only company/balance request primitives
 
-The module is intentionally **not** exported by the public providers barrel. MagicPay is not added to A10 and no monetary A11 binding exists.
+The MagicPay module is intentionally **not** exported by the public providers barrel. MagicPay is not added to A10 and no monetary A11 binding exists.
 
 A28 formal RED:
 
 - SHA `ee1cd36325bc283fdf4153d7ee7d6c16efa5d964`
 - Application workflow `33809027827`
-- install/typecheck/build GREEN; application contracts failed as intended before the module existed
+- install/typecheck/build GREEN; application contracts failed as intended before the dedicated module existed
 
-A28 GREEN implementation checkpoint:
+A28 implementation GREEN checkpoint:
 
 - SHA `41af647e5cf3a4dcff206953168d5e770b77a6fc`
-- Application workflow `33809360204`
-- application-contracts job `100827316426`: GREEN for install/typecheck/build/contracts
+- Application workflow `33809360204`: full workflow GREEN
 
-Final documentation-head CI remains the merge gate for PR #8.
+A28 final pre-merge validation:
+
+- SHA `7a2d52a44544fc659daae83fde4c4d444d5d5b6b`
+- Application workflow `33809654802`: **GREEN**
+- application contracts GREEN
+- unchanged runtime-database acceptance GREEN
+- canonical merge `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
 
 Evidence: `docs/evidence/application/2026-09-03-a28-magicpay-provider-contract-evidence.md`.
 
@@ -95,57 +101,56 @@ Evidence: `docs/evidence/application/2026-09-03-a28-magicpay-provider-contract-e
 
 The guide still does not establish the exact facts needed to safely normalize and recover a real Pix execution:
 
-- successful `POST /transactions` response schema;
-- Pix QR/copy-and-paste field location;
-- exact `GET /transactions/{id}` response envelope;
-- provider idempotency semantics;
-- ambiguous-create recovery semantics;
-- provider error certainty semantics;
-- Sandbox/homologation classification;
-- webhook authentication/signature and replay identity;
-- explicit rate limits.
+- successful `POST /transactions` response schema
+- Pix QR/copy-and-paste field location
+- exact `GET /transactions/{id}` response envelope
+- provider idempotency semantics
+- ambiguous-create recovery semantics
+- provider error certainty semantics
+- Sandbox/homologation classification
+- webhook authentication/signature and replay identity
+- explicit rate limits
 
 `externalRef` is not treated as idempotency evidence.
 
-The attempted non-destructive authenticated probe could not reach `api.dashboardmagicpay.com` because the available execution environment failed DNS resolution. That is not a provider rejection and does not prove or disprove the supplied credentials.
+A non-destructive authenticated probe could not reach `api.dashboardmagicpay.com` because the available execution environment failed DNS resolution. That is not a provider rejection and does not prove or disprove the supplied credentials.
 
-Therefore Production provider authority remains **zero**.
+Therefore MagicPay Production provider authority remains **zero**.
 
 ## Why Sandbox is ~99%, not 100%
 
 The hosted database/runtime-role path is proven. Remaining Sandbox closure is deployed compute:
 
-1. server-side runtime database credential/bootstrap/rotation contract;
-2. actual SwiftPay V2 API/checkout deployment;
-3. server-only runtime credential injection;
-4. deployed Fastify routing/CORS/TLS/readiness verification;
-5. browser Payment Link → checkout → deterministic Sandbox Pix E2E;
-6. HTTP replay/tenant/security acceptance.
+1. server-side runtime database credential/bootstrap/rotation contract
+2. actual SwiftPay V2 API/checkout deployment
+3. server-only runtime credential injection
+4. deployed Fastify routing/CORS/TLS/readiness verification
+5. browser Payment Link → checkout → deterministic Sandbox Pix E2E
+6. HTTP replay/tenant/security acceptance
 
 ## Remaining V1 engineering
 
 ### Launch critical
 
-1. Final A28 documentation-head CI + canonicalization.
-2. Deployed HTTP runtime E2E for actual V2 API/checkout.
-3. Exact MagicPay Pix response/query/idempotency/recovery evidence.
-4. Authenticated safe MagicPay proof from a working network path/environment.
-5. Live provider adapter + A11 bridge only after evidence closes.
-6. Deliberate A10 activation only after live-provider proof.
-7. Provider webhook authenticity/recovery/reconciliation runtime.
-8. Deployment/cutover/rollback/backup contract.
-9. Production secrets/bootstrap rotation drills.
-10. Load/capacity, WAF/network and external observability hardening.
-11. `main` branch protection with required checks.
+1. Deployed HTTP runtime E2E for actual V2 API/checkout.
+2. Exact MagicPay Pix response/query/idempotency/recovery evidence.
+3. Authenticated safe MagicPay proof from a working network path/environment.
+4. Live provider adapter + A11 bridge only after evidence closes.
+5. Deliberate A10 activation only after live-provider proof.
+6. Provider webhook authenticity/recovery/reconciliation runtime.
+7. Deployment/cutover/rollback/backup contract.
+8. Production secrets/bootstrap rotation drills.
+9. Load/capacity, WAF/network and external observability hardening.
+10. `main` branch protection with required checks.
 
 ### Merchant product completion
 
-- KYC/compliance operations;
-- payout API/UI;
-- refund API/UI;
-- reporting/analytics;
-- Production checkout/Payment Links after provider activation.
+- KYC/compliance operations
+- payout API/UI
+- refund API/UI
+- reporting/analytics
+- Production checkout/Payment Links after provider activation
 
 ## Practical interpretation
 
-SwiftPay V2 is no longer an early prototype. Core payment/financial/idempotency/tenant/runtime security invariants have executable and hosted evidence. A28 materially reduces the provider-documentation uncertainty, but it deliberately stops before payable provider execution because the response/idempotency/recovery contract is not complete.
+SwiftPay V2 is no longer an early prototype. Core payment, financial, idempotency, tenant and runtime-security invariants have executable and hosted evidence. A28 materially reduces MagicPay documentation uncertainty, but deliberately stops before payable provider execution because response, idempotency and recovery evidence is still incomplete.

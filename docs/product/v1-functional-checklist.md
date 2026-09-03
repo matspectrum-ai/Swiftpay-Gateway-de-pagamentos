@@ -127,6 +127,8 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 ### MagicPay A28 partial contract
 
+- [x] A28 PR #8 canonicalized into `main` as `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
+- [x] Final A28 Application workflow `33809654802` GREEN including runtime-database acceptance
 - [x] Provider guide proves base URL `https://api.dashboardmagicpay.com/v1`
 - [x] Provider guide proves Basic Auth public-key/secret-key roles
 - [x] Provider guide proves integer-centavo amounts
@@ -192,6 +194,7 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] Real local PostgreSQL acceptance for K7/A14/A18/A1-A9
 - [x] Latest database suite: **48 files / 1403 pgTAP assertions PASS**
 - [x] A25+A26+A27 final Application and Database workflows GREEN before canonical merge
+- [x] A28 final Application workflow GREEN after documentation/readiness closure
 - [ ] Production-like load/capacity test
 - [ ] Measured rate-limit tuning
 - [ ] Measured database/index optimization
@@ -200,7 +203,8 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 ## Deployment / launch
 
-- [x] A25/A26/A27 PR #5 merged/canonicalized into `main` as `8be66916a14126e8e86f4858b32d56d5866a7c9f`
+- [x] A25/A26/A27 PR #5 merged into `main` as `8be66916a14126e8e86f4858b32d56d5866a7c9f`
+- [x] A28 PR #8 merged into `main` as `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
 - [x] Canonical hosted Supabase project established
 - [x] A23/A24/A26/A27 hosted database migrations applied
 - [x] A25 hosted credentialless runtime LOGIN bootstrap applied
@@ -217,13 +221,12 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 ## Current blockers / next closure
 
-1. **A28 final documentation-head CI + merge** — safe partial MagicPay contract only.
-2. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
-3. **MagicPay exact response/idempotency/recovery + environment evidence** — provider live-integration gate.
-4. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
-5. **Provider bridge/activation/recovery/webhook** — blocked until #3/#4 close.
-6. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
-7. **Merchant completeness** — KYC, payout/refund and reporting.
+1. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
+2. **MagicPay exact response/idempotency/recovery + environment evidence** — provider live-integration gate.
+3. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
+4. **Provider bridge/activation/recovery/webhook** — blocked until #2/#3 close.
+5. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
+6. **Merchant completeness** — KYC, payout/refund and reporting.
 
 ## Safety invariants
 

@@ -22,15 +22,12 @@ Functional checklist: `docs/product/v1-functional-checklist.md`
 ## Current checkpoint
 
 - Canonical source branch: `main`
-- Latest accepted canonical merge: PR #5 — A25+A26+A27, merge commit `8be66916a14126e8e86f4858b32d56d5866a7c9f`
-- Active PR: #8 — A28 MagicPay provider contract evidence, branch `agent/a28-magicpay-provider-contract-evidence`
+- Latest accepted behavioral merge: PR #8 — A28 MagicPay partial provider contract + safe primitives, merge commit `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
+- Prior canonical merge: PR #5 — A25+A26+A27, merge commit `8be66916a14126e8e86f4858b32d56d5866a7c9f`
 - Canonical hosted Supabase: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
 - A1-A27: `DONE` for their frozen scopes
-- A25: `DONE / GREEN / HOSTED / DATABASE-RUNTIME-E2E`
-- A26: `DONE / GREEN / HOSTED / DATABASE-ONLY`
-- A27: `DONE / GREEN / HOSTED / DATABASE-ONLY`
-- A28: `GREEN IMPLEMENTATION / APPLICATION-ONLY / EVIDENCE-PARTIAL`; final documentation-head CI + PR merge remain
+- A28: `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL`
 - A5 remains `DONE / FIXTURE-ONLY` for retained live-provider authority
 - A10 remains default-deny; MagicPay is not registered or activated
 - A11 strict HTTPS transport remains unbound from MagicPay monetary behavior
@@ -76,7 +73,7 @@ These percentages are risk/effort weighted, not file counts or launch-safety cla
 - PR #5 final Application `33807825924` GREEN; Database `33807825927` GREEN
 - Canonical merge: `8be66916a14126e8e86f4858b32d56d5866a7c9f`
 
-## A28 — MagicPay partial provider contract — `GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL`
+## A28 — MagicPay partial provider contract — `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL`
 
 ### Source evidence
 
@@ -84,7 +81,7 @@ These percentages are risk/effort weighted, not file counts or launch-safety cla
 - Provider-supplied integration guide SHA-256: `b9b493227d45b880077383c145e9ca5a0c16e6fae327b84d2c614566b8c47104`
 - Real credentials were supplied out-of-repository and MUST NOT enter Git, CI, browser state, screenshots or ordinary logs
 
-### Contract facts now proven by provider guide
+### Contract facts proven by provider guide
 
 - base URL: `https://api.dashboardmagicpay.com/v1`
 - HTTP Basic Auth: public key username + secret key password
@@ -111,7 +108,7 @@ These percentages are risk/effort weighted, not file counts or launch-safety cla
 
 `externalRef` is **not** treated as provider idempotency evidence.
 
-### A28 frozen artifacts
+### A28 artifacts
 
 - Problem Analysis: `docs/design/a28-magicpay-provider-contract-evidence-problem-analysis.md`
 - Spec: `docs/specs/magicpay-provider-contract-evidence-v0.yaml`
@@ -120,24 +117,25 @@ These percentages are risk/effort weighted, not file counts or launch-safety cla
 - Implementation: `packages/providers/src/magicpay.ts`
 - Evidence: `docs/evidence/application/2026-09-03-a28-magicpay-provider-contract-evidence.md`
 
-### A28 TDD evidence
+### A28 TDD / final validation
 
 - RED SHA `ee1cd36325bc283fdf4153d7ee7d6c16efa5d964`
-- RED Application workflow `33809027827`: install/typecheck/build GREEN; `Run application contracts` FAIL as intended before the MagicPay module existed
-- GREEN implementation head before evidence/docs: `41af647e5cf3a4dcff206953168d5e770b77a6fc`
-- GREEN Application workflow `33809360204`: application-contracts job `100827316426` GREEN for install/typecheck/build/contracts
-- Runtime DB acceptance is unchanged existing infrastructure and remains required on final documentation head
+- RED Application workflow `33809027827`: install/typecheck/build GREEN; `Run application contracts` failed as intended before the MagicPay module existed
+- Implementation GREEN checkpoint `41af647e5cf3a4dcff206953168d5e770b77a6fc`, workflow `33809360204`: full Application workflow GREEN
+- Final pre-merge head `7a2d52a44544fc659daae83fde4c4d444d5d5b6b`
+- Final Application workflow `33809654802`: **GREEN**, including application contracts and unchanged runtime-database acceptance
+- Canonical merge: `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
 
 ### A28 implementation boundary
 
-Allowed and implemented:
+Implemented:
 
 - exact partial-contract metadata
 - pure Basic-authenticated Pix request builder using documented camelCase payload vocabulary
 - validation/normalization before transport
 - read-only `/company` and `/balance/available` client primitives
 
-Explicitly forbidden/not implemented:
+Explicitly not implemented/authorized:
 
 - `createMagicPayAdapter`
 - public `packages/providers/src/index.ts` MagicPay export
@@ -175,7 +173,7 @@ A non-destructive authenticated probe could not reach the provider because the a
 
 - MagicPay partial request/auth contract — `DONE / EVIDENCE-PARTIAL`
 - exact Pix response/query/idempotency/recovery contract — `EVIDENCE_REQUIRED`
-- authenticated provider read-only proof — `BLOCKED ON NETWORK PATH / ENVIRONMENT CLASSIFICATION`
+- authenticated provider non-destructive proof — `BLOCKED ON WORKING NETWORK PATH / ENVIRONMENT CLASSIFICATION`
 - MagicPay live adapter + A11 bridge — `BLOCKED ON EVIDENCE`
 - MagicPay A10 activation — `BLOCKED ON EVIDENCE`
 - provider webhook authenticity/ingress — `BLOCKED ON EVIDENCE`
@@ -205,7 +203,7 @@ Foundation / domain / database                         DONE
   -> A5 provider fixtures                             DONE / FIXTURE-ONLY
   -> A10 activation default-deny                      DONE
   -> A11 strict HTTPS provider transport              DONE / UNBOUND
-  -> A28 MagicPay auth/request contract               GREEN / PARTIAL
+  -> A28 MagicPay auth/request contract               DONE / PARTIAL
        -> exact response/idempotency/recovery          EVIDENCE_REQUIRED
        -> authenticated safe provider proof           BLOCKED
        -> live MagicPay adapter + A11 bridge           BLOCKED
@@ -239,13 +237,15 @@ Production-hardening path:
 - `packages/providers/src/magicpay.ts`
 - `docs/evidence/application/2026-09-03-a28-magicpay-provider-contract-evidence.md`
 - `TODOS.md`
+- `docs/product/v1-readiness-status.md`
+- `docs/product/v1-functional-checklist.md`
 
 ## Immediate next action
 
-1. require final documentation-head Application workflow GREEN, including unchanged runtime-database acceptance;
-2. update PR #8 with final RED/GREEN evidence and merge A28 only if that final gate is GREEN;
-3. acquire exact MagicPay successful Pix create + transaction-query examples/schema;
-4. acquire idempotency/retry/ambiguous-execution recovery semantics and Sandbox/environment evidence;
-5. acquire webhook authenticity/replay semantics or freeze a conservative query-only reconciliation design;
+1. acquire exact MagicPay successful Pix-create and `GET /transactions/{id}` response examples/schema;
+2. acquire provider idempotency/retry/ambiguous-execution recovery semantics and Sandbox/environment evidence;
+3. acquire webhook authenticity/replay semantics or freeze a conservative query-only reconciliation design;
+4. run authenticated non-destructive provider proof from a working network path;
+5. only then freeze a live MagicPay adapter + A11 bridge + deliberate A10 activation slice;
 6. separately freeze deployed HTTP runtime E2E for SwiftPay V2;
 7. no payable MagicPay Pix, withdrawal, refund or provider activation is authorized until the later live-provider gate explicitly closes.
