@@ -1,8 +1,8 @@
 # SwiftPay V2 — V1 Readiness Status
 
-Date: 2026-08-21 (America/Santarem)  
+Date: 2026-09-03 (America/Santarem)  
 Canonical source: `main`  
-Latest accepted merge: A24 PR #4, `4beb379bf62afe26faaf720d7698a4698988aa2f`
+A25 canonicalization branch: PR #5 (`agent/a25-hosted-sandbox-e2e-bootstrap`)
 
 This document reports engineering/readiness by risk, not by lines of code or number of files.
 
@@ -11,11 +11,11 @@ This document reports engineering/readiness by risk, not by lines of code or num
 | Dimension | Current estimate | Interpretation |
 | --- | ---: | --- |
 | Core architecture/domain/database/platform | **~99%** | Core payment, financial, security and trusted-runtime foundations are essentially established. |
-| First end-to-end Pix Sandbox MVP | **~98%** | Deterministic Pix, dashboard and hosted Sandbox checkout/Payment Links exist; controlled positive hosted runtime E2E remains. |
-| Production-capable Pix V1 | **~62%** | Major production blockers are retained-PSP authority/evidence and launch operations, not core data modeling. |
-| Weighted V1 engineering completion | **~78%** | Approximately 22% of weighted engineering remains; remaining work is disproportionately risk-heavy. |
+| First end-to-end Pix Sandbox MVP | **~99%** | Hosted database/runtime Sandbox flow is now proven as the exact API LOGIN identity; deployed HTTP/browser compute and secret injection remain. |
+| Production-capable Pix V1 | **~62%** | Major production blockers remain retained-PSP evidence/activation and launch operations, not core data modeling. |
+| Weighted V1 engineering completion | **~79%** | Remaining raw implementation is smaller but disproportionately launch- and provider-risk heavy. |
 
-Do not interpret 78% engineering completion as 78% launch safety. The production-capable estimate is intentionally lower because provider and operational gates dominate real-money risk.
+Do not interpret 79% engineering completion as 79% launch safety. Production-capable readiness is intentionally lower because provider authority and operational gates dominate real-money risk.
 
 ## What is already real
 
@@ -27,7 +27,8 @@ Do not interpret 78% engineering completion as 78% launch safety. The production
 - append-oriented double-entry ledger and merchant balance;
 - payout/refund/reservation/reconciliation database foundations;
 - durable jobs and merchant webhook persistence;
-- trusted API/worker runtime database identities;
+- trusted API/worker runtime database capability groups;
+- credentialless hosted runtime LOGIN bootstrap;
 - exact runtime capability manifest and attestation.
 
 ### Pix application path
@@ -35,7 +36,7 @@ Do not interpret 78% engineering completion as 78% launch safety. The production
 - API credential token exchange and Bearer authentication;
 - authenticated Pix create/get;
 - deterministic Sandbox emulator;
-- paid transition + ledger + balance;
+- paid transition + ledger + balance for the authenticated emulator path;
 - merchant webhook delivery runtime;
 - conservative `execution_unknown` semantics;
 - strict provider default-deny activation boundary;
@@ -68,104 +69,164 @@ Do not interpret 78% engineering completion as 78% launch safety. The production
 
 Canonical Supabase project: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`).
 
-A23 hosted migrations are applied. The first post-deploy smoke discovered a stale CHECK constraint in the distributed abuse-quota table; A24 repaired it under a clean RED→GREEN cycle and is now merged into `main`.
+A23/A24/A26/A27 hosted migrations are applied. A25's operational runtime LOGIN bootstrap is applied outside Supabase migration history and installs no hosted password.
 
-Current hosted attestation after A24:
+Current hosted attestation after A25/A26/A27:
 
-- `swiftpay_api` `app` EXECUTE capabilities: **30**
-- `swiftpay_worker` `app` EXECUTE capabilities: **6**
+- `swiftpay_api` effective `app` EXECUTE capabilities: **30**
+- `swiftpay_worker` effective `app` EXECUTE capabilities: **6**
 - Data API effective `app` EXECUTE: **0**
-- `checkout_request_pre_auth` persisted CHECK support: **yes**
-- Payment Links rows after smoke: **0**
-- Payments rows after smoke: **0**
-- ProviderAttempts rows after smoke: **0**
-- retained-provider monetary traffic during hosted validation: **0**
+- runtime direct `app` object ACL: **0**
+- invalid A23 runtime compatibility references: **0**
+- Payment Links rows after final A25 rollback: **0**
+- Payments rows after final A25 rollback: **0**
+- ProviderAttempts rows after final A25 rollback: **0**
+- retained-provider monetary traffic during A23-A27/A25 validation: **0**
+- hosted runtime credential installed by A25: **no**
 
-A24 hosted quota smoke returned `allowed=true`, `remaining=119`, `retry_after_seconds=0` and was rolled back.
-
-Security Advisor currently reports one INFO `rls_enabled_no_policy` for `app.payment_links`. The table is intentionally private: RLS is enabled, Data API/table authority is absent and trusted SECURITY DEFINER routines are the access boundary. This INFO is recorded and must only be changed through a dedicated contract if the policy model changes.
+Security Advisor still reports one INFO `rls_enabled_no_policy` for `app.payment_links`. The table remains intentionally private: RLS is enabled, Data API/table authority is absent and trusted SECURITY DEFINER routines are the access boundary. This INFO is recorded and must only change through a dedicated contract if the policy model changes.
 
 ## Current quality gates
 
-### A23 baseline
+### A25 formal RED
 
-- Application: **393/393 PASS**
-- Database: **45 files / 1368 pgTAP PASS**
-- K7/A14/A18/A1-A9 real PostgreSQL runtime acceptance: GREEN
-- K5/K6: GREEN
+RED SHA `c83690f41d2f1d7b5d4cce613905853c7fa8508c`, Application workflow `32544773993`:
 
-### A24
+- 397 application tests total;
+- 395 PASS;
+- exactly two intended failures for the absent shared hosted bootstrap and K6 reuse;
+- runtime database acceptance GREEN.
 
-RED Database workflow `32542942243`:
+### A25 initial GREEN
 
-- #001-#045 existing tests GREEN;
-- A24 #046: exactly four intended failures proving the stale CHECK;
-- K5/K6 GREEN.
+Implementation head `27814232144fa194ed2dbd006c6ce876927caaef`:
 
-GREEN Application workflow `32543077528`:
+- Application workflow `32544895450`: application contracts + runtime DB acceptance GREEN;
+- Database workflow `32544895405`: pgTAP + runtime topology + K5 + K6 GREEN.
 
-- install/typecheck/build/application contracts GREEN;
-- K7/A14/A18/A1-A9 real PostgreSQL runtime acceptance GREEN.
+### A26/A27 runtime compatibility repair
 
-GREEN Database workflow `32543077585`:
+A26 formal RED workflow `32545329166` exposed the missing PostgreSQL JSONB object-arity primitive under the hosted runtime.
 
-- **46 files / 1382 assertions PASS**;
-- A24 #046: **14/14 PASS**;
-- K5/K6 GREEN.
+A27 then isolated six invalid `pg_catalog.coalesce(...)` references in the A23 resolver.
 
-Final documentation HEAD was independently rerun before merge:
+Final database baseline after both repairs:
 
-- Application workflow `32543357285`: GREEN including real PostgreSQL runtime acceptance;
-- Database workflow `32543357255`: GREEN for pgTAP, K5 and K6.
+- **48 pgTAP files / 1403 assertions PASS**;
+- A26 #047: **15/15 PASS**;
+- A27 #048: **6/6 PASS**.
 
-Evidence: `docs/evidence/application/2026-08-21-a24-checkout-abuse-policy-constraint.md`.
+### Integrated A25+A26+A27 CI
 
-## Why Sandbox is ~98%, not 100%
+Integrated head before final documentation: `ea1914bc9a9c50f2bcb1f67585350bef098555f9`.
 
-The repository and database can support a Sandbox hosted checkout, but the canonical hosted project currently contains no merchant/provider fixture data. A positive end-to-end hosted flow should be exercised through a controlled runtime/bootstrap fixture, not by inserting ad-hoc persistent production-project data through an administrative connector.
+Application workflow `32548379380`:
 
-The remaining Sandbox closure is therefore operational integration evidence:
+- application contracts GREEN;
+- runtime database acceptance GREEN;
+- K7/A14/A18/A1-A9 GREEN.
 
-1. provision controlled Sandbox merchant/membership/emulator fixture;
-2. deploy/configure API + checkout runtime against canonical hosted database using the intended runtime identity;
-3. create a Payment Link through the trusted dashboard/API path;
-4. open the anonymous checkout path;
-5. create the deterministic Pix through the hosted runtime;
-6. prove idempotent replay and no cross-tenant authority;
-7. clean/rollback according to the fixture contract.
+Database workflow `32548379307`:
 
-## Why production capability is only ~62%
+- pgTAP GREEN;
+- K5 GREEN;
+- initial K6 runtime-topology attempt did not start tests because the GitHub runner could not bind host port `54322`.
 
-The real-money critical path is still intentionally blocked. A5 fixture adapters plus A10/A11 do **not** authorize a live provider call.
+Isolated runtime-topology retry job `96971120366`:
 
-Before Production Pix can be enabled, we need provider-owned/current evidence for the selected PSP:
+- isolated Postgres GREEN;
+- runtime identity provisioning GREEN;
+- K6 structural contracts GREEN;
+- API own connection GREEN;
+- worker own connection GREEN.
 
-- contractual lineage/current API authority;
-- exact authentication;
-- exact create/query contract;
-- idempotency and ambiguous-execution recovery;
+The first failure is classified as runner infrastructure, not code.
+
+## Hosted A25 Sandbox DB E2E is now proven
+
+A25 executes a controlled positive hosted Sandbox flow in one PostgreSQL transaction as the exact application LOGIN identity:
+
+```text
+current_user = swiftpay_api_runtime
+```
+
+The smoke proves:
+
+1. authorized Sandbox Payment Link creation;
+2. idempotent replay with no duplicate;
+3. Production creation fail-closed;
+4. cross-tenant administration denial;
+5. public projection with no internal identifiers;
+6. checkout prepare/replay/conflict semantics;
+7. single-winner ProviderAttempt claim;
+8. contract-valid Sandbox success resolution;
+9. completed replay/conflict semantics;
+10. exact one-link/one-payment/one-attempt internal deltas;
+11. no paid transition, ledger posting, jobs, payouts, refunds or retained provider I/O;
+12. explicit rollback to zero business fixture state.
+
+The PostgreSQL 17 automatic creator-admin membership is also understood and frozen correctly: a preexisting `ADMIN TRUE, SET FALSE, INHERIT FALSE` creator relationship is allowed, while temporary smoke SET/INHERIT authority must return false after rollback.
+
+Evidence:
+
+- `docs/evidence/application/2026-08-21-a25-hosted-runtime-identity-sandbox-db-e2e.md`
+- `docs/evidence/application/2026-08-21-a26-a23-jsonb-object-arity-runtime-fix.md`
+- `docs/evidence/application/2026-08-21-a27-a23-coalesce-special-form-runtime-fix.md`
+
+## Why Sandbox is ~99%, not 100%
+
+The database/runtime-role path is now proven hosted. What is not yet proven is the deployed compute path.
+
+Remaining Sandbox closure:
+
+1. freeze server-side runtime database credential/bootstrap/rotation contract;
+2. deploy the actual SwiftPay V2 API/checkout compute rather than reusing unrelated historical Vercel projects;
+3. inject the runtime database credential only server-side;
+4. prove Fastify HTTP routing, CORS/TLS and health/readiness behavior;
+5. create/open a Payment Link through the deployed HTTP/browser path;
+6. create the deterministic Sandbox Pix through deployed compute;
+7. prove replay/tenant/security invariants end-to-end over HTTP;
+8. preserve clean fixture/rollback or deterministic cleanup semantics.
+
+That is the next internal slice.
+
+## Why production capability remains ~62%
+
+The real-money critical path is still intentionally blocked. Existing fixture adapters plus A10/A11 do **not** authorize a live provider call.
+
+A MagicPay credential set and provider documentation URL have now been supplied for evaluation, but credentials alone are not proof of environment, endpoint contract, idempotency, webhook authority or safe activation.
+
+Before Production Pix can be enabled for any retained provider, we still require:
+
+- provider-owned current contract/lineage evidence;
+- exact environment classification;
+- exact authentication and base URL;
+- exact create/query/idempotency contract;
+- ambiguous-execution recovery semantics;
 - webhook authentication/replay identity;
 - status vocabulary/rate limits;
-- authenticated current Sandbox proof;
-- dedicated A5→A11 bridge under Problem Analysis → YAML → contracts → RED → GREEN;
+- authenticated non-destructive proof first;
+- dedicated adapter/bridge Problem Analysis → YAML → contracts → RED → GREEN;
 - deliberate A10 activation state transition.
 
-This is the largest single production blocker.
+No live withdrawal is authorized during provider discovery.
 
 ## Remaining V1 engineering
 
 ### High priority / launch critical
 
-1. **Controlled positive hosted Sandbox E2E** — finish the last Sandbox integration proof.
-2. **Current PSP contract + authenticated Sandbox evidence** — externally blocked/critical.
-3. **Provider bridge + activation** — only after evidence closes.
-4. **Provider webhook/recovery/reconciliation runtime** — live-provider correctness path.
-5. **Deployment/cutover/rollback/backup contract** — production operations.
-6. **Production secrets/bootstrap and rotation drills**.
-7. **Load/capacity testing and measured tuning**.
-8. **Production WAF/network hardening**.
-9. **External observability dashboards/alerts/SLO policy**.
-10. **Branch protection / required checks on `main`**.
+1. **Final A25 PR canonicalization** — run final docs/test CI and merge PR #5.
+2. **Deployed HTTP runtime E2E** — actual V2 API/checkout + server-side DB credential contract.
+3. **MagicPay current contract/environment evidence** — verify the supplied provider against current docs without committing secrets.
+4. **Authenticated safe provider proof** — non-destructive first; Sandbox/homologation if available.
+5. **Provider bridge + activation** — only after evidence closes.
+6. **Provider webhook/recovery/reconciliation runtime**.
+7. **Deployment/cutover/rollback/backup contract**.
+8. **Production secrets/bootstrap and rotation drills**.
+9. **Load/capacity testing and measured tuning**.
+10. **Production WAF/network hardening**.
+11. **External observability dashboards/alerts/SLO policy**.
+12. **Branch protection / required checks on `main`**.
 
 ### Merchant product completion
 
@@ -177,10 +238,6 @@ This is the largest single production blocker.
 
 ## Practical interpretation
 
-The project is no longer an early prototype. Most difficult internal invariants — payment state, financial accounting, idempotency, tenant boundaries, secrets, runtime least privilege, abuse controls and merchant administration — already have executable contracts.
+The project is no longer an early prototype. Most difficult internal invariants — payment state, financial accounting, idempotency, tenant boundaries, secrets, runtime least privilege, abuse controls and merchant administration — have executable contracts and hosted database evidence.
 
-What remains is smaller in raw code volume but higher in launch risk. That is why the engineering estimate can be ~78% while the production-capable estimate remains ~62%.
-
-## Next milestone
-
-A24 is merged and hosted. The next internal slice should be a **controlled positive hosted Sandbox E2E/bootstrap**. In parallel, current provider evidence acquisition continues. No retained provider should be activated merely to increase a completion percentage.
+What remains is smaller in raw code volume but higher in launch risk. The next meaningful milestone is not another database primitive: it is deployed HTTP runtime proof plus a rigorously evidenced provider bridge.
