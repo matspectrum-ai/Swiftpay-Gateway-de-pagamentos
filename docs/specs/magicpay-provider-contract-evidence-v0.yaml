@@ -1,0 +1,116 @@
+schema_version: 1
+slice: A28
+name: magicpay-provider-contract-evidence-v0
+status: frozen_for_tdd
+date: 2026-09-03
+
+source_evidence:
+  kind: provider_supplied_integration_guide
+  artifact_sha256: b9b493227d45b880077383c145e9ca5a0c16e6fae327b84d2c614566b8c47104
+  documentation_entrypoint: https://app.dashboardmagicpay.com/docs/intro/first-steps
+  credentials_in_repository: false
+
+provider_contract:
+  provider: magicpay
+  base_url: https://api.dashboardmagicpay.com/v1
+  authentication:
+    scheme: basic
+    username: public_key
+    password: secret_key
+    withdrawal_header: x-withdraw-key
+  money:
+    representation: integer_centavos
+  pix_create:
+    method: POST
+    path: transactions
+    payment_method_field: paymentMethod
+    payment_method_value: pix
+    required_document_type_values: [cpf, cnpj]
+    external_ref_idempotency_semantics: unproven
+  transaction_query:
+    method: GET
+    path_template: transactions/{id}
+    response_schema: unproven
+  read_only:
+    company:
+      method: GET
+      path: company
+    balance:
+      method: GET
+      path: balance/available
+  postback:
+    callback_field: postbackUrl
+    ack: http_2xx
+    retry_on_non_2xx: true
+    example_statuses: [waiting_payment, paid, refused, refunded, chargedback]
+    authentication: unproven
+    replay_identity: unproven
+
+safe_implementation_scope:
+  allowed:
+    - basic_auth_header_builder
+    - pix_create_request_builder
+    - read_only_company_request
+    - read_only_balance_request
+    - explicit_contract_gap_metadata
+  forbidden:
+    - live_pix_create_adapter_success_normalization
+    - magicpay_a10_activation
+    - monetary_a11_binding
+    - trusted_magicpay_webhook
+    - withdrawal_implementation
+    - refund_implementation
+
+pix_request_builder:
+  input:
+    amountCents: positive_safe_integer
+    clientReference: nonblank_string
+    description: nonblank_string
+    customer:
+      name: nonblank_string
+      email: nonblank_string
+      phone: digits_10_to_15
+      document: digits_11_or_14
+    postbackUrl: optional_nonblank_string
+  output:
+    method: POST
+    relativePath: transactions
+    headers:
+      Authorization: basic_public_secret
+      Content-Type: application/json
+    body:
+      amount: amountCents
+      paymentMethod: pix
+      items:
+        - title: description
+          unitPrice: amountCents
+          quantity: 1
+          tangible: false
+          externalRef: clientReference
+      customer:
+        name: customer.name
+        email: customer.email
+        phone: customer.phone_digits
+        document:
+          number: customer.document_digits
+          type: cpf_or_cnpj
+      externalRef: clientReference
+      postbackUrl: optional_postbackUrl
+
+contract_gaps:
+  - pix_create_success_response_schema
+  - pix_qr_copy_and_paste_field
+  - transaction_query_response_envelope
+  - create_idempotency_semantics
+  - ambiguous_create_recovery
+  - provider_error_certainty_contract
+  - sandbox_environment
+  - webhook_authentication
+  - webhook_replay_identity
+  - rate_limits
+
+activation:
+  a10_change: forbidden
+  monetary_traffic: forbidden
+  webhook_authority: false
+  withdrawal_authority: false
