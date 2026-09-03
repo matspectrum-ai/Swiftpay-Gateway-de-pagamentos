@@ -47,6 +47,8 @@ provider_contract:
     replay_identity: unproven
 
 safe_implementation_scope:
+  module: packages/providers/src/magicpay.ts
+  public_provider_barrel_export: forbidden
   allowed:
     - basic_auth_header_builder
     - pix_create_request_builder
@@ -55,6 +57,7 @@ safe_implementation_scope:
     - explicit_contract_gap_metadata
   forbidden:
     - live_pix_create_adapter_success_normalization
+    - public_provider_barrel_export
     - magicpay_a10_activation
     - monetary_a11_binding
     - trusted_magicpay_webhook
