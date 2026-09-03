@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-const PROVIDERS = '../../packages/providers/dist/index.js';
+const MAGICPAY_MODULE = '../../packages/providers/dist/magicpay.js';
 
-async function providers() {
+async function magicpay() {
   try {
-    return await import(PROVIDERS);
+    return await import(MAGICPAY_MODULE);
   } catch (error) {
-    assert.fail(`A28 provider implementation missing or unloadable: ${error?.code ?? error}`);
+    assert.fail(`A28 MagicPay implementation missing or unloadable: ${error?.code ?? error}`);
   }
 }
 
@@ -48,8 +48,8 @@ test('A28 frozen artifacts preserve the provider guide hash and unresolved safet
   assert.match(contract, /webhookAuthority = false/i);
 });
 
-test('A28 exports exact partial MagicPay evidence metadata and keeps live monetary activation false', async () => {
-  const { MAGICPAY_CONTRACT_EVIDENCE } = await providers();
+test('A28 dedicated module exposes exact partial MagicPay evidence metadata and keeps live monetary activation false', async () => {
+  const { MAGICPAY_CONTRACT_EVIDENCE } = await magicpay();
 
   assert.deepEqual(MAGICPAY_CONTRACT_EVIDENCE, {
     provider: 'magicpay',
@@ -76,7 +76,7 @@ test('A28 exports exact partial MagicPay evidence metadata and keeps live moneta
 });
 
 test('A28 pure Pix builder uses documented Basic auth and exact camelCase request vocabulary', async () => {
-  const { buildMagicPayPixCreateRequest } = await providers();
+  const { buildMagicPayPixCreateRequest } = await magicpay();
   const result = buildMagicPayPixCreateRequest(INPUT);
   assert.equal(result.ok, true);
 
@@ -112,7 +112,7 @@ test('A28 pure Pix builder uses documented Basic auth and exact camelCase reques
 });
 
 test('A28 Pix builder rejects invalid money/identity/credentials locally', async () => {
-  const { buildMagicPayPixCreateRequest } = await providers();
+  const { buildMagicPayPixCreateRequest } = await magicpay();
 
   for (const patch of [
     { amountCents: 12.5 },
@@ -129,7 +129,7 @@ test('A28 Pix builder rejects invalid money/identity/credentials locally', async
 });
 
 test('A28 read-only MagicPay client is limited to company and balance with one Basic-authenticated GET', async () => {
-  const { createMagicPayReadOnlyClient } = await providers();
+  const { createMagicPayReadOnlyClient } = await magicpay();
   const calls = [];
   const transport = {
     async send(request) {
@@ -159,10 +159,14 @@ test('A28 read-only MagicPay client is limited to company and balance with one B
   }
 });
 
-test('A28 exports no live MagicPay adapter and does not alter A10 provider activation', async () => {
-  const module = await providers();
+test('A28 exposes no live MagicPay adapter, no public provider barrel export and no A10 activation', async () => {
+  const module = await magicpay();
   assert.equal('createMagicPayAdapter' in module, false);
 
-  const activation = await readFile(new URL('../../packages/providers/src/activation.ts', import.meta.url), 'utf8');
+  const [activation, providerIndex] = await Promise.all([
+    readFile(new URL('../../packages/providers/src/activation.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../packages/providers/src/index.ts', import.meta.url), 'utf8'),
+  ]);
   assert.doesNotMatch(activation, /['"]magicpay['"]/i);
+  assert.doesNotMatch(providerIndex, /export\s+\*\s+from\s+['"]\.\/magicpay\.js['"]/i);
 });
