@@ -33,7 +33,9 @@ CPF/CNPJ and phone values are serialized as digits only. Document type is lower-
 
 ## 3. Safe Pix create request builder
 
-A28 may expose a pure builder for the documented Pix request. It does not send the request and does not constitute provider activation.
+A28 may implement a pure builder for the documented Pix request. It does not send the request and does not constitute provider activation.
+
+The implementation lives only in `packages/providers/src/magicpay.ts`. It MUST NOT be exported from the public `packages/providers/src/index.ts` barrel while the live response/idempotency/recovery contract remains unresolved.
 
 The result must be a provider request equivalent to:
 
@@ -58,7 +60,7 @@ Invalid amount, credentials, customer identity or reference data must fail local
 
 ## 4. Read-only request primitives
 
-A28 may expose read-only clients for:
+The internal A28 module may expose read-only clients for:
 
 - `GET company`;
 - `GET balance/available`.
@@ -95,7 +97,7 @@ It does not document authentication/signature or replay identity. Therefore Magi
 
 A28 changes no A10 activation state and binds no MagicPay monetary operation to A11.
 
-A MagicPay request builder existing in source code is not authorization to execute it.
+A MagicPay request builder existing in source code is not authorization to execute it. Keeping the module out of the public provider barrel is an additional defense against accidental runtime wiring.
 
 Production and Sandbox monetary authority remain zero until a later explicit slice closes:
 
@@ -124,6 +126,7 @@ GREEN requires:
 - local validation before any transport;
 - read-only company/balance request primitives;
 - explicit unresolved-gap metadata;
+- dedicated module remains absent from the public provider barrel;
 - no A10 MagicPay activation;
 - no live MagicPay Pix adapter;
 - no webhook trust;
