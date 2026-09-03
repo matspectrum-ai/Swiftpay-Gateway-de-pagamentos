@@ -68,7 +68,14 @@ hosted_smoke:
   rollback_required: true
   administrative_session:
     purpose: fixture_setup_and_temporary_set_role_authority_only
-    persistent_runtime_membership_forbidden: true
+    postgres_creator_admin_membership:
+      allowed_if_preexisting: true
+      admin_option: true
+      set_option: false
+      inherit_option: false
+      source: postgresql_17_createrole_automatic_grant
+    temporary_runtime_set_authority_after_rollback: false
+    temporary_runtime_inherit_authority_after_rollback: false
   runtime_execution:
     expected_current_user: swiftpay_api_runtime
     expected_group: swiftpay_api
@@ -118,6 +125,9 @@ hosted_smoke:
     ledger_transactions_delta: 0
     jobs_delta: 0
     retained_provider_calls: 0
+    administrative_set_authority_after_rollback: false
+    administrative_inherit_authority_after_rollback: false
+    creator_admin_membership_must_equal_pre_smoke: true
 
 security:
   hosted_credential_in_bootstrap_artifact: forbidden
