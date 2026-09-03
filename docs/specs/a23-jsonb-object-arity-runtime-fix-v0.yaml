@@ -1,0 +1,65 @@
+id: A26
+name: a23-jsonb-object-arity-runtime-fix-v0
+status: frozen-for-tdd
+date: 2026-08-21
+
+problem_analysis: docs/design/a26-a23-jsonb-object-arity-runtime-fix-problem-analysis.md
+
+defect:
+  sqlstate: "42883"
+  missing_function: pg_catalog.jsonb_object_length(jsonb)
+  supported_replacement: count_rows_from_pg_catalog_jsonb_object_keys
+  affected_functions:
+    - app.create_dashboard_payment_link(uuid,uuid,text,text,text,jsonb)
+    - app._a23_resolve_payment_link_pix_attempt(uuid,text,uuid,uuid,uuid,jsonb)
+
+scope:
+  database_only: true
+  forward_migration_required: true
+  replace_function_bodies_only: true
+  new_capabilities: 0
+  role_changes: 0
+  table_changes: 0
+  provider_authority_change: 0
+  payment_state_contract_change: 0
+
+behavior:
+  payment_link_command:
+    exact_valid_key_counts: [4,5]
+    five_key_valid_command_must_create: true
+    extra_key_must_validation_error: true
+  success_resolution:
+    exact_key_count: 6
+    valid_success_must_resolve_pending: true
+    extra_key_must_raise_invalid_resolution: true
+  invariants:
+    environment: sandbox_only
+    source: payment_link
+    success_payment_transition: creating_to_pending
+    paid_transition: forbidden
+    retained_provider_io: forbidden
+    ledger_posting: forbidden
+
+security:
+  security_definer_preserved: true
+  empty_search_path_preserved: true
+  api_execute_preserved: true
+  data_api_execute: 0
+  worker_execute_for_affected_functions: 0
+  runtime_capability_counts:
+    api: 30
+    worker: 6
+
+red_acceptance:
+  behavioral_pgtap_executes_both_affected_branches: true
+  intended_failures_only: true
+  prior_tests_green: true
+
+green_acceptance:
+  all_pgtap_green: true
+  application_contracts_green: true
+  runtime_database_acceptance_green: true
+  k5_green: true
+  k6_green: true
+  hosted_migration_applied: true
+  a25_hosted_runtime_role_e2e_resumed: true

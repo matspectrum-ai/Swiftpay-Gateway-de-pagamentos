@@ -1,8 +1,8 @@
 # SwiftPay V2 — V1 Functional Checklist
 
-Updated: 2026-08-21 (America/Santarem)
+Updated: 2026-09-03 (America/Santarem)
 
-A checked item means an accepted executable/hosted contract exists for that scope. It does **not** mean the equivalent Production/live-provider workflow is authorized. Provider fixtures and transport primitives grant no PSP monetary authority.
+A checked item means an accepted executable/hosted contract exists for that scope. It does **not** mean the equivalent Production/live-provider workflow is authorized. Provider fixtures, credentials and transport primitives grant no PSP monetary authority by themselves.
 
 ## Core database / financial domain
 
@@ -25,13 +25,17 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] Private `app` schema / Data API boundary
 - [x] Append-only audit foundation
 - [x] Dashboard membership authorization
-- [x] Separate API/worker runtime identities
+- [x] Separate API/worker runtime capability groups
 - [x] Deterministic local Sandbox fixtures
-- [x] Executable API/worker runtime bootstrap
+- [x] Shared credentialless runtime LOGIN bootstrap outside migration history
+- [x] Local K6 reuses shared bootstrap while keeping synthetic loopback-only credentials
+- [x] Hosted `swiftpay_api_runtime` / `swiftpay_worker_runtime` LOGIN topology
 - [x] Exact runtime capability manifest/attestation
-- [x] Hosted capability baseline after A23/A24: **30 API / 6 worker**
+- [x] Hosted capability baseline after A25/A26/A27: **30 API / 6 worker**
 - [x] Data API effective `app` EXECUTE: **0** at latest hosted attestation
-- [x] Direct trusted-runtime protected-table authority remains capability/RPC-scoped
+- [x] Direct runtime `app` ACL entries: **0**
+- [x] PostgreSQL 17 creator-admin semantics frozen as `ADMIN TRUE, SET FALSE, INHERIT FALSE` without treating it as workload authority
+- [ ] Hosted server-side runtime LOGIN password/bootstrap/rotation contract
 - [ ] `main` branch protection with required Application/Database checks
 
 ## Machine authentication
@@ -71,7 +75,7 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 ## Hosted checkout / Payment Links
 
-### Sandbox
+### Sandbox database/runtime layer
 
 - [x] Private fixed-amount `payment_links` resource
 - [x] Merchant Payment Links management capability
@@ -82,7 +86,27 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] Separate checkout SPA, visibly Sandbox/non-payable outside emulator
 - [x] Hosted DB migrations applied
 - [x] Hosted quota smoke: allowed=true / remaining=119 / rollback clean
-- [ ] Controlled positive hosted E2E using intended API runtime identity + merchant/emulator fixture
+- [x] A26 JSONB object-arity PostgreSQL runtime repair hosted
+- [x] A27 `COALESCE` special-form PostgreSQL runtime repair hosted
+- [x] Controlled positive hosted DB E2E using exact `swiftpay_api_runtime`
+- [x] Payment Link create + same-key/same-hash replay
+- [x] Production Payment Link create fail-closed
+- [x] Cross-tenant dashboard denial
+- [x] Public projection does not leak internal identifiers
+- [x] Checkout prepare + replay + conflict invariants
+- [x] ProviderAttempt single-winner claim
+- [x] Sandbox resolver success to `pending`
+- [x] Completed replay + hash-conflict invariants
+- [x] Explicit rollback returns fixture/business state to zero
+- [x] Hosted DB E2E performs zero retained-provider I/O, paid transitions and ledger postings
+
+### Sandbox deployed HTTP/browser layer
+
+- [ ] Actual V2 API compute deployed against canonical hosted DB
+- [ ] Server-side runtime DB credential injected without browser exposure
+- [ ] Fastify HTTP/CORS/TLS/readiness verified on deployed compute
+- [ ] Browser Payment Link → checkout → Sandbox Pix E2E
+- [ ] HTTP idempotent replay and tenant/security acceptance
 
 ### Production
 
@@ -102,13 +126,17 @@ Production items stay blocked until retained-provider evidence and A10 activatio
 - [x] Strict outbound HTTPS transport primitive
 - [x] A5 adapters remain unbound from A11
 - [x] Repository defaults authorize zero retained-provider operations
-- [ ] Provider-owned current AkkadPag/AkadPay lineage/contract evidence
-- [ ] Provider-owned current FlevoPay executable contract evidence
-- [ ] Authenticated current provider Sandbox proof
-- [ ] A5→A11 provider bridge
+- [ ] MagicPay provider-owned current endpoint/authentication/environment contract
+- [ ] MagicPay authenticated non-destructive/Sandbox proof
+- [ ] MagicPay create/query/idempotency/recovery contract
+- [ ] MagicPay webhook authentication/replay contract
+- [ ] MagicPay adapter/bridge under fail-first tests
+- [ ] Deliberate MagicPay A10 activation transition
 - [ ] Live provider activation
-- [ ] Provider webhook authentication/ingress
+- [ ] Provider webhook ingress
 - [ ] Provider recovery/reconciliation runtime
+
+Supplied provider credentials are out-of-repository input only. They must not be committed, logged, exposed to the browser or interpreted as activation authority.
 
 ## Abuse / security hardening
 
@@ -143,7 +171,8 @@ Production items stay blocked until retained-provider evidence and A10 activatio
 
 - [x] Deterministic database/runtime contract regression
 - [x] Real local PostgreSQL acceptance for K7/A14/A18/A1-A9
-- [x] Latest database suite: **46 files / 1382 pgTAP assertions PASS**
+- [x] Latest database suite: **48 files / 1403 pgTAP assertions PASS**
+- [x] K6 isolated runtime topology retry after runner port collision: GREEN
 - [ ] Production-like load/capacity test
 - [ ] Measured rate-limit tuning
 - [ ] Measured database/index optimization
@@ -152,14 +181,16 @@ Production items stay blocked until retained-provider evidence and A10 activatio
 
 ## Deployment / launch
 
-- [x] Canonical reconstruction consolidated into `main`
+- [x] Canonical reconstruction consolidated through A24 into `main`
 - [x] Canonical hosted Supabase project established
-- [x] A23/A24 hosted database migrations applied
+- [x] A23/A24/A26/A27 hosted database migrations applied
+- [x] A25 hosted credentialless runtime LOGIN bootstrap applied
+- [ ] A25/A26/A27 PR #5 merged/canonicalized into `main`
 - [ ] Production API deployment contract
 - [ ] Production worker deployment contract
 - [ ] Dashboard/checkout deployment contract for V2 runtime
-- [ ] Environment/secrets bootstrap contract
-- [ ] Smoke-test contract
+- [ ] Environment/secrets bootstrap + rotation contract
+- [ ] Deployed HTTP smoke-test contract
 - [ ] Cutover plan
 - [ ] Rollback/forward-fix policy
 - [ ] Incident runbook
@@ -168,16 +199,18 @@ Production items stay blocked until retained-provider evidence and A10 activatio
 
 ## Current blockers / next closure
 
-1. **Controlled positive hosted Sandbox E2E** — internal and actionable.
-2. **Current retained-PSP contract + authenticated Sandbox evidence** — external critical blocker.
-3. **Provider bridge/activation/recovery/webhook** — blocked until #2 closes.
-4. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
-5. **Merchant completeness** — KYC, payout/refund and reporting.
+1. **A25 PR final CI + merge** — canonicalization only; hosted DB proof already passed.
+2. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
+3. **MagicPay current contract/environment + authenticated safe proof** — provider evidence gate.
+4. **Provider bridge/activation/recovery/webhook** — blocked until #3 closes.
+5. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
+6. **Merchant completeness** — KYC, payout/refund and reporting.
 
 ## Safety invariants
 
-- No live retained PSP monetary call without current-contract + authenticated-Sandbox + explicit A10 activation proof.
+- No live retained PSP monetary call without current-contract + authenticated-safe-proof + explicit A10 activation proof.
+- No withdrawal is used as a provider-discovery probe.
 - Ambiguous monetary execution stays `execution_unknown`; never fabricate definitive failure.
 - Browser/dashboard receives no direct database/provider/financial authority.
-- Integration secrets remain one-time and non-persistent in browser state.
-- A24 changed only the persisted abuse-policy CHECK vocabulary; quota limits and provider/financial authority are unchanged.
+- Provider secrets never enter Git, durable docs, browser state, screenshots or ordinary logs.
+- A25 installs no hosted runtime credential; deployment credential bootstrap/rotation remains a separate gate.
