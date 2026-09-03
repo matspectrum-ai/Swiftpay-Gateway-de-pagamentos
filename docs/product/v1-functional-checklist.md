@@ -32,9 +32,9 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] Hosted `swiftpay_api_runtime` / `swiftpay_worker_runtime` LOGIN topology
 - [x] Exact runtime capability manifest/attestation
 - [x] Hosted capability baseline after A25/A26/A27: **30 API / 6 worker**
-- [x] Data API effective `app` EXECUTE: **0** at latest hosted attestation
+- [x] Data API effective `app` EXECUTE: **0**
 - [x] Direct runtime `app` ACL entries: **0**
-- [x] PostgreSQL 17 creator-admin semantics frozen as `ADMIN TRUE, SET FALSE, INHERIT FALSE` without treating it as workload authority
+- [x] PostgreSQL 17 creator-admin semantics frozen as `ADMIN TRUE, SET FALSE, INHERIT FALSE`
 - [ ] Hosted server-side runtime LOGIN password/bootstrap/rotation contract
 - [ ] `main` branch protection with required Application/Database checks
 
@@ -85,18 +85,16 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] A24 persisted quota-CHECK repair hosted
 - [x] Separate checkout SPA, visibly Sandbox/non-payable outside emulator
 - [x] Hosted DB migrations applied
-- [x] Hosted quota smoke: allowed=true / remaining=119 / rollback clean
 - [x] A26 JSONB object-arity PostgreSQL runtime repair hosted
 - [x] A27 `COALESCE` special-form PostgreSQL runtime repair hosted
 - [x] Controlled positive hosted DB E2E using exact `swiftpay_api_runtime`
-- [x] Payment Link create + same-key/same-hash replay
+- [x] Payment Link create/replay and hash-conflict invariants
 - [x] Production Payment Link create fail-closed
 - [x] Cross-tenant dashboard denial
 - [x] Public projection does not leak internal identifiers
-- [x] Checkout prepare + replay + conflict invariants
+- [x] Checkout prepare/replay/conflict invariants
 - [x] ProviderAttempt single-winner claim
 - [x] Sandbox resolver success to `pending`
-- [x] Completed replay + hash-conflict invariants
 - [x] Explicit rollback returns fixture/business state to zero
 - [x] Hosted DB E2E performs zero retained-provider I/O, paid transitions and ledger postings
 
@@ -115,9 +113,9 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [ ] Real payable QR/copy-and-paste via activated retained PSP
 - [ ] Provider-backed checkout recovery/reconciliation
 
-Production items stay blocked until retained-provider evidence and A10 activation gates close.
-
 ## Provider conformance / activation
+
+### Existing retained-provider safety
 
 - [x] Retained provider fixture adapters
 - [x] Unsupported operations fail locally
@@ -126,17 +124,38 @@ Production items stay blocked until retained-provider evidence and A10 activatio
 - [x] Strict outbound HTTPS transport primitive
 - [x] A5 adapters remain unbound from A11
 - [x] Repository defaults authorize zero retained-provider operations
-- [ ] MagicPay provider-owned current endpoint/authentication/environment contract
-- [ ] MagicPay authenticated non-destructive/Sandbox proof
-- [ ] MagicPay create/query/idempotency/recovery contract
-- [ ] MagicPay webhook authentication/replay contract
-- [ ] MagicPay adapter/bridge under fail-first tests
+
+### MagicPay A28 partial contract
+
+- [x] Provider guide proves base URL `https://api.dashboardmagicpay.com/v1`
+- [x] Provider guide proves Basic Auth public-key/secret-key roles
+- [x] Provider guide proves integer-centavo amounts
+- [x] Provider guide proves Pix create request route and camelCase request vocabulary
+- [x] Provider guide proves transaction-query route
+- [x] Provider guide proves read-only company/balance routes
+- [x] Provider guide proves postback 2xx acknowledgement/retry behavior
+- [x] Provider guide proves separate `x-withdraw-key` requirement for withdrawal/anticipation
+- [x] A28 internal pure Pix request builder
+- [x] A28 read-only company/balance client primitives
+- [x] A28 module stays outside public provider barrel
+- [x] MagicPay remains absent from A10 activation registry
+- [x] MagicPay webhook authority remains false
+- [ ] Exact Pix create success response schema
+- [ ] Exact Pix QR/copy-and-paste field
+- [ ] Exact transaction-query response envelope
+- [ ] Provider create idempotency semantics
+- [ ] Ambiguous-create recovery semantics
+- [ ] Provider error certainty contract
+- [ ] Sandbox/homologation environment classification
+- [ ] Authenticated non-destructive provider proof from working network path
+- [ ] MagicPay webhook authentication/replay identity
+- [ ] MagicPay explicit rate-limit evidence
+- [ ] Live MagicPay adapter + A11 bridge under fail-first tests
 - [ ] Deliberate MagicPay A10 activation transition
-- [ ] Live provider activation
 - [ ] Provider webhook ingress
 - [ ] Provider recovery/reconciliation runtime
 
-Supplied provider credentials are out-of-repository input only. They must not be committed, logged, exposed to the browser or interpreted as activation authority.
+`externalRef` is not considered idempotency evidence. Supplied real provider credentials remain out-of-repository input only.
 
 ## Abuse / security hardening
 
@@ -172,7 +191,7 @@ Supplied provider credentials are out-of-repository input only. They must not be
 - [x] Deterministic database/runtime contract regression
 - [x] Real local PostgreSQL acceptance for K7/A14/A18/A1-A9
 - [x] Latest database suite: **48 files / 1403 pgTAP assertions PASS**
-- [x] K6 isolated runtime topology retry after runner port collision: GREEN
+- [x] A25+A26+A27 final Application and Database workflows GREEN before canonical merge
 - [ ] Production-like load/capacity test
 - [ ] Measured rate-limit tuning
 - [ ] Measured database/index optimization
@@ -181,11 +200,10 @@ Supplied provider credentials are out-of-repository input only. They must not be
 
 ## Deployment / launch
 
-- [x] Canonical reconstruction consolidated through A24 into `main`
+- [x] A25/A26/A27 PR #5 merged/canonicalized into `main` as `8be66916a14126e8e86f4858b32d56d5866a7c9f`
 - [x] Canonical hosted Supabase project established
 - [x] A23/A24/A26/A27 hosted database migrations applied
 - [x] A25 hosted credentialless runtime LOGIN bootstrap applied
-- [ ] A25/A26/A27 PR #5 merged/canonicalized into `main`
 - [ ] Production API deployment contract
 - [ ] Production worker deployment contract
 - [ ] Dashboard/checkout deployment contract for V2 runtime
@@ -199,17 +217,19 @@ Supplied provider credentials are out-of-repository input only. They must not be
 
 ## Current blockers / next closure
 
-1. **A25 PR final CI + merge** — canonicalization only; hosted DB proof already passed.
+1. **A28 final documentation-head CI + merge** — safe partial MagicPay contract only.
 2. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
-3. **MagicPay current contract/environment + authenticated safe proof** — provider evidence gate.
-4. **Provider bridge/activation/recovery/webhook** — blocked until #3 closes.
-5. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
-6. **Merchant completeness** — KYC, payout/refund and reporting.
+3. **MagicPay exact response/idempotency/recovery + environment evidence** — provider live-integration gate.
+4. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
+5. **Provider bridge/activation/recovery/webhook** — blocked until #3/#4 close.
+6. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
+7. **Merchant completeness** — KYC, payout/refund and reporting.
 
 ## Safety invariants
 
-- No live retained PSP monetary call without current-contract + authenticated-safe-proof + explicit A10 activation proof.
+- No live retained PSP monetary call without complete executable contract + authenticated-safe-proof + explicit A10 activation proof.
 - No withdrawal is used as a provider-discovery probe.
+- No MagicPay Pix create is used as a discovery probe while response/idempotency/recovery semantics remain incomplete.
 - Ambiguous monetary execution stays `execution_unknown`; never fabricate definitive failure.
 - Browser/dashboard receives no direct database/provider/financial authority.
 - Provider secrets never enter Git, durable docs, browser state, screenshots or ordinary logs.
