@@ -109,7 +109,7 @@ Hosted attestation must prove:
 
 Hosted acceptance runs in one PostgreSQL transaction.
 
-Administrative authority is used only for fixture setup, temporary SET-role authority, inspection, and rollback. Inside the transaction, the administrative session may temporarily receive membership allowing:
+Administrative authority is used only for fixture setup, temporary SET-role authority, inspection, and rollback. Inside the transaction, the administrative session may temporarily receive authority allowing:
 
 ```sql
 SET LOCAL ROLE swiftpay_api_runtime
@@ -121,7 +121,17 @@ Every A23 application database operation used as runtime evidence MUST execute w
 current_user = swiftpay_api_runtime
 ```
 
-Application behavior executed as `postgres` is not accepted as runtime evidence. The temporary administrative membership must disappear on rollback.
+Application behavior executed as `postgres` is not accepted as runtime evidence.
+
+Canonical hosted PostgreSQL 17 uses a non-superuser `postgres` role with `CREATEROLE`. PostgreSQL 17 automatically grants a newly created role back to its non-superuser creator with the effective shape `ADMIN TRUE, SET FALSE, INHERIT FALSE`. That creator-admin relationship is role-administration metadata, not workload capability inheritance, and MAY remain if it existed before the smoke.
+
+A25 therefore freezes the rollback invariant on effective workload authority rather than physical disappearance of that automatic creator-admin row:
+
+- temporary administrative `SET` authority for `swiftpay_api_runtime` MUST exist only inside the smoke transaction;
+- after rollback, `pg_has_role('postgres','swiftpay_api_runtime','SET')` MUST be false;
+- after rollback, inherited/USAGE authority from `postgres` to the runtime role MUST be false;
+- any PostgreSQL-created `ADMIN TRUE, SET FALSE, INHERIT FALSE` membership MUST equal its pre-smoke state;
+- the runtime LOGIN continues to receive application authority only through its exact workload-group membership.
 
 ## 8. Synthetic hosted fixture
 
@@ -201,7 +211,7 @@ After resolution, same checkout key/hash returns the same completed Payment and 
 
 Before rollback the only allowed A25 business deltas are one synthetic Payment Link, one checkout Payment and one ProviderAttempt plus their idempotency state. Ledger transactions, jobs, payouts and refunds remain unchanged.
 
-The smoke MUST issue `ROLLBACK`, not best-effort manual deletes. After rollback all A25 fixture/business rows and temporary administrative membership must equal pre-smoke state.
+The smoke MUST issue `ROLLBACK`, not best-effort manual deletes. After rollback all A25 fixture/business rows MUST equal pre-smoke state. Temporary administrative `SET`/inheritance authority MUST be false again. Any PostgreSQL 17 automatic creator-admin membership with `ADMIN TRUE, SET FALSE, INHERIT FALSE` MUST remain exactly equal to its pre-smoke state and is not treated as leaked workload authority.
 
 ## 15. Post-bootstrap security invariants
 
