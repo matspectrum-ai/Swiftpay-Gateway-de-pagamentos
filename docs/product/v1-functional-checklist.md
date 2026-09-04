@@ -162,12 +162,13 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] A29 formal RED isolated exactly seven absent implementation points
 - [x] A29 implementation workflow `33822375392`: **412 / 412 application tests PASS**
 - [x] A29 implementation runtime-database acceptance GREEN
+- [x] A29 final workflow `33822648444` GREEN including runtime-database acceptance
 - [x] A28 exact frozen metadata remains unchanged
 - [x] No `createMagicPayAdapter`
 - [x] No public MagicPay provider-barrel export
 - [x] No MagicPay A10 registration/activation
 - [x] No MagicPay monetary A11 binding
-- [ ] A29 PR #10 merged/canonicalized into `main`
+- [x] A29 PR #10 merged/canonicalized into `main` as `a1b3536bf38362a6df261519eb4619f9dabf27cd`
 
 ### Remaining MagicPay live-integration evidence
 
@@ -223,7 +224,7 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] Latest database suite: **48 files / 1403 pgTAP assertions PASS**
 - [x] A25+A26+A27 final Application and Database workflows GREEN before canonical merge
 - [x] A28 final Application workflow GREEN after documentation/readiness closure
-- [x] A29 implementation Application + runtime-database workflow GREEN
+- [x] A29 implementation and final Application + runtime-database workflows GREEN
 - [ ] Production-like load/capacity test
 - [ ] Measured rate-limit tuning
 - [ ] Measured database/index optimization
@@ -234,6 +235,7 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 - [x] A25/A26/A27 PR #5 merged into `main` as `8be66916a14126e8e86f4858b32d56d5866a7c9f`
 - [x] A28 PR #8 merged into `main` as `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
+- [x] A29 PR #10 merged into `main` as `a1b3536bf38362a6df261519eb4619f9dabf27cd`
 - [x] Canonical hosted Supabase project established
 - [x] A23/A24/A26/A27 hosted database migrations applied
 - [x] A25 hosted credentialless runtime LOGIN bootstrap applied
@@ -250,13 +252,12 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 ## Current blockers / next closure
 
-1. **A29 final CI + merge** — canonicalization of network-free MagicPay response/query normalization.
-2. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
-3. **MagicPay canonical Pix payload + idempotency/recovery + environment evidence** — live-integration gate.
-4. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
-5. **Provider bridge/activation/recovery/webhook** — blocked until #3/#4 close.
-6. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
-7. **Merchant completeness** — KYC, payout/refund and reporting.
+1. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
+2. **MagicPay canonical Pix payload + idempotency/recovery + environment evidence** — live-integration gate.
+3. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
+4. **Provider bridge/activation/recovery/webhook** — blocked until #2/#3 close.
+5. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
+6. **Merchant completeness** — KYC, payout/refund and reporting.
 
 ## Safety invariants
 
