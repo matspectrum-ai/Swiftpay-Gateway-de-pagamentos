@@ -2,7 +2,7 @@
 
 Updated: 2026-09-03 (America/Santarem)
 
-A checked item means an accepted executable/hosted contract exists for that scope. It does **not** mean the equivalent Production/live-provider workflow is authorized. Provider fixtures, credentials and transport primitives grant no PSP monetary authority by themselves.
+A checked item means an accepted executable/hosted contract exists for that scope. It does **not** mean the equivalent Production/live-provider workflow is authorized. Provider fixtures, credentials, parsers and transport primitives grant no PSP monetary authority by themselves.
 
 ## Core database / financial domain
 
@@ -142,12 +142,40 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] A28 module stays outside public provider barrel
 - [x] MagicPay remains absent from A10 activation registry
 - [x] MagicPay webhook authority remains false
-- [ ] Exact Pix create success response schema
-- [ ] Exact Pix QR/copy-and-paste field
-- [ ] Exact transaction-query response envelope
+
+### MagicPay A29 response/query contract
+
+- [x] ADR 0005 explicitly admits MagicPay as third provider candidate without runtime authority
+- [x] Provider-owned create-sale/find-sale screenshot lineage frozen by SHA-256 manifest
+- [x] Create-sale `200` top-level transaction response schema evidenced
+- [x] Create-sale `400` `{ code, message }` schema evidenced
+- [x] Request `pix.expiresInDays` int32 option evidenced
+- [x] Find-sale `200` top-level transaction response schema evidenced
+- [x] Provider transaction `id` normalized without inventing alternate identifiers
+- [x] Status mapping restricted to provider-documented values
+- [x] Optional positive-int32 `pix.expiresInDays` request serialization
+- [x] Pure create-success response parser
+- [x] Pure create-400 response parser with no execution-certainty inference
+- [x] Pure Basic-authenticated `GET /transactions/{id}` request builder
+- [x] Pure find-sale response parser
+- [x] Query `pix` preserved only as `providerPixValue`
+- [x] A29 formal RED isolated exactly seven absent implementation points
+- [x] A29 implementation workflow `33822375392`: **412 / 412 application tests PASS**
+- [x] A29 implementation runtime-database acceptance GREEN
+- [x] A28 exact frozen metadata remains unchanged
+- [x] No `createMagicPayAdapter`
+- [x] No public MagicPay provider-barrel export
+- [x] No MagicPay A10 registration/activation
+- [x] No MagicPay monetary A11 binding
+- [ ] A29 PR #10 merged/canonicalized into `main`
+
+### Remaining MagicPay live-integration evidence
+
+- [ ] Nested successful create-response `pix` object fields
+- [ ] Canonical Pix copy-and-paste/EMV semantics
 - [ ] Provider create idempotency semantics
 - [ ] Ambiguous-create recovery semantics
-- [ ] Provider error certainty contract
+- [ ] Provider error execution-certainty contract
 - [ ] Sandbox/homologation environment classification
 - [ ] Authenticated non-destructive provider proof from working network path
 - [ ] MagicPay webhook authentication/replay identity
@@ -157,7 +185,7 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [ ] Provider webhook ingress
 - [ ] Provider recovery/reconciliation runtime
 
-`externalRef` is not considered idempotency evidence. Supplied real provider credentials remain out-of-repository input only.
+`externalRef` is not considered idempotency evidence. The provider-documented query `pix` string is not considered canonical copy-and-paste evidence. Supplied real provider credentials remain out-of-repository input only.
 
 ## Abuse / security hardening
 
@@ -195,6 +223,7 @@ A checked item means an accepted executable/hosted contract exists for that scop
 - [x] Latest database suite: **48 files / 1403 pgTAP assertions PASS**
 - [x] A25+A26+A27 final Application and Database workflows GREEN before canonical merge
 - [x] A28 final Application workflow GREEN after documentation/readiness closure
+- [x] A29 implementation Application + runtime-database workflow GREEN
 - [ ] Production-like load/capacity test
 - [ ] Measured rate-limit tuning
 - [ ] Measured database/index optimization
@@ -221,18 +250,20 @@ A checked item means an accepted executable/hosted contract exists for that scop
 
 ## Current blockers / next closure
 
-1. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
-2. **MagicPay exact response/idempotency/recovery + environment evidence** — provider live-integration gate.
-3. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
-4. **Provider bridge/activation/recovery/webhook** — blocked until #2/#3 close.
-5. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
-6. **Merchant completeness** — KYC, payout/refund and reporting.
+1. **A29 final CI + merge** — canonicalization of network-free MagicPay response/query normalization.
+2. **Deployed HTTP runtime E2E** — actual V2 API/checkout and server-side DB runtime credential.
+3. **MagicPay canonical Pix payload + idempotency/recovery + environment evidence** — live-integration gate.
+4. **Authenticated safe MagicPay proof** from a network path that resolves the provider host.
+5. **Provider bridge/activation/recovery/webhook** — blocked until #3/#4 close.
+6. **Launch operations** — deploy/cutover/backup/rollback/load/WAF/alerts.
+7. **Merchant completeness** — KYC, payout/refund and reporting.
 
 ## Safety invariants
 
 - No live retained PSP monetary call without complete executable contract + authenticated-safe-proof + explicit A10 activation proof.
 - No withdrawal is used as a provider-discovery probe.
-- No MagicPay Pix create is used as a discovery probe while response/idempotency/recovery semantics remain incomplete.
+- No MagicPay Pix create is used as a discovery probe while idempotency/recovery/canonical Pix semantics remain incomplete.
+- A provider `400` is not automatically proof of non-execution.
 - Ambiguous monetary execution stays `execution_unknown`; never fabricate definitive failure.
 - Browser/dashboard receives no direct database/provider/financial authority.
 - Provider secrets never enter Git, durable docs, browser state, screenshots or ordinary logs.
