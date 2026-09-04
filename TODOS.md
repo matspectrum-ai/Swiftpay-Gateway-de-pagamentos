@@ -22,13 +22,13 @@ Functional checklist: `docs/product/v1-functional-checklist.md`
 ## Current checkpoint
 
 - Canonical source branch: `main`
-- Latest accepted behavioral merge before A29: PR #8 — A28 MagicPay partial provider contract + safe primitives, merge commit `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
-- Current provider-contract slice: PR #10 — A29 MagicPay response/query contract normalization
+- Latest accepted behavioral merge: PR #10 — A29 MagicPay response/query contract normalization, merge commit `a1b3536bf38362a6df261519eb4619f9dabf27cd`
+- Prior provider-contract merge: PR #8 — A28 MagicPay partial provider contract + safe primitives, merge commit `9f612c5a7592f1b05064e2e4238cc9f60699adf5`
 - Prior canonical hosted-runtime merge: PR #5 — A25+A26+A27, merge commit `8be66916a14126e8e86f4858b32d56d5866a7c9f`
 - Canonical hosted Supabase: `swiftpay v2` (`vsidrgbbyzibqfjkuiqb`)
 - K1-K7: `DONE`
-- A1-A28: `DONE` for their frozen scopes
-- A29: `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL` on PR #10 branch; canonical merge remains the current checkpoint action
+- A1-A29: `DONE` for their frozen scopes
+- A29: `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL / CANONICAL`
 - A5 remains `DONE / FIXTURE-ONLY` for retained live-provider authority
 - A10 remains default-deny; MagicPay is not registered or activated
 - A11 strict HTTPS transport remains unbound from MagicPay monetary behavior
@@ -108,7 +108,7 @@ These percentages are risk/effort weighted, not file counts or launch-safety cla
 
 A28 deliberately left create-success/query response semantics unresolved; A29 closes the evidenced top-level portions without changing live authority.
 
-## A29 — MagicPay response/query contract normalization — `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL`
+## A29 — MagicPay response/query contract normalization — `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL / CANONICAL`
 
 ### Source evidence and architecture
 
@@ -143,7 +143,7 @@ A28 deliberately left create-success/query response semantics unresolved; A29 cl
 - Implementation: `packages/providers/src/magicpay.ts`
 - Evidence: `docs/evidence/application/2026-09-03-a29-magicpay-response-query-contract.md`
 
-### A29 TDD
+### A29 TDD / final validation
 
 - Formal RED SHA: `be50ec5a280867ac24e0ba5331c5c9669875ce74`
 - RED Application workflow: `33822220854`, application-contracts job `100867151352`
@@ -151,7 +151,12 @@ A28 deliberately left create-success/query response semantics unresolved; A29 cl
 - GREEN implementation SHA: `a5ca665501a5e8c68f7e4902ffc36153ecacd185`
 - GREEN Application workflow: `33822375392`, application-contracts job `100867618596`
 - GREEN application contracts: **412 / 412 PASS**
-- existing A1-A28 application contracts remain GREEN
+- GREEN runtime-database-acceptance job `100867618738`: PASS
+- Final pre-merge head: `afcb4d284270cff227d5fcd7852356c981738273`
+- Final Application workflow `33822648444`: GREEN
+- Final application-contracts job `100868458971`: GREEN
+- Final runtime-database-acceptance job `100868459176`: GREEN, including K7/A14/A18/A1-A9
+- Canonical merge: `a1b3536bf38362a6df261519eb4619f9dabf27cd`
 
 ### A29 implementation boundary
 
@@ -250,7 +255,7 @@ Foundation / domain / database                         DONE
   -> A10 activation default-deny                      DONE
   -> A11 strict HTTPS provider transport              DONE / UNBOUND
   -> A28 MagicPay auth/request contract               DONE / PARTIAL
-  -> A29 MagicPay top-level response/query contract   DONE / PARTIAL
+  -> A29 MagicPay top-level response/query contract   DONE / PARTIAL / CANONICAL
        -> canonical Pix payload/idempotency/recovery   EVIDENCE_REQUIRED
        -> authenticated safe provider proof           BLOCKED
        -> live MagicPay adapter + A11 bridge           BLOCKED
