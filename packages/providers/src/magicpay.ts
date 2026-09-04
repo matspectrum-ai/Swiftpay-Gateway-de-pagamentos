@@ -27,12 +27,37 @@ export const MAGICPAY_CONTRACT_EVIDENCE = Object.freeze({
   gaps: MAGICPAY_GAPS,
 });
 
+const MAGICPAY_RESPONSE_QUERY_GAPS = Object.freeze([
+  'pix_create_nested_pix_object_fields',
+  'canonical_pix_copy_and_paste_semantics',
+  'create_idempotency_semantics',
+  'ambiguous_create_recovery',
+  'provider_error_certainty_contract',
+  'sandbox_environment',
+  'authenticated_provider_proof',
+  'webhook_authentication',
+  'webhook_replay_identity',
+  'rate_limits',
+] as const);
+
+export const MAGICPAY_RESPONSE_QUERY_EVIDENCE = Object.freeze({
+  provider: 'magicpay' as const,
+  status: 'response_query_contract_proven' as const,
+  sourceSha256: '8838db6276152af9d43d16ce71fa32cb9310b01f46f10c20897dea668d2f6833',
+  livePixAdapter: false as const,
+  canonicalPixCopyAndPaste: false as const,
+  a10Registered: false as const,
+  gaps: MAGICPAY_RESPONSE_QUERY_GAPS,
+});
+
 type AnyRecord = Record<string, unknown>;
 
 type MagicPayCredentials = {
   publicKey: string;
   secretKey: string;
 };
+
+type MagicPayPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded' | 'disputed';
 
 function isRecord(value: unknown): value is AnyRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -53,6 +78,25 @@ function digits(value: unknown): string | null {
 
 function validAmount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function validNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validPositiveInt32(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= 1
+    && value <= 2_147_483_647;
+}
+
+function positiveProviderId(value: unknown): string | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+  }
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null;
+  return value;
 }
 
 function credentialsFrom(input: unknown): MagicPayCredentials | null {
@@ -108,6 +152,25 @@ function is2xx(statusCode: unknown): statusCode is number {
   return typeof statusCode === 'number' && statusCode >= 200 && statusCode <= 299;
 }
 
+export function normalizeMagicPayPaymentStatus(value: unknown): MagicPayPaymentStatus | null {
+  const status = trimmed(value)?.toLowerCase();
+  switch (status) {
+    case 'waiting_payment':
+    case 'pending':
+      return 'pending';
+    case 'paid':
+      return 'paid';
+    case 'refused':
+      return 'failed';
+    case 'refunded':
+      return 'refunded';
+    case 'chargedback':
+      return 'disputed';
+    default:
+      return null;
+  }
+}
+
 export function buildMagicPayPixCreateRequest(input: unknown):
   | { readonly ok: true; readonly request: ProviderRequest }
   | { readonly ok: false; readonly reason: 'invalid_input' } {
@@ -128,6 +191,12 @@ export function buildMagicPayPixCreateRequest(input: unknown):
     if (postbackUrl === null) return { ok: false, reason: 'invalid_input' };
   }
 
+  let expiresInDays: number | null = null;
+  if (input.expiresInDays !== undefined) {
+    if (!validPositiveInt32(input.expiresInDays)) return { ok: false, reason: 'invalid_input' };
+    expiresInDays = input.expiresInDays;
+  }
+
   const body: AnyRecord = {
     amount: input.amountCents,
     paymentMethod: 'pix',
@@ -142,6 +211,7 @@ export function buildMagicPayPixCreateRequest(input: unknown):
     externalRef: clientReference,
   };
   if (postbackUrl !== null) body.postbackUrl = postbackUrl;
+  if (expiresInDays !== null) body.pix = { expiresInDays };
 
   return {
     ok: true,
@@ -153,6 +223,117 @@ export function buildMagicPayPixCreateRequest(input: unknown):
         'Content-Type': 'application/json',
       },
       bodyUtf8: JSON.stringify(body),
+    },
+  };
+}
+
+function parseTransactionCore(bodyUtf8: unknown):
+  | {
+      readonly ok: true;
+      readonly body: AnyRecord;
+      readonly providerPaymentId: string;
+      readonly providerStatusRaw: string;
+      readonly paymentStatus: MagicPayPaymentStatus;
+    }
+  | { readonly ok: false; readonly reason: 'response_invalid' }
+  | {
+      readonly ok: false;
+      readonly reason: 'unrecognized_provider_status';
+      readonly providerStatusRaw: string;
+    } {
+  const body = parseJsonObject(bodyUtf8);
+  if (body === null
+      || typeof body.id !== 'number'
+      || !Number.isSafeInteger(body.id)
+      || body.id <= 0
+      || typeof body.status !== 'string'
+      || body.status.trim().length === 0) {
+    return { ok: false, reason: 'response_invalid' };
+  }
+
+  const providerStatusRaw = body.status;
+  const paymentStatus = normalizeMagicPayPaymentStatus(providerStatusRaw);
+  if (paymentStatus === null) {
+    return { ok: false, reason: 'unrecognized_provider_status', providerStatusRaw };
+  }
+
+  return {
+    ok: true,
+    body,
+    providerPaymentId: String(body.id),
+    providerStatusRaw,
+    paymentStatus,
+  };
+}
+
+export function parseMagicPayCreateResponse(bodyUtf8: unknown) {
+  const core = parseTransactionCore(bodyUtf8);
+  if (!core.ok) return core;
+
+  return {
+    ok: true as const,
+    transaction: {
+      providerPaymentId: core.providerPaymentId,
+      amountCents: validNonNegativeInteger(core.body.amount) ? core.body.amount : null,
+      paymentMethodRaw: trimmed(core.body.paymentMethod),
+      providerStatusRaw: core.providerStatusRaw,
+      paymentStatus: core.paymentStatus,
+      externalRef: trimmed(core.body.externalRef),
+    },
+  };
+}
+
+export function parseMagicPayCreateErrorResponse(bodyUtf8: unknown) {
+  const body = parseJsonObject(bodyUtf8);
+  if (body === null
+      || typeof body.code !== 'number'
+      || !Number.isSafeInteger(body.code)
+      || trimmed(body.message) === null) {
+    return { ok: false as const, reason: 'response_invalid' as const };
+  }
+
+  return {
+    ok: true as const,
+    error: {
+      code: body.code,
+      message: trimmed(body.message) as string,
+    },
+  };
+}
+
+export function buildMagicPayTransactionQueryRequest(input: unknown):
+  | { readonly ok: true; readonly request: ProviderRequest }
+  | { readonly ok: false; readonly reason: 'invalid_input' } {
+  if (!isRecord(input)) return { ok: false, reason: 'invalid_input' };
+  const credentials = credentialsFrom(input);
+  const providerPaymentId = positiveProviderId(input.providerPaymentId);
+  if (credentials === null || providerPaymentId === null) return { ok: false, reason: 'invalid_input' };
+
+  return {
+    ok: true,
+    request: {
+      method: 'GET',
+      relativePath: `transactions/${encodeURIComponent(providerPaymentId)}`,
+      headers: { Authorization: basicAuthorization(credentials) },
+    },
+  };
+}
+
+export function parseMagicPayTransactionQueryResponse(bodyUtf8: unknown) {
+  const core = parseTransactionCore(bodyUtf8);
+  if (!core.ok) return core;
+
+  return {
+    ok: true as const,
+    transaction: {
+      providerPaymentId: core.providerPaymentId,
+      amountCents: validNonNegativeInteger(core.body.amount) ? core.body.amount : null,
+      paymentMethodRaw: trimmed(core.body.paymentMethod),
+      providerStatusRaw: core.providerStatusRaw,
+      paymentStatus: core.paymentStatus,
+      providerPixValue: trimmed(core.body.pix),
+      paidAt: trimmed(core.body.paidAt),
+      externalRef: trimmed(core.body.externalRef),
     },
   };
 }

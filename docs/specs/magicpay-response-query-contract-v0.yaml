@@ -1,0 +1,175 @@
+schema_version: 1
+slice: A29
+name: magicpay-response-query-contract-v0
+status: frozen_for_tdd
+date: 2026-09-03
+
+source_evidence:
+  provider: magicpay
+  create_sale_url: https://app.dashboardmagicpay.com/docs/sales/create-sale
+  find_sale_url: https://app.dashboardmagicpay.com/docs/sales/find-sale
+  screenshot_manifest_sha256: 8838db6276152af9d43d16ce71fa32cb9310b01f46f10c20897dea668d2f6833
+  credentials_in_repository: false
+
+architecture:
+  adr: docs/decisions/0005-admit-magicpay-provider-candidate.md
+  provider_candidate: true
+  live_runtime_authority: false
+
+status_mapping:
+  waiting_payment: pending
+  pending: pending
+  paid: paid
+  refused: failed
+  refunded: refunded
+  chargedback: disputed
+  unknown: unrecognized
+
+pix_create_request_extension:
+  pix:
+    expiresInDays:
+      type: int32
+      optional: true
+      local_validation: positive_int32
+
+create_success_response:
+  http_status: 200
+  body: object
+  documented_top_level_fields:
+    id: integer
+    amount: integer
+    currency: string
+    paidAmount: integer
+    refundedAmount: integer
+    companyId: integer
+    installments: integer
+    paymentMethod: string
+    status: string
+    postbackUrl: string
+    metadata: string
+    traceable: boolean
+    secureId: string
+    secureUrl: string
+    createdAt: string
+    updatedAt: string
+    ip: string
+    externalRef: string
+    authorizationCode: string
+    basePrice: string
+    interestRate: string
+    customer: object
+    fee: object
+    pix: object
+    boleto: string
+    card: string
+    shipping: object
+    refusedReason: string
+    items: array_of_objects
+    splits: array
+    refunds: array
+    delivery: object
+    payer: string
+    threeDS: object
+  normalization_required:
+    - providerPaymentId_from_id
+    - providerStatusRaw_from_status
+    - paymentStatus_from_documented_status_mapping
+    - paymentMethod_raw
+    - externalRef_optional
+  pix_object_fields: unproven
+
+create_error_response:
+  http_status: 400
+  body:
+    code: integer
+    message: string
+  execution_certainty: unproven
+
+query_request:
+  method: GET
+  path_template: transactions/{id}
+  auth: basic_public_secret
+  provider_id_input: positive_integer_string
+
+query_success_response:
+  http_status: 200
+  body: object
+  documented_top_level_fields:
+    id: integer
+    amount: integer
+    refundedAmount: integer
+    companyId: integer
+    installments: integer
+    paymentMethod: string
+    status: string
+    postbackUrl: string
+    metadata: string
+    traceable: boolean
+    secureId: string
+    secureUrl: string
+    createdAt: string
+    updatedAt: string
+    paidAt: string
+    ip: string
+    externalRef: string
+    customer: object
+    card: object
+    boleto: string
+    pix: string
+    shipping: string
+    refusedReason: string
+    items: array_of_objects
+    splits: array_of_objects
+    refunds: array
+    delivery: string
+    fee: object
+    threeDS: object
+  normalization_required:
+    - providerPaymentId_from_id
+    - providerStatusRaw_from_status
+    - paymentStatus_from_documented_status_mapping
+    - providerPixValue_from_pix_when_nonblank
+    - paidAt_optional
+    - externalRef_optional
+  providerPixValue_semantics: provider_pix_key_or_code_only
+  canonical_copy_and_paste_semantics: unproven
+
+safe_implementation_scope:
+  module: packages/providers/src/magicpay.ts
+  public_barrel_export: forbidden
+  allowed:
+    - update_contract_evidence_metadata
+    - serialize_optional_pix_expires_in_days
+    - build_query_request
+    - normalize_documented_status
+    - parse_create_success_response
+    - parse_create_400_error_response
+    - parse_query_success_response
+  forbidden:
+    - createMagicPayAdapter
+    - payable_provider_call
+    - a10_magicpay_registration
+    - a11_magicpay_binding
+    - retry_after_ambiguous_create
+    - externalRef_as_provider_idempotency
+    - providerPixValue_as_copyAndPaste_without_stronger_evidence
+    - trusted_magicpay_webhook
+    - pix_out
+    - refund
+
+remaining_contract_gaps:
+  - pix_create_nested_pix_object_fields
+  - canonical_pix_copy_and_paste_semantics
+  - create_idempotency_semantics
+  - ambiguous_create_recovery
+  - provider_error_certainty_contract
+  - sandbox_environment
+  - authenticated_provider_proof
+  - webhook_authentication
+  - webhook_replay_identity
+  - rate_limits
+
+activation:
+  magicpay_a10_change: forbidden
+  monetary_traffic: forbidden
+  webhook_authority: false
