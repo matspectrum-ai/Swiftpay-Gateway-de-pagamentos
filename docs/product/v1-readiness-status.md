@@ -2,8 +2,7 @@
 
 Date: 2026-09-03 (America/Santarem)  
 Canonical source: `main`  
-Latest accepted behavioral merge before A29: A28 PR #8, `9f612c5a7592f1b05064e2e4238cc9f60699adf5`  
-Current provider-contract slice: A29 PR #10
+Latest accepted behavioral merge: A29 PR #10, `a1b3536bf38362a6df261519eb4619f9dabf27cd`
 
 This document reports engineering/readiness by risk, not by lines of code or number of files.
 
@@ -78,9 +77,9 @@ A28 final pre-merge validation:
 
 Evidence: `docs/evidence/application/2026-09-03-a28-magicpay-provider-contract-evidence.md`.
 
-## A29 MagicPay response/query status
+## A29 MagicPay response/query status — canonical
 
-A29 is `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL` on PR #10 and is awaiting canonical merge.
+A29 is `DONE / GREEN / APPLICATION-ONLY / EVIDENCE-PARTIAL / CANONICAL` through PR #10 (`a1b3536bf38362a6df261519eb4619f9dabf27cd`).
 
 Provider-owned screenshots from the MagicPay create-sale/find-sale documentation close the previously unknown top-level response envelopes. Their ordered digest-manifest SHA-256 is:
 
@@ -88,7 +87,7 @@ Provider-owned screenshots from the MagicPay create-sale/find-sale documentation
 
 A29 also adds ADR 0005, explicitly admitting MagicPay as a third provider candidate while leaving all runtime-activation gates intact.
 
-A29 now proves and implements, network-free:
+A29 proves and implements, network-free:
 
 - create-sale `200` top-level transaction response normalization from provider `id`, `amount`, `paymentMethod`, `status`, `externalRef`;
 - create-sale `400` `{ code, message }` parsing without claiming execution certainty;
@@ -111,6 +110,14 @@ A29 implementation GREEN:
 - Application workflow `33822375392`
 - application-contracts job `100867618596`: **412 / 412 PASS**
 - runtime-database-acceptance job `100867618738`: GREEN, including K7/A14/A18/A1-A9
+
+A29 final pre-merge validation:
+
+- SHA `afcb4d284270cff227d5fcd7852356c981738273`
+- Application workflow `33822648444`: GREEN
+- application-contracts job `100868458971`: GREEN
+- runtime-database-acceptance job `100868459176`: GREEN, including K7/A14/A18/A1-A9
+- canonical merge `a1b3536bf38362a6df261519eb4619f9dabf27cd`
 
 Evidence: `docs/evidence/application/2026-09-03-a29-magicpay-response-query-contract.md`.
 
@@ -153,17 +160,16 @@ This internal Sandbox milestone is independent from MagicPay's still-unclassifie
 
 ### Launch critical
 
-1. Canonicalize A29 after final CI.
-2. Deployed HTTP runtime E2E for actual V2 API/checkout.
-3. MagicPay canonical Pix payload + idempotency/ambiguous-recovery evidence.
-4. MagicPay environment classification and authenticated safe proof from a working network path.
-5. Live provider adapter + A11 bridge only after evidence closes.
-6. Deliberate A10 activation only after live-provider proof.
-7. Provider webhook authenticity/recovery/reconciliation runtime.
-8. Deployment/cutover/rollback/backup contract.
-9. Production secrets/bootstrap rotation drills.
-10. Load/capacity, WAF/network and external observability hardening.
-11. `main` branch protection with required checks.
+1. Deployed HTTP runtime E2E for actual V2 API/checkout.
+2. MagicPay canonical Pix payload + idempotency/ambiguous-recovery evidence.
+3. MagicPay environment classification and authenticated safe proof from a working network path.
+4. Live provider adapter + A11 bridge only after evidence closes.
+5. Deliberate A10 activation only after live-provider proof.
+6. Provider webhook authenticity/recovery/reconciliation runtime.
+7. Deployment/cutover/rollback/backup contract.
+8. Production secrets/bootstrap rotation drills.
+9. Load/capacity, WAF/network and external observability hardening.
+10. `main` branch protection with required checks.
 
 ### Merchant product completion
 
@@ -175,4 +181,4 @@ This internal Sandbox milestone is independent from MagicPay's still-unclassifie
 
 ## Practical interpretation
 
-SwiftPay V2 is no longer an early prototype. Core payment, financial, idempotency, tenant and runtime-security invariants have executable and hosted evidence. A28 established MagicPay auth/request semantics; A29 now closes the provider's top-level create/query response contract without over-claiming the ambiguous Pix field. The remaining provider work is no longer primarily basic schema discovery — it is the higher-risk idempotency, recovery, canonical Pix payload, environment/authenticated proof and webhook authority needed before real-money activation.
+SwiftPay V2 is no longer an early prototype. Core payment, financial, idempotency, tenant and runtime-security invariants have executable and hosted evidence. A28 established MagicPay auth/request semantics; A29 now canonically closes the provider's top-level create/query response contract without over-claiming the ambiguous Pix field. The remaining provider work is no longer primarily basic schema discovery — it is the higher-risk idempotency, recovery, canonical Pix payload, environment/authenticated proof and webhook authority needed before real-money activation.
