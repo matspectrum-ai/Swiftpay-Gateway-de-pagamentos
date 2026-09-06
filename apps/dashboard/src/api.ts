@@ -18,6 +18,54 @@ export interface PaymentLink {
   readonly disabledAt: string | null;
 }
 
+export interface GatewayAccount {
+  readonly id: string;
+  readonly object: 'account';
+  readonly type: string;
+  readonly currency: 'BRL';
+  readonly environment: DashboardEnvironment;
+  readonly balance_cents: number;
+}
+
+export interface GatewayStatementItem {
+  readonly id: string;
+  readonly occurred_at: string;
+  readonly operation_type: string;
+  readonly source_type: string;
+  readonly source_id: string;
+  readonly amount_cents: number;
+  readonly currency: 'BRL';
+  readonly balance_effect: 'credit' | 'debit';
+}
+
+export interface GatewayCustomer {
+  readonly id: string;
+  readonly object: 'customer';
+  readonly organization_id: string | null;
+  readonly external_ref: string | null;
+  readonly name: string | null;
+  readonly document: string | null;
+  readonly email: string | null;
+  readonly phone: string | null;
+  readonly metadata: Record<string, unknown>;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface GatewayPayout {
+  readonly id: string;
+  readonly object: 'payout';
+  readonly environment: DashboardEnvironment;
+  readonly currency: 'BRL';
+  readonly amount_cents: number;
+  readonly recipient_amount_cents: number;
+  readonly merchant_fee_cents: number;
+  readonly state: 'requested' | 'processing' | 'execution_unknown' | 'completed' | 'failed' | 'rejected' | 'cancelled';
+  readonly external_ref: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -60,8 +108,62 @@ function paymentLink(value: unknown): PaymentLink {
   return value as unknown as PaymentLink;
 }
 
+function account(value: unknown): GatewayAccount {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.object !== 'account'
+      || typeof value.type !== 'string' || value.currency !== 'BRL'
+      || (value.environment !== 'sandbox' && value.environment !== 'production')
+      || typeof value.balance_cents !== 'number' || !Number.isSafeInteger(value.balance_cents)) {
+    throw new DashboardApiError('error');
+  }
+  return value as unknown as GatewayAccount;
+}
+
+function statementItem(value: unknown): GatewayStatementItem {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.occurred_at !== 'string'
+      || typeof value.operation_type !== 'string' || typeof value.source_type !== 'string'
+      || typeof value.source_id !== 'string' || typeof value.amount_cents !== 'number'
+      || !Number.isSafeInteger(value.amount_cents) || value.currency !== 'BRL'
+      || (value.balance_effect !== 'credit' && value.balance_effect !== 'debit')) {
+    throw new DashboardApiError('error');
+  }
+  return value as unknown as GatewayStatementItem;
+}
+
+function customer(value: unknown): GatewayCustomer {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.object !== 'customer'
+      || !(value.organization_id === null || typeof value.organization_id === 'string')
+      || !(value.external_ref === null || typeof value.external_ref === 'string')
+      || !(value.name === null || typeof value.name === 'string')
+      || !(value.document === null || typeof value.document === 'string')
+      || !(value.email === null || typeof value.email === 'string')
+      || !(value.phone === null || typeof value.phone === 'string')
+      || !isRecord(value.metadata) || typeof value.created_at !== 'string' || typeof value.updated_at !== 'string') {
+    throw new DashboardApiError('error');
+  }
+  return value as unknown as GatewayCustomer;
+}
+
+function payout(value: unknown): GatewayPayout {
+  const states = new Set(['requested', 'processing', 'execution_unknown', 'completed', 'failed', 'rejected', 'cancelled']);
+  if (!isRecord(value) || typeof value.id !== 'string' || value.object !== 'payout'
+      || (value.environment !== 'sandbox' && value.environment !== 'production') || value.currency !== 'BRL'
+      || typeof value.amount_cents !== 'number' || !Number.isSafeInteger(value.amount_cents)
+      || typeof value.recipient_amount_cents !== 'number' || !Number.isSafeInteger(value.recipient_amount_cents)
+      || typeof value.merchant_fee_cents !== 'number' || !Number.isSafeInteger(value.merchant_fee_cents)
+      || typeof value.state !== 'string' || !states.has(value.state)
+      || !(value.external_ref === null || typeof value.external_ref === 'string')
+      || typeof value.created_at !== 'string' || typeof value.updated_at !== 'string') {
+    throw new DashboardApiError('error');
+  }
+  return value as unknown as GatewayPayout;
+}
+
 function base(merchantId: string, environment: DashboardEnvironment): string {
   return `/api/dashboard/v1/merchants/${encodeURIComponent(merchantId)}/environments/${environment}/payment-links`;
+}
+
+function resourceBase(merchantId: string, environment: DashboardEnvironment): string {
+  return `/api/dashboard/v1/merchants/${encodeURIComponent(merchantId)}/environments/${environment}`;
 }
 
 async function read(accessToken: string, path: string): Promise<unknown> {
@@ -83,11 +185,12 @@ async function mutate(input: {
   readonly path: string;
   readonly idempotencyKey: string;
   readonly body: unknown;
+  readonly method?: 'POST' | 'PATCH';
 }): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(input.path, {
-      method: 'POST',
+      method: input.method ?? 'POST',
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
@@ -148,5 +251,110 @@ export async function disablePaymentLink(input: {
     path: `${base(input.merchantId, input.environment)}/${encodeURIComponent(input.paymentLinkId)}/disable`,
     idempotencyKey: input.idempotencyKey,
     body: {},
+  }));
+}
+
+export async function listGatewayAccounts(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+}): Promise<readonly GatewayAccount[]> {
+  const body = await read(input.accessToken, `${resourceBase(input.merchantId, input.environment)}/accounts`);
+  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
+  return body.data.map(account);
+}
+
+export async function listGatewayAccountStatement(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+  readonly accountId: string;
+}): Promise<readonly GatewayStatementItem[]> {
+  const body = await read(input.accessToken, `${resourceBase(input.merchantId, input.environment)}/accounts/${encodeURIComponent(input.accountId)}/statement`);
+  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
+  return body.data.map(statementItem);
+}
+
+export async function listGatewayCustomers(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+}): Promise<readonly GatewayCustomer[]> {
+  const body = await read(input.accessToken, `${resourceBase(input.merchantId, input.environment)}/customers`);
+  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
+  return body.data.map(customer);
+}
+
+export async function createGatewayCustomer(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+  readonly idempotencyKey: string;
+  readonly name?: string;
+  readonly document?: string;
+  readonly email?: string;
+  readonly phone?: string;
+  readonly externalRef?: string;
+}): Promise<GatewayCustomer> {
+  return customer(await mutate({
+    accessToken: input.accessToken,
+    path: `${resourceBase(input.merchantId, input.environment)}/customers`,
+    idempotencyKey: input.idempotencyKey,
+    body: {
+      ...(input.name ? { name: input.name } : {}),
+      ...(input.document ? { document: input.document } : {}),
+      ...(input.email ? { email: input.email } : {}),
+      ...(input.phone ? { phone: input.phone } : {}),
+      ...(input.externalRef ? { external_ref: input.externalRef } : {}),
+    },
+  }));
+}
+
+export async function updateGatewayCustomer(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+  readonly customerId: string;
+  readonly idempotencyKey: string;
+  readonly patch: Record<string, unknown>;
+}): Promise<GatewayCustomer> {
+  return customer(await mutate({
+    accessToken: input.accessToken,
+    path: `${resourceBase(input.merchantId, input.environment)}/customers/${encodeURIComponent(input.customerId)}`,
+    idempotencyKey: input.idempotencyKey,
+    body: input.patch,
+    method: 'PATCH',
+  }));
+}
+
+export async function listGatewayPayouts(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+}): Promise<readonly GatewayPayout[]> {
+  const body = await read(input.accessToken, `${resourceBase(input.merchantId, input.environment)}/payouts`);
+  if (!isRecord(body) || body.object !== 'list' || !Array.isArray(body.data)) throw new DashboardApiError('error');
+  return body.data.map(payout);
+}
+
+export async function createGatewayPayout(input: {
+  readonly accessToken: string;
+  readonly merchantId: string;
+  readonly environment: DashboardEnvironment;
+  readonly idempotencyKey: string;
+  readonly amountCents: number;
+  readonly keyType: 'cpf' | 'cnpj' | 'email' | 'phone' | 'random';
+  readonly pixKey: string;
+  readonly externalRef?: string;
+}): Promise<GatewayPayout> {
+  return payout(await mutate({
+    accessToken: input.accessToken,
+    path: `${resourceBase(input.merchantId, input.environment)}/payouts`,
+    idempotencyKey: input.idempotencyKey,
+    body: {
+      amount_cents: input.amountCents,
+      destination: { type: 'pix', key_type: input.keyType, key: input.pixKey },
+      ...(input.externalRef ? { external_ref: input.externalRef } : {}),
+    },
   }));
 }

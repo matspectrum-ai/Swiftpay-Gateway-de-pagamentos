@@ -1,5 +1,10 @@
 export * from './app-base.js';
 
+import type { MachinePrincipal } from '@swiftpay/auth';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { admitA14MachineRequest } from './a14-admission.js';
+import type { A30DashboardResourcesService } from './a30-dashboard-resources.js';
+import type { A30GatewayResourcesService } from './a30-gateway-resources.js';
 import {
   buildApp as buildBaseApp,
   type BuildAppOptions as BaseBuildAppOptions,
@@ -35,7 +40,9 @@ export interface HostedCheckoutHttpService {
 
 export interface BuildAppOptions extends BaseBuildAppOptions {
   readonly dashboardPaymentLinks?: DashboardPaymentLinksHttpService;
+  readonly dashboardGatewayResources?: A30DashboardResourcesService;
   readonly hostedCheckout?: HostedCheckoutHttpService;
+  readonly gatewayResources?: A30GatewayResourcesService;
 }
 
 function authorizationHeader(value: unknown): string | undefined {
@@ -69,6 +76,27 @@ function dashboardError(resultKind: string, requestId: string) {
   }
 }
 
+function dashboardResourceError(resultKind: string, requestId: string) {
+  switch (resultKind) {
+    case 'invalid_session':
+      return { status: 401, body: { error: { code: 'invalid_dashboard_session', message: 'Invalid dashboard session.', requestId } } };
+    case 'authentication_unavailable':
+      return { status: 503, body: { error: { code: 'dashboard_authentication_unavailable', message: 'Dashboard authentication is unavailable.', requestId } } };
+    case 'forbidden':
+    case 'operation_forbidden':
+    case 'unsupported':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is forbidden for this merchant/environment.', requestId } } };
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid dashboard resource request.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'Resource was not found.', requestId } } };
+    case 'idempotency_conflict':
+      return { status: 409, body: { error: { code: 'idempotency_conflict', message: 'Idempotency key conflicts with another request.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Dashboard resource operation failed.', requestId } } };
+  }
+}
+
 function checkoutError(resultKind: string, requestId: string) {
   switch (resultKind) {
     case 'not_found':
@@ -82,9 +110,57 @@ function checkoutError(resultKind: string, requestId: string) {
   }
 }
 
+function gatewayError(resultKind: string, requestId: string) {
+  switch (resultKind) {
+    case 'validation_error':
+      return { status: 400, body: { error: { code: 'validation_error', message: 'Invalid gateway resource request.', requestId } } };
+    case 'operation_forbidden':
+    case 'forbidden':
+    case 'unsupported':
+      return { status: 403, body: { error: { code: 'operation_forbidden', message: 'Operation is not enabled for this merchant/environment.', requestId } } };
+    case 'resource_not_found':
+      return { status: 404, body: { error: { code: 'resource_not_found', message: 'Resource was not found.', requestId } } };
+    case 'idempotency_conflict':
+      return { status: 409, body: { error: { code: 'idempotency_conflict', message: 'Idempotency key conflicts with another request.', requestId } } };
+    default:
+      return { status: 500, body: { error: { code: 'internal_error', message: 'Gateway resource operation failed.', requestId } } };
+  }
+}
+
+function parseBearer(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return /^Bearer ([^\s]+)$/i.exec(value)?.[1] ?? null;
+}
+
+async function authenticateGatewayRequest(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: BuildAppOptions,
+  admission: 'machine_read' | 'machine_mutation',
+): Promise<MachinePrincipal | null> {
+  const token = parseBearer(request.headers.authorization);
+  if (token === null || options.authenticateBearer === undefined) {
+    await reply.code(401).send({ error: { code: 'invalid_access_token', message: 'Invalid access token.', requestId: request.id } });
+    return null;
+  }
+  try {
+    const principal = await options.authenticateBearer(token);
+    if (principal === null) {
+      await reply.code(401).send({ error: { code: 'invalid_access_token', message: 'Invalid access token.', requestId: request.id } });
+      return null;
+    }
+    if (!(await admitA14MachineRequest(options.abuseControls, request, reply, principal, admission))) return null;
+    return principal;
+  } catch {
+    await reply.code(500).send({ error: { code: 'internal_error', message: 'Authentication is unavailable.', requestId: request.id } });
+    return null;
+  }
+}
+
 export function buildApp(options: BuildAppOptions) {
   const app = buildBaseApp(options);
   const dashboardBase = '/dashboard/v1/merchants/:merchantId/environments/:environment/payment-links';
+  const dashboardResourceBase = '/dashboard/v1/merchants/:merchantId/environments/:environment';
 
   app.get(dashboardBase, async (request, reply) => {
     const params = request.params as { merchantId: string; environment: string };
@@ -148,6 +224,159 @@ export function buildApp(options: BuildAppOptions) {
     return reply.code(failure.status).send(failure.body);
   });
 
+  app.get(`${dashboardResourceBase}/accounts`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.listAccounts({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(200).send({ object: 'list', data: result.data });
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get(`${dashboardResourceBase}/accounts/:accountId/statement`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string; accountId: string };
+    const query = request.query as { limit?: unknown };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.listAccountStatement({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          accountId: params.accountId,
+          limit: query.limit,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(200).send({ object: 'list', data: result.data, has_more: false, next_cursor: null });
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get(`${dashboardResourceBase}/payouts`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string };
+    const query = request.query as { state?: unknown; limit?: unknown };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.listPayouts({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          state: query.state,
+          limit: query.limit,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(200).send({ object: 'list', data: result.data, has_more: false, next_cursor: null });
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.post(`${dashboardResourceBase}/payouts`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.createPayout({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          idempotencyKey: request.headers['idempotency-key'],
+          request: request.body,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'created' && result.payout !== undefined) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(201).send(result.payout);
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get(`${dashboardResourceBase}/customers`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string };
+    const query = request.query as { organization_id?: unknown; limit?: unknown };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.listCustomers({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          organizationId: query.organization_id,
+          limit: query.limit,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(200).send({ object: 'list', data: result.data, has_more: false, next_cursor: null });
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.post(`${dashboardResourceBase}/customers`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.createCustomer({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          idempotencyKey: request.headers['idempotency-key'],
+          request: request.body,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'created' && result.customer !== undefined) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(201).send(result.customer);
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get(`${dashboardResourceBase}/customers/:customerId`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string; customerId: string };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.getCustomer({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          customerId: params.customerId,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && result.customer !== undefined) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(200).send(result.customer);
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.patch(`${dashboardResourceBase}/customers/:customerId`, async (request, reply) => {
+    const params = request.params as { merchantId: string; environment: string; customerId: string };
+    const result = options.dashboardGatewayResources
+      ? await options.dashboardGatewayResources.updateCustomer({
+          authorization: authorizationHeader(request.headers.authorization),
+          merchantId: params.merchantId,
+          environment: params.environment,
+          customerId: params.customerId,
+          idempotencyKey: request.headers['idempotency-key'],
+          request: request.body,
+        })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && result.customer !== undefined) {
+      reply.header('cache-control', 'private, no-store');
+      return reply.code(200).send(result.customer);
+    }
+    const failure = dashboardResourceError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
   app.get('/checkout/v1/payment-links/:publicToken', async (request, reply) => {
     reply.header('cache-control', 'no-store');
     const params = request.params as { publicToken: string };
@@ -179,6 +408,117 @@ export function buildApp(options: BuildAppOptions) {
       return reply.code(result.httpStatus).send(result.payment);
     }
     const failure = checkoutError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get('/v1/accounts', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_read');
+    if (principal === null) return reply;
+    const result = options.gatewayResources
+      ? await options.gatewayResources.listAccounts({ principal })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      return reply.code(200).send({ object: 'list', data: result.data });
+    }
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get('/v1/accounts/:id/statement', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_read');
+    if (principal === null) return reply;
+    const params = request.params as { id: string };
+    const result = options.gatewayResources
+      ? await options.gatewayResources.listAccountStatement({ principal, accountId: params.id, query: request.query })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      return reply.code(200).send({ object: 'list', data: result.data, has_more: false, next_cursor: null });
+    }
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.post('/v1/payouts', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_mutation');
+    if (principal === null) return reply;
+    const result = options.gatewayResources
+      ? await options.gatewayResources.createPayout({ principal, idempotencyKey: request.headers['idempotency-key'], request: request.body })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'created' && result.payout !== undefined) return reply.code(201).send(result.payout);
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get('/v1/payouts', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_read');
+    if (principal === null) return reply;
+    const result = options.gatewayResources
+      ? await options.gatewayResources.listPayouts({ principal, query: request.query })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      return reply.code(200).send({ object: 'list', data: result.data, has_more: false, next_cursor: null });
+    }
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get('/v1/payouts/:id', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_read');
+    if (principal === null) return reply;
+    const params = request.params as { id: string };
+    const result = options.gatewayResources
+      ? await options.gatewayResources.getPayout({ principal, payoutId: params.id })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && result.payout !== undefined) return reply.code(200).send(result.payout);
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.post('/v1/customers', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_mutation');
+    if (principal === null) return reply;
+    const result = options.gatewayResources
+      ? await options.gatewayResources.createCustomer({ principal, idempotencyKey: request.headers['idempotency-key'], request: request.body })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'created' && result.customer !== undefined) return reply.code(201).send(result.customer);
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get('/v1/customers', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_read');
+    if (principal === null) return reply;
+    const result = options.gatewayResources
+      ? await options.gatewayResources.listCustomers({ principal, query: request.query })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && Array.isArray(result.data)) {
+      return reply.code(200).send({ object: 'list', data: result.data, has_more: false, next_cursor: null });
+    }
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.get('/v1/customers/:id', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_read');
+    if (principal === null) return reply;
+    const params = request.params as { id: string };
+    const result = options.gatewayResources
+      ? await options.gatewayResources.getCustomer({ principal, customerId: params.id })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && result.customer !== undefined) return reply.code(200).send(result.customer);
+    const failure = gatewayError(kind(result), request.id);
+    return reply.code(failure.status).send(failure.body);
+  });
+
+  app.patch('/v1/customers/:id', async (request, reply) => {
+    const principal = await authenticateGatewayRequest(request, reply, options, 'machine_mutation');
+    if (principal === null) return reply;
+    const params = request.params as { id: string };
+    const result = options.gatewayResources
+      ? await options.gatewayResources.updateCustomer({ principal, customerId: params.id, idempotencyKey: request.headers['idempotency-key'], request: request.body })
+      : { kind: 'internal_error' };
+    if (kind(result) === 'ok' && result.customer !== undefined) return reply.code(200).send(result.customer);
+    const failure = gatewayError(kind(result), request.id);
     return reply.code(failure.status).send(failure.body);
   });
 

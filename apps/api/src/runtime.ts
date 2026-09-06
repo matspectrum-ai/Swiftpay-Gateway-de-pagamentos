@@ -4,6 +4,7 @@ import {
 import {
   createDashboardMerchantContextStore,
   createDashboardPaymentLinkStore,
+  createGatewayResourceStore,
   createHostedCheckoutStore,
   createPixPaymentStore,
 } from '@swiftpay/db';
@@ -16,6 +17,8 @@ import type {
   DashboardPaymentLinksHttpService,
   HostedCheckoutHttpService,
 } from './app.js';
+import { createA30DashboardResourcesService, type A30DashboardResourcesService } from './a30-dashboard-resources.js';
+import { createA30GatewayResourcesService, type A30GatewayResourcesService } from './a30-gateway-resources.js';
 import {
   createApiRuntimeServices as createBaseApiRuntimeServices,
   type ApiRuntimeServices as BaseApiRuntimeServices,
@@ -26,7 +29,9 @@ export type ApiRuntimeServicesOptions = BaseApiRuntimeServicesOptions;
 
 export interface ApiRuntimeServices extends BaseApiRuntimeServices {
   readonly dashboardPaymentLinks: DashboardPaymentLinksHttpService;
+  readonly dashboardGatewayResources: A30DashboardResourcesService;
   readonly hostedCheckout: HostedCheckoutHttpService;
+  readonly gatewayResources: A30GatewayResourcesService;
 }
 
 export function createApiRuntimeServices(
@@ -43,6 +48,7 @@ export function createApiRuntimeServices(
   const dashboardPaymentLinkStore = createDashboardPaymentLinkStore(pool);
   const hostedCheckoutStore = createHostedCheckoutStore(pool);
   const pixStore = createPixPaymentStore(pool);
+  const gatewayResourceStore = createGatewayResourceStore(pool);
 
   const dashboardPaymentLinks = createDashboardPaymentLinksService({
     sessionVerifier: dashboardSessionVerifier,
@@ -62,9 +68,15 @@ export function createApiRuntimeServices(
       create: (input) => dashboardPaymentLinks.create(input),
       disable: (input) => dashboardPaymentLinks.disable(input),
     },
+    dashboardGatewayResources: createA30DashboardResourcesService({
+      sessionVerifier: dashboardSessionVerifier,
+      contextStore: dashboardContextStore,
+      store: gatewayResourceStore,
+    }),
     hostedCheckout: {
       getLink: async (publicToken) => ({ ...(await hostedCheckout.getLink(publicToken)) }),
       createPayment: async (input) => ({ ...(await hostedCheckout.createPayment(input)) }),
     },
+    gatewayResources: createA30GatewayResourcesService(gatewayResourceStore),
   };
 }

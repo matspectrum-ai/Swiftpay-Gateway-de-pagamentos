@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
+import { A30OperationsView } from './a30-operations.js';
 import { App as BaseApp } from './app-base.js';
 import {
   createPaymentLink,
@@ -148,6 +149,9 @@ function PaymentLinksView() {
         <div className="brand"><span className="brand-mark">S</span><span>SwiftPay</span></div>
         <nav className="sidebar-nav" aria-label="Navegação principal">
           <a href="/transactions">Transações</a>
+          <a href="/customers">Clientes</a>
+          <a href="/accounts">Contas e saldo</a>
+          <a href="/payouts">Transferências / saques</a>
           <a className="active" href="/payment-links">Links de pagamento</a>
           <a href="/settings/api-credentials">Credenciais API</a>
           <a href="/settings/webhooks">Webhooks</a>
@@ -213,11 +217,25 @@ function PaymentLinksView() {
   );
 }
 
+function A30Shortcuts() {
+  return (
+    <div className="a30-shortcuts" aria-label="Atalhos do gateway">
+      <a href="/customers">Clientes</a>
+      <a href="/accounts">Contas</a>
+      <a href="/payouts">Saques</a>
+      <a href="/payment-links">Links</a>
+    </div>
+  );
+}
+
 export function App() {
   if (location.pathname === '/payment-links') return <PaymentLinksView />;
+  if (location.pathname === '/customers') return <A30OperationsView view="customers" />;
+  if (location.pathname === '/accounts') return <A30OperationsView view="accounts" />;
+  if (location.pathname === '/payouts') return <A30OperationsView view="payouts" />;
   return (
     <>
-      <a className="a23-payment-links-shortcut" href="/payment-links">Links de pagamento</a>
+      <A30Shortcuts />
       <BaseApp />
     </>
   );

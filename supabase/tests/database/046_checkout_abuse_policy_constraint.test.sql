@@ -60,8 +60,8 @@ select is(
 
 select is(
   (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='app' and has_function_privilege('swiftpay_api', p.oid, 'EXECUTE')),
-  30::bigint,
-  'A24 does not change the post-A23 swiftpay_api capability count'
+  39::bigint,
+  'A30 expands the post-A23 swiftpay_api capability count to 39 without changing A24 quota behavior'
 );
 select is(
   (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='app' and has_function_privilege('swiftpay_worker', p.oid, 'EXECUTE')),

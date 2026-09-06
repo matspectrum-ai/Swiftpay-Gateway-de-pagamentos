@@ -1,0 +1,745 @@
+openapi: 3.1.0
+info:
+  title: SwiftPay Pix API
+  version: 1.0.0-a30
+  summary: Minimal merchant-facing Pix gateway API
+  description: |
+    SwiftPay exposes a provider-independent Pix API. BRL monetary values are integer
+    centavos. Sandbox is the default integration environment. Production monetary
+    execution remains fail-closed until an explicitly activated Pix provider is available.
+servers:
+  - url: https://api.example.invalid
+    description: Replace with the deployed SwiftPay API origin.
+tags:
+  - name: Authentication
+  - name: Transactions
+  - name: Balance
+  - name: Accounts
+  - name: Payouts
+  - name: Customers
+security:
+  - bearerAuth: []
+paths:
+  /v1/auth/token:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: createMachineToken
+      summary: Exchange merchant API credentials for a short-lived bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/transactions:
+    post:
+      tags: [Transactions]
+      operationId: createPixTransaction
+      summary: Create a Pix transaction
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '200':
+          description: Idempotent replay of an existing transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '201':
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '202':
+          description: Transaction accepted with external execution still unresolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Transactions]
+      operationId: listTransactions
+      summary: List merchant Pix transactions
+      parameters:
+        - $ref: '#/components/parameters/Environment'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+      responses:
+        '200':
+          description: Transaction page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/transactions/{id}:
+    get:
+      tags: [Transactions]
+      operationId: getTransaction
+      summary: Get one merchant Pix transaction
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/balance:
+    get:
+      tags: [Balance]
+      operationId: getBalance
+      summary: Get ledger-backed merchant balance
+      parameters:
+        - $ref: '#/components/parameters/Environment'
+      responses:
+        '200':
+          description: Balance projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Balance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/accounts:
+    get:
+      tags: [Accounts]
+      operationId: listAccounts
+      summary: List merchant-facing ledger account projections
+      parameters:
+        - $ref: '#/components/parameters/Environment'
+      responses:
+        '200':
+          description: Account projections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object: { const: list }
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/accounts/{id}/statement:
+    get:
+      tags: [Accounts]
+      operationId: getAccountStatement
+      summary: Read immutable ledger-derived statement items
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Statement page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/payouts:
+    post:
+      tags: [Payouts]
+      operationId: createPayout
+      summary: Request an outbound Pix transfer / withdrawal
+      description: |
+        The gross amount is reserved from available balance before any external provider
+        execution. A provider timeout after possible transmission is represented as
+        `execution_unknown`; the reservation is not silently released.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePayoutRequest'
+      responses:
+        '200':
+          description: Idempotent replay of an existing payout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '201':
+          description: Payout reserved and created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Payouts]
+      operationId: listPayouts
+      summary: List merchant payouts
+      parameters:
+        - $ref: '#/components/parameters/Environment'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: state
+          in: query
+          schema:
+            $ref: '#/components/schemas/PayoutState'
+      responses:
+        '200':
+          description: Payout page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/payouts/{id}:
+    get:
+      tags: [Payouts]
+      operationId: getPayout
+      summary: Get one payout
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Payout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/customers:
+    post:
+      tags: [Customers]
+      operationId: createCustomer
+      summary: Create a lightweight reusable payer reference
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '200':
+          description: Idempotent replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Customers]
+      operationId: listCustomers
+      summary: List merchant customers
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/customers/{id}:
+    get:
+      tags: [Customers]
+      operationId: getCustomer
+      summary: Get one customer
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Customers]
+      operationId: updateCustomer
+      summary: Update mutable customer profile fields
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomerRequest'
+      responses:
+        '200':
+          description: Customer updated or idempotently replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived SwiftPay machine token obtained from `/v1/auth/token`.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Stable operation identity. Reusing a key with the same semantic request replays the
+        stored outcome; reusing it with a different semantic request returns HTTP 409.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    Environment:
+      name: environment
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Environment'
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    ValidationError:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid credentials/token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found in authenticated merchant scope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Idempotency conflict, insufficient available balance, or other safe domain conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    Environment:
+      type: string
+      enum: [sandbox, production]
+      default: sandbox
+    TokenRequest:
+      type: object
+      additionalProperties: false
+      required: [client_id, client_secret]
+      properties:
+        client_id:
+          type: string
+          minLength: 1
+        client_secret:
+          type: string
+          minLength: 1
+        grant_type:
+          type: string
+          enum: [client_credentials]
+          default: client_credentials
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        token_type: { const: Bearer }
+        expires_in: { type: integer, minimum: 1, example: 900 }
+    MoneyCents:
+      type: integer
+      format: int64
+      minimum: 0
+      description: BRL amount in integer centavos; binary floating point is never used.
+    PositiveMoneyCents:
+      type: integer
+      format: int64
+      minimum: 1
+      description: Positive BRL amount in integer centavos.
+    TransactionStatus:
+      type: string
+      enum: [created, pending, paid, expired, failed, cancelled, execution_unknown]
+    CreateTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [amount_cents]
+      properties:
+        amount_cents:
+          $ref: '#/components/schemas/PositiveMoneyCents'
+        environment:
+          $ref: '#/components/schemas/Environment'
+        external_ref:
+          type: [string, 'null']
+        customer_id:
+          type: [string, 'null']
+          format: uuid
+        customer:
+          $ref: '#/components/schemas/CustomerSnapshot'
+        expires_in_seconds:
+          type: integer
+          minimum: 60
+        metadata:
+          type: object
+          additionalProperties: true
+    Transaction:
+      type: object
+      required: [id, object, environment, amount_cents, currency, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        object: { const: transaction }
+        environment:
+          $ref: '#/components/schemas/Environment'
+        amount_cents:
+          $ref: '#/components/schemas/PositiveMoneyCents'
+        currency: { const: BRL }
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        external_ref: { type: [string, 'null'] }
+        pix_copy_paste: { type: [string, 'null'] }
+        expires_at: { type: [string, 'null'], format: date-time }
+        paid_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+    TransactionList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Transaction'
+    Balance:
+      type: object
+      required: [object, currency, environment, available_cents, pending_cents, blocked_cents]
+      properties:
+        object: { const: balance }
+        currency: { const: BRL }
+        environment:
+          $ref: '#/components/schemas/Environment'
+        available_cents:
+          $ref: '#/components/schemas/MoneyCents'
+        pending_cents:
+          $ref: '#/components/schemas/MoneyCents'
+        blocked_cents:
+          $ref: '#/components/schemas/MoneyCents'
+    Account:
+      type: object
+      required: [id, object, type, currency, environment, balance_cents]
+      properties:
+        id: { type: string, format: uuid }
+        object: { const: account }
+        type:
+          type: string
+          enum: [available, pending, payout_blocked, refund_blocked]
+        currency: { const: BRL }
+        environment:
+          $ref: '#/components/schemas/Environment'
+        balance_cents:
+          $ref: '#/components/schemas/MoneyCents'
+    StatementItem:
+      type: object
+      required: [id, occurred_at, operation_type, source_type, source_id, amount_cents, currency, balance_effect]
+      properties:
+        id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        operation_type: { type: string }
+        source_type: { type: string }
+        source_id: { type: string, format: uuid }
+        amount_cents:
+          $ref: '#/components/schemas/PositiveMoneyCents'
+        currency: { const: BRL }
+        balance_effect:
+          type: string
+          enum: [credit, debit]
+    StatementList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/StatementItem'
+    PixDestination:
+      type: object
+      additionalProperties: false
+      required: [type, key_type, key]
+      properties:
+        type: { const: pix }
+        key_type:
+          type: string
+          enum: [cpf, cnpj, email, phone, random]
+        key:
+          type: string
+          minLength: 1
+    CreatePayoutRequest:
+      type: object
+      additionalProperties: false
+      required: [amount_cents, destination]
+      properties:
+        amount_cents:
+          $ref: '#/components/schemas/PositiveMoneyCents'
+        environment:
+          $ref: '#/components/schemas/Environment'
+        destination:
+          $ref: '#/components/schemas/PixDestination'
+        external_ref:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+    PayoutState:
+      type: string
+      enum: [requested, processing, execution_unknown, completed, failed, rejected, cancelled]
+    Payout:
+      type: object
+      required: [id, object, environment, currency, amount_cents, recipient_amount_cents, merchant_fee_cents, state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        object: { const: payout }
+        environment:
+          $ref: '#/components/schemas/Environment'
+        currency: { const: BRL }
+        amount_cents:
+          $ref: '#/components/schemas/PositiveMoneyCents'
+        recipient_amount_cents:
+          $ref: '#/components/schemas/PositiveMoneyCents'
+        merchant_fee_cents:
+          $ref: '#/components/schemas/MoneyCents'
+        state:
+          $ref: '#/components/schemas/PayoutState'
+        external_ref: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PayoutList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Payout'
+    CustomerSnapshot:
+      type: [object, 'null']
+      additionalProperties: false
+      properties:
+        name: { type: [string, 'null'] }
+        document: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'] }
+    CreateCustomerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        organization_id: { type: [string, 'null'], format: uuid }
+        external_ref: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+        document: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'] }
+        metadata:
+          type: object
+          additionalProperties: true
+    UpdateCustomerRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        organization_id: { type: [string, 'null'], format: uuid }
+        external_ref: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+        document: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'] }
+        metadata:
+          type: object
+          additionalProperties: true
+    Customer:
+      type: object
+      required: [id, object, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        object: { const: customer }
+        organization_id: { type: [string, 'null'], format: uuid }
+        external_ref: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+        document: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'] }
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CustomerList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Customer'
+    ListEnvelope:
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object: { const: list }
+        data:
+          type: array
+          items: {}
+        has_more: { type: boolean }
+        next_cursor: { type: [string, 'null'] }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+webhooks:
+  merchantPaymentEvent:
+    post:
+      summary: Signed SwiftPay event delivered to a merchant webhook endpoint
+      description: |
+        The exact signature header/version is defined by the deployed SwiftPay merchant
+        webhook contract. Duplicate delivery attempts retain the same semantic event identity.
+      parameters:
+        - name: SwiftPay-Signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, type, created_at, data]
+              properties:
+                id: { type: string }
+                type:
+                  type: string
+                  enum: [payment.paid, payment.failed, payment.expired, payout.completed, payout.failed]
+                created_at: { type: string, format: date-time }
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '2XX':
+          description: Delivery acknowledged

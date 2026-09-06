@@ -15,6 +15,8 @@ insert into a20_expected_runtime_capabilities (role_name, signature) values
   ('swiftpay_api', 'app.claim_api_pix_attempt(uuid,text,uuid,uuid)'),
   ('swiftpay_api', 'app.consume_api_abuse_quota(text,text,text)'),
   ('swiftpay_api', 'app.consume_api_token_issuance(uuid)'),
+  ('swiftpay_api', 'app.create_api_customer(uuid,uuid,text,text,jsonb)'),
+  ('swiftpay_api', 'app.create_api_sandbox_payout(uuid,text,bigint,jsonb,text,text,text)'),
   ('swiftpay_api', 'app.create_dashboard_api_credential(uuid,uuid,text,text,text,jsonb)'),
   ('swiftpay_api', 'app.create_dashboard_payment_link(uuid,uuid,text,text,text,jsonb)'),
   ('swiftpay_api', 'app.create_dashboard_webhook_endpoint(uuid,uuid,text,text,text,jsonb)'),
@@ -23,11 +25,17 @@ insert into a20_expected_runtime_capabilities (role_name, signature) values
   ('swiftpay_api', 'app.enable_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)'),
   ('swiftpay_api', 'app.get_api_balance(uuid,text)'),
   ('swiftpay_api', 'app.get_api_credential_auth_state(uuid)'),
+  ('swiftpay_api', 'app.get_api_customer(uuid,uuid)'),
   ('swiftpay_api', 'app.get_api_payment(uuid,text,uuid)'),
+  ('swiftpay_api', 'app.get_api_payout(uuid,uuid)'),
   ('swiftpay_api', 'app.get_dashboard_api_credential(uuid,uuid,text,uuid)'),
   ('swiftpay_api', 'app.get_dashboard_transaction(uuid,uuid,text,uuid)'),
   ('swiftpay_api', 'app.get_dashboard_webhook_endpoint(uuid,uuid,text,uuid)'),
   ('swiftpay_api', 'app.get_public_payment_link(text)'),
+  ('swiftpay_api', 'app.list_api_account_statement(uuid,text,uuid,integer)'),
+  ('swiftpay_api', 'app.list_api_accounts(uuid,text)'),
+  ('swiftpay_api', 'app.list_api_customers(uuid,uuid,integer)'),
+  ('swiftpay_api', 'app.list_api_payouts(uuid,text,text,integer)'),
   ('swiftpay_api', 'app.list_dashboard_api_credentials(uuid,uuid,text)'),
   ('swiftpay_api', 'app.list_dashboard_merchant_contexts(uuid)'),
   ('swiftpay_api', 'app.list_dashboard_payment_links(uuid,uuid,text)'),
@@ -41,6 +49,7 @@ insert into a20_expected_runtime_capabilities (role_name, signature) values
   ('swiftpay_api', 'app.revoke_dashboard_api_credential(uuid,uuid,text,uuid,text,text,jsonb)'),
   ('swiftpay_api', 'app.rotate_dashboard_api_credential_secret(uuid,uuid,text,uuid,text,text,jsonb)'),
   ('swiftpay_api', 'app.rotate_dashboard_webhook_endpoint_secret(uuid,uuid,text,uuid,text,text,jsonb)'),
+  ('swiftpay_api', 'app.update_api_customer(uuid,uuid,text,text,jsonb)'),
   ('swiftpay_api', 'app.update_dashboard_webhook_endpoint(uuid,uuid,text,uuid,text,text,jsonb)'),
   ('swiftpay_worker', 'app.apply_sandbox_pix_paid(uuid,uuid,bigint,bigint,text,timestamp with time zone)'),
   ('swiftpay_worker', 'app.claim_jobs(text,integer,integer)'),
@@ -51,8 +60,8 @@ insert into a20_expected_runtime_capabilities (role_name, signature) values
 
 select is(
   (select count(*)::integer from a20_expected_runtime_capabilities where role_name = 'swiftpay_api'),
-  30,
-  'A20/A23 manifest mirror contains exactly 30 API RPC signatures'
+  39,
+  'A20/A23/A30 manifest mirror contains exactly 39 API RPC signatures'
 );
 
 select is(
@@ -72,7 +81,7 @@ select is(
   (select array_agg(signature order by signature)::text
    from a20_expected_runtime_capabilities
    where role_name = 'swiftpay_api'),
-  'A20 API effective EXECUTE set exactly equals the nominal signature allowlist'
+  'A30 API effective EXECUTE set exactly equals the nominal signature allowlist'
 );
 
 select is(
