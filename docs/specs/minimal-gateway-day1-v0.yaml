@@ -1,0 +1,254 @@
+id: A30-minimal-gateway-day1-v0
+status: frozen
+version: 0.1.0
+date: 2026-09-05
+owner: SwiftPay V2
+
+intent: >-
+  Expose the smallest merchant-usable Pix gateway product by composing the existing
+  accepted SwiftPay V2 authentication, payment, ledger, balance, webhook and payout
+  foundations. A30 adds product-facing organization, customer, account/statement,
+  payout and public OpenAPI surfaces without creating a second financial engine.
+
+architecture:
+  style: modular_monolith
+  canonical_financial_store: Supabase PostgreSQL app schema
+  human_identity: Supabase Auth
+  machine_identity: SwiftPay API credentials and short-lived bearer tokens
+  provider_layer: native_thin_adapters
+  forbidden_new_runtime_dependencies:
+    - redis
+    - rabbitmq
+    - kafka
+    - hyperswitch
+    - generic_workflow_engine
+  language_rewrite_of_existing_financial_core: forbidden
+
+money:
+  currency: BRL
+  representation: integer_centavos
+  persisted_binary_float: forbidden
+  ledger_authoritative: true
+  posted_entry_mutation: forbidden
+
+resources:
+  merchant:
+    tenant_boundary: true
+    existing: true
+  organization:
+    purpose: operational_workspace_under_merchant
+    fields:
+      - id
+      - merchant_id
+      - name
+      - slug
+      - status
+      - is_default
+      - metadata
+      - created_at
+      - updated_at
+    statuses: [active, disabled]
+    invariants:
+      - every organization belongs to exactly one merchant
+      - exactly one default organization exists per merchant after bootstrap
+      - organization authorization never bypasses merchant membership
+      - deleting organizations is not required in v0; disable instead
+  customer:
+    purpose: lightweight_reusable_payer_reference
+    fields:
+      - id
+      - merchant_id
+      - organization_id
+      - external_ref
+      - name
+      - document
+      - email
+      - phone
+      - metadata
+      - created_at
+      - updated_at
+    invariants:
+      - merchant owns every customer
+      - organization_id when present must belong to same merchant
+      - external_ref uniqueness scope is merchant plus organization when supplied
+      - no synthetic personal data is generated
+  account:
+    purpose: ledger_backed_financial_account_projection
+    mutable_balance_api: false
+    public_fields:
+      - id
+      - type
+      - currency
+      - available_balance_cents
+      - pending_balance_cents
+      - blocked_balance_cents
+    invariants:
+      - balances are derived from ledger or transactionally coupled projections
+      - no arbitrary increment decrement or set balance endpoint exists
+  payout:
+    purpose: canonical_outbound_money_resource_for_transfer_withdrawal_pix_out
+    existing_database_foundation: true
+    states:
+      - requested
+      - processing
+      - execution_unknown
+      - completed
+      - failed
+      - rejected
+      - cancelled
+    invariants:
+      - amount_cents is positive integer
+      - Idempotency-Key required on create
+      - request fingerprint bound to idempotency key
+      - same key different semantic request returns conflict
+      - reservation moves gross amount from available to payout-blocked atomically
+      - insufficient available balance fails before external provider IO
+      - provider timeout after possible transmission becomes execution_unknown
+      - execution_unknown remains reserved until reconciled
+      - terminal resolution posts or releases exactly once
+  webhook_endpoint:
+    existing: true
+    organization_scope_optional: true
+    secret_reveal: one_time_only
+  integration:
+    v0_types:
+      - api_credential
+      - webhook_endpoint
+      - provider_status
+    arbitrary_code_execution: forbidden
+
+public_api:
+  base_path: /v1
+  authentication:
+    token_endpoint: POST /v1/auth/token
+    resource_scheme: bearer
+  endpoints:
+    - { method: POST, path: /v1/transactions, idempotency_required: true }
+    - { method: GET, path: /v1/transactions, idempotency_required: false }
+    - { method: GET, path: /v1/transactions/{id}, idempotency_required: false }
+    - { method: GET, path: /v1/balance, idempotency_required: false }
+    - { method: GET, path: /v1/accounts, idempotency_required: false }
+    - { method: GET, path: /v1/accounts/{id}/statement, idempotency_required: false }
+    - { method: POST, path: /v1/payouts, idempotency_required: true }
+    - { method: GET, path: /v1/payouts, idempotency_required: false }
+    - { method: GET, path: /v1/payouts/{id}, idempotency_required: false }
+    - { method: GET, path: /v1/customers, idempotency_required: false }
+    - { method: POST, path: /v1/customers, idempotency_required: true }
+    - { method: GET, path: /v1/customers/{id}, idempotency_required: false }
+    - { method: PATCH, path: /v1/customers/{id}, idempotency_required: true }
+  common_error_envelope:
+    object: error
+    required_fields: [code, message, requestId]
+  pagination:
+    style: opaque_cursor
+    default_limit: 50
+    max_limit: 100
+  environment:
+    values: [sandbox, production]
+    production_provider_authority: default_deny
+
+dashboard_api:
+  identity: Supabase Auth session
+  merchant_context_required: true
+  organization_context_supported: true
+  required_surfaces:
+    - overview
+    - transactions
+    - customers
+    - accounts_balance_statement
+    - transfers_payouts
+    - integrations_api_credentials
+    - integrations_webhooks
+    - organizations
+
+admin_api:
+  identity: Supabase Auth plus server_authoritative platform_admin authorization
+  required_surfaces:
+    - merchants
+    - organizations
+    - transactions
+    - payouts
+    - provider_status_configuration
+    - webhook_delivery_inspection
+    - audit_events
+  forbidden_capabilities:
+    - direct_balance_set
+    - direct_ledger_entry_edit
+    - arbitrary_provider_secret_reveal
+
+openapi:
+  canonical_file: openapi/swiftpay-v1.yaml
+  minimum_version: 3.1.0
+  public_safe: true
+  required_topics:
+    - authentication
+    - integer_centavo_money
+    - Idempotency-Key
+    - transaction_create_and_query
+    - balances_and_accounts
+    - payouts
+    - customers
+    - pagination
+    - error_envelope
+    - sandbox_vs_production
+    - merchant_webhook_signature_and_events
+  forbidden_examples:
+    - real_credentials
+    - real_provider_secrets
+    - real_personal_data
+
+security:
+  browser_financial_table_mutation: forbidden
+  provider_credentials_browser_visible: false
+  supabase_secret_key_browser_visible: false
+  cross_merchant_access: deny
+  cross_organization_access_without_merchant_authority: deny
+  sensitive_logs: forbidden
+  webhook_financial_authority_before_authenticity_verification: forbidden
+
+acceptance:
+  contracts:
+    - A30 problem analysis exists and is frozen
+    - A30 spec exists and is frozen
+    - A30 contract exists
+    - canonical public OpenAPI exists
+  database:
+    - organizations and customers have merchant ownership constraints
+    - customer organization foreign ownership is enforced transactionally
+    - existing payout reservation remains ledger-backed and idempotent
+    - no new mutable balance column becomes authoritative
+    - private app schema remains outside direct browser authority
+  api:
+    - all public endpoints return canonical error envelope
+    - public list endpoints enforce merchant identity from bearer principal rather than request body
+    - payout create requires Idempotency-Key
+    - payout replay returns same resource without duplicate reservation
+    - payout same-key different-input returns 409
+    - insufficient balance never invokes provider
+    - transaction create/get/list existing behavior remains compatible
+    - production monetary execution remains fail-closed without activated provider
+  tenancy:
+    - one merchant can own multiple organizations
+    - organization cannot reference another merchant
+    - customers cannot cross merchant boundary
+    - dashboard user without merchant membership receives forbidden
+  product:
+    - merchant dashboard can navigate every required surface
+    - admin can inspect every required operational surface
+    - no admin UI control can directly set merchant balance
+  tests:
+    - fail-first application tests prove missing A30 public contracts before implementation
+    - database tests cover organization and customer tenant constraints
+    - payout idempotency and reservation regression remains green
+    - OpenAPI contract test verifies documented endpoints and financial semantics
+
+non_goals:
+  - direct_SPI_participation
+  - DICT_participant_implementation
+  - card
+  - boleto
+  - ecommerce_catalog
+  - generic_CRM
+  - generic_automation
+  - organization_partitioned_ledger
+  - live_provider_activation_without_provider_owned_recovery_evidence
