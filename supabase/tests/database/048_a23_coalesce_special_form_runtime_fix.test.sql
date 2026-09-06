@@ -43,8 +43,8 @@ select is(
     where n.nspname = 'app'
       and has_function_privilege('swiftpay_api', p.oid, 'EXECUTE')
   ),
-  30,
-  'A27 preserves exact swiftpay_api capability count'
+  39,
+  'A30 expands exact swiftpay_api capability count to 39 without changing the A27 fix'
 );
 
 select is(
