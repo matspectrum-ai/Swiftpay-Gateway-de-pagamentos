@@ -11,4 +11,5 @@ export type {
 export * from './dashboard-transactions.js';
 export * from './api-abuse-rate-limit.js';
 export * from './payment-links.js';
+export * from './gateway-resources.js';
 export { createPixPaymentStore as createRuntimePixPaymentStore } from './pix.js';
