@@ -175,8 +175,8 @@ select is(
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace
     where n.nspname='app' and has_function_privilege('swiftpay_api', p.oid, 'EXECUTE')
   ),
-  30::bigint,
-  'A23 expands swiftpay_api exact EXECUTE count from 25 to 30'
+  39::bigint,
+  'A30 expands swiftpay_api exact EXECUTE count from A23 30 to 39'
 );
 select is(
   (
